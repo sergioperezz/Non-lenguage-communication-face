@@ -1,0 +1,5 @@
+__pycache__
+*.pyc
+nlc.db
+media/
+.venv/
