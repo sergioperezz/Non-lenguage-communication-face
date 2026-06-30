@@ -27,6 +27,9 @@ class ChartSpec(BaseModel):
     """Lo que el usuario configura en la UI. Se traduce a SQL y a un gráfico."""
 
     dataset: str
+    # Valores elegidos en los selectores en cascada, p. ej. {"asset_class": "fixed_income"}.
+    # Se aplican como filtros y deciden qué dimensiones/métricas son válidas.
+    selections: dict[str, str] = Field(default_factory=dict)
     dimensions: list[str] = Field(default_factory=list)
     measures: list[str] = Field(default_factory=list)
     filters: list[Filter] = Field(default_factory=list)

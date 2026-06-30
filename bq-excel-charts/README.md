@@ -73,6 +73,36 @@ Copia `.env.example` a `backend/.env`. Variables (prefijo `BQEC_`):
 El modelo semántico (`backend/app/semantic/example_model.yaml`) define qué
 datasets, dimensiones y métricas ve el usuario. Adáptalo a tus tablas reales.
 
+### Selectores en cascada
+
+El formulario se genera solo a partir del YAML. Para tener campos dependientes
+(p. ej. eliges *Renta fija* y aparecen *Duración* / *TIR*) usas dos piezas:
+
+```yaml
+selectors:                      # desplegables de configuración
+  - name: asset_class
+    label: Tipo de activo
+    column: asset_class
+    options:
+      - { value: fixed_income, label: Renta fija }
+      - { value: equity, label: Renta variable }
+
+measures:
+  - name: duration
+    label: Duración
+    sql: AVG(duration)
+    applies_to:                 # solo visible si asset_class = renta fija
+      asset_class: [fixed_income]
+```
+
+- **`selectors`** → desplegables. Lo elegido se aplica como filtro (`WHERE`).
+- **`applies_to`** en una métrica/dimensión → la UI solo la muestra cuando la
+  selección encaja, y el backend rechaza combinaciones inválidas.
+- Añadir un nuevo tipo de activo o métrica = editar el YAML, sin tocar código.
+
+Las dimensiones de tipo `date` activan automáticamente un **rango de fechas**
+en la UI (se traduce a `WHERE columna >= DATE(@p)`).
+
 ## Roadmap
 
 - **Fase 1 (este esqueleto):** query builder + generación de SQL + gráficos en Excel.

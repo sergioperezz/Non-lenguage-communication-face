@@ -3,19 +3,48 @@
 
 const BASE = "http://localhost:8000/api";
 
-export type Field = { name: string; label: string; type?: string; format?: string | null };
+// applies_to: {selector: [valoresPermitidos]}. Si está presente, el campo solo
+// se muestra cuando la selección actual encaja.
+export type AppliesTo = Record<string, string[]> | null;
+
+export type Field = {
+  name: string;
+  label: string;
+  type?: string;
+  format?: string | null;
+  applies_to?: AppliesTo;
+};
+
+export type SelectorOption = { value: string; label: string };
+export type Selector = {
+  name: string;
+  label: string;
+  type: string;
+  options: SelectorOption[];
+};
+
 export type Dataset = {
   name: string;
   label: string;
   description?: string | null;
+  selectors: Selector[];
   dimensions: Field[];
   measures: Field[];
 };
+
+// ¿Es aplicable un campo dada la selección actual? (cascada en cliente)
+export function fieldApplies(field: Field, selections: Record<string, string>): boolean {
+  if (!field.applies_to) return true;
+  return Object.entries(field.applies_to).every(
+    ([sel, allowed]) => selections[sel] !== undefined && allowed.includes(selections[sel]),
+  );
+}
 
 export type ChartType = "column" | "bar" | "line" | "area" | "pie" | "table";
 
 export type ChartSpec = {
   dataset: string;
+  selections: Record<string, string>;
   dimensions: string[];
   measures: string[];
   filters: { field: string; op: string; value: unknown }[];
