@@ -77,6 +77,8 @@ CATEGORIAS = {
     "Rating": ["AAA", "AA", "A", "BBB", "BB", "B"],
 }
 MAX_CATS = max(len(c) for c in CATEGORIAS.values())
+# OJO: la tabla de resultados ocupa las filas 3..(2+MAX_CATS). Con MAX_CATS=36 -> 3:38.
+# Si cambias MAX_CATS, actualiza el rango "$3:$38" en macro_Panel.vba (AplicarGrafico).
 
 PARAMS = {                       # (base, paso, factor benchmark)
     "Rentabilidad": (9.0, 0.60, 0.90),

@@ -35,6 +35,14 @@ Salir:
     Application.EnableEvents = True
 End Sub
 
+' Al mostrar la hoja, renderiza el gráfico según los desplegables actuales
+' (así el combo/series correctos se ven sin tener que tocar nada primero).
+Private Sub Worksheet_Activate()
+    Application.ScreenUpdating = False
+    AplicarGrafico
+    Application.ScreenUpdating = True
+End Sub
+
 ' Si el valor de "celda" no está en el rango con nombre "nombreLista",
 ' lo sustituye por el primer elemento válido.
 Private Sub AjustarSeleccion(ByVal celda As String, ByVal nombreLista As String)

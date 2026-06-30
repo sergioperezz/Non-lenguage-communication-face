@@ -90,6 +90,8 @@ valores por los de BigQuery para la combinación elegida.
 - **Regenerar**: edita los diccionarios de `generar_panel.py` (FONDOS, GRUPOS,
   DIMS, CATEGORIAS, PARAMS) y ejecútalo. Tras regenerar, vuelve a pegar la macro y
   guarda como `.xlsm`.
+- ⚠️ Si cambias el nº máximo de categorías (`MAX_CATS`), actualiza el rango
+  `$3:$38` de la macro (`AplicarGrafico`) a `3..(2+MAX_CATS)`.
 
 ## Puente a la Fase 2 (BigQuery)
 
