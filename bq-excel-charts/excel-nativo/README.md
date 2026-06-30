@@ -17,6 +17,40 @@ Tipos de gráfico disponibles en el desplegable: **Columnas, Barras, Líneas,
 riesgo/retorno, waterfall de atribución) se añaden en la Fase 2. Ver
 `catalogo_graficos.md`.
 
+---
+
+## Versión genérica (recomendada): `Panel_Generico.xlsx`
+
+En lugar de un caso fijo, este libro es un **motor guiado por datos**: cualquier
+combinación se construye al vuelo combinando **5 parámetros**, sin pre-generar
+gráficos. Es la forma de cubrir "todos los casos".
+
+| Parámetro | Celda | Ejemplo |
+|---|---|---|
+| Tipo de activo | B3 | RF / RV |
+| Métrica (cascada) | B4 | Duration, TIR, Rentabilidad… |
+| **Eje X / dimensión** | B5 | **Trimestre**, Sector, Region, Rating |
+| **Comparación** | B6 | **Cartera + Benchmark**, Solo cartera, Solo benchmark |
+| Tipo de gráfico | B7 | Columnas, Barras, Líneas… |
+
+**Tu ejemplo** ("duración por trimestre, barras + benchmark línea") = `B3=RF`,
+`B4=Duration`, `B5=Trimestre`, `B6=Cartera + Benchmark`, `B7=Columnas`. La macro
+detecta "Columnas + ambas series" y dibuja el **benchmark como línea** (combo).
+
+Cómo funciona por dentro:
+- La hoja **Datos** está en formato largo:
+  `TipoActivo | Metrica | EjeXTipo | EjeXValor | Serie | Valor`.
+- La tabla de resultados (D2:F8) se calcula con **SUMIFS** según los 5 parámetros;
+  las categorías del eje X salen de la dimensión elegida (`INDIRECT("Cat_"&B5)`).
+- El gráfico está enlazado a esa tabla → se actualiza solo; la macro ajusta el
+  tipo y el combo.
+
+Instalación: igual que arriba, pero pegando `macro_Panel_v2.vba`.
+
+Para añadir una dimensión nueva (p. ej. "Divisa") o una métrica: basta con
+añadir filas en **Datos**, su lista en **Listas** y un rango con nombre. En la
+Fase 2 todo esto lo aportará la consulta a BigQuery automáticamente.
+
 ## Cómo funciona
 
 Tres hojas:
