@@ -18,6 +18,7 @@ con las MISMAS columnas, y el resto no cambia.
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -27,27 +28,44 @@ from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
 # --- Definición del modelo de ejemplo --------------------------------------
+# Liquidez aplica a ambos tipos de activo.
 METRICAS = {
-    "RF": ["Duration", "TIR", "Spread"],
-    "RV": ["Rentabilidad", "PER", "DividendYield"],
+    "RF": ["Duration", "TIR", "Spread", "Liquidez"],
+    "RV": ["Rentabilidad", "PER", "DividendYield", "Liquidez"],
 }
 
 # Qué dimensiones (eje X) aplican a cada tipo de activo.
 EJES = {
-    "RF": ["Trimestre", "Sector", "Region", "Rating"],
-    "RV": ["Trimestre", "Sector", "Region"],
+    "RF": ["Mes", "Trimestre", "Sector", "Region", "Rating"],
+    "RV": ["Mes", "Trimestre", "Sector", "Region"],
 }
 
-# Categorías ordenadas de cada dimensión.
+
+def _meses(n: int, y0: int, m0: int) -> list[str]:
+    out, y, m = [], y0, m0
+    for _ in range(n):
+        out.append(f"{y}-{m:02d}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return out
+
+
+# Categorías ordenadas de cada dimensión (3 años para Mes/Trimestre).
 CATEGORIAS = {
-    "Trimestre": ["2025-T3", "2025-T4", "2026-T1", "2026-T2"],  # último año
+    "Mes": _meses(36, 2023, 7),  # 2023-07 .. 2026-06 (36 meses)
+    "Trimestre": (
+        ["2023-T3", "2023-T4"]
+        + [f"{y}-T{q}" for y in (2024, 2025) for q in (1, 2, 3, 4)]
+        + ["2026-T1", "2026-T2"]
+    ),  # 12 trimestres
     "Sector": ["Financiero", "Industrial", "Tecnología", "Consumo", "Energía", "Salud"],
     "Region": ["Europa", "EEUU", "Asia", "Emergentes", "Global"],
     "Rating": ["AAA", "AA", "A", "BBB", "BB"],
 }
 MAX_CATS = max(len(c) for c in CATEGORIAS.values())  # filas de la tabla de resultados
 
-# Valores base por métrica: (base, paso por categoría, factor del benchmark).
+# Valores base por métrica: (base, paso, factor del benchmark).
 PARAMS = {
     "Duration": (5.0, 0.30, 0.92),
     "TIR": (3.5, 0.20, 1.05),
@@ -55,6 +73,7 @@ PARAMS = {
     "Rentabilidad": (9.0, 0.60, 0.90),
     "PER": (15.0, 0.80, 1.04),
     "DividendYield": (2.8, 0.20, 0.95),
+    "Liquidez": (5.0, 0.10, 1.02),
 }
 
 AZUL = "FF0072CE"
@@ -64,8 +83,10 @@ BOLD_WHITE = Font(bold=True, color="FFFFFFFF")
 
 
 def _valor(metrica: str, idx: int) -> float:
+    """Valor ficticio plausible: oscila alrededor de la base (no una rampa fea)."""
     base, paso, _ = PARAMS[metrica]
-    return round(base + idx * paso, 2)
+    val = base + paso * (2.0 * math.sin(idx * 0.6) + (idx % 4) - 1.5)
+    return round(val, 2)
 
 
 def build() -> Workbook:

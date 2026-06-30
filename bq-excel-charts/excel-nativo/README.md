@@ -51,6 +51,18 @@ Para añadir una dimensión nueva (p. ej. "Divisa") o una métrica: basta con
 añadir filas en **Datos**, su lista en **Listas** y un rango con nombre. En la
 Fase 2 todo esto lo aportará la consulta a BigQuery automáticamente.
 
+### Cobertura completa de los datos de ejemplo
+
+Los datos de ejemplo cubren **todas** las combinaciones seleccionables
+(activo × métrica × dimensión × serie), así que en "modo diseño" **cualquier**
+gráfico que elijas se ve al instante, sin huecos vacíos (valores ficticios pero
+formato real). Incluye la métrica **Liquidez** y la dimensión **Mes** (36 meses,
+3 años) para comprobar que escala. Las combinaciones imposibles (p. ej. Rating en
+RV) no aparecen como opción gracias a la cascada.
+
+> El "modo real" (botón *Generar con datos reales*) de la Fase 2 sustituirá esos
+> valores ficticios por los de BigQuery para la combinación elegida.
+
 ## Cómo funciona
 
 Tres hojas:
