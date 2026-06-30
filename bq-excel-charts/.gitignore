@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.env
+*-service-account.json
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Office
+*.crt
+*.key

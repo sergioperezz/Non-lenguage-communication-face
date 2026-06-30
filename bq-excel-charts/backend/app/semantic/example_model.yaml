@@ -1,0 +1,40 @@
+# Modelo semántico de ejemplo.
+# Copia este archivo y adáptalo a tus tablas reales de BigQuery.
+# Todo lo que el usuario puede seleccionar en la UI sale de aquí.
+
+datasets:
+  - name: sales
+    label: Ventas
+    table: my-project.analytics.sales   # <-- proyecto.dataset.tabla reales
+    description: Pedidos de venta por región y producto
+    max_bytes_billed: 1000000000        # 1 GB de tope por consulta
+    dimensions:
+      - name: region
+        label: Región
+        sql: region
+        type: string
+      - name: product
+        label: Producto
+        sql: product_name
+        type: string
+      - name: month
+        label: Mes
+        sql: FORMAT_DATE('%Y-%m', order_date)
+        type: date
+      - name: year
+        label: Año
+        sql: EXTRACT(YEAR FROM order_date)
+        type: number
+    measures:
+      - name: revenue
+        label: Ingresos
+        sql: SUM(amount)
+        format: "#,##0.00"
+      - name: orders
+        label: Nº de pedidos
+        sql: COUNT(1)
+        format: "#,##0"
+      - name: avg_ticket
+        label: Ticket medio
+        sql: SAFE_DIVIDE(SUM(amount), COUNT(1))
+        format: "#,##0.00"
