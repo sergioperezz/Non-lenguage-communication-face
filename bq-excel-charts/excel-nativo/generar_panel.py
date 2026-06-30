@@ -242,6 +242,9 @@ def build() -> Workbook:
         ws.cell(row=r, column=6, value=(
             f'=IF(OR($B$9="Sin benchmark",$D{r}=""),"",{sumifs("Benchmark").format(r=r)})'
         ))
+        # Formato numérico legible (en la Fase 2, % o pb según la métrica real).
+        ws.cell(row=r, column=5).number_format = "#,##0.00"
+        ws.cell(row=r, column=6).number_format = "#,##0.00"
 
     # Gráfico
     chart = BarChart()

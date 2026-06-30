@@ -101,6 +101,12 @@ Private Sub AplicarGrafico()
         ch.FullSeriesCollection(2).ChartType = xlLineMarkers
         On Error GoTo 0
     End If
+
+    ' 4) Título dinámico: refleja fondo · métrica · dimensión · periodo (celda A15).
+    On Error Resume Next
+    ch.HasTitle = True
+    ch.ChartTitle.Text = Me.Range("A15").Value
+    On Error GoTo 0
 End Sub
 
 
