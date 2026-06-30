@@ -27,22 +27,27 @@ gráficos. Es la forma de cubrir "todos los casos".
 
 | Parámetro | Celda | Opciones |
 |---|---|---|
-| Tipo de activo | B3 | RF / RV |
-| Métrica (cascada) | B4 | Rentabilidad, TIR, TER, Duración, Spread, Liquidez, Peso · (RV: PER, DividendYield) |
-| **Dimensión / eje X** (cascada) | B5 | **Tiempo**: Mensual, Trimestral, Semestral, Anual · **Composición**: Activo, Geografia, Industria, Sector, Divisa, Rating |
-| **Periodo** (ventana) | B6 | MTD, YTD, 3M, 6M, 1A, 3A |
-| **Comparación** | B7 | Cartera + Benchmark, Solo cartera, Solo benchmark |
-| Tipo de gráfico | B8 | Columnas, Barras, Líneas, Área, Circular, Anillo, Radar |
+| **Fondo / Cartera** | B3 | RF Privada A · Bolsa Europa · Mixto Moderado |
+| **Grupo de métrica** | B4 | Rendimiento · Riesgo · Composición · Costes · Liquidez · Valoración |
+| **Métrica** (cascada del grupo) | B5 | p. ej. Riesgo → Duración, TIR, Spread, Volatilidad, Beta |
+| **Dimensión / eje X** | B6 | *Tiempo*: Mensual, Trimestral, Semestral, Anual · *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
+| **Filtro: tipo de activo** | B7 | Todos · RF · RV *(útil en fondos mixtos)* |
+| **Periodo** (ventana) | B8 | MTD, YTD, 3M, 6M, 1A, 3A |
+| **Comparación** | B9 | Cartera + Benchmark, Solo cartera, Solo benchmark |
+| Tipo de gráfico | B10 | Columnas, Barras, Líneas, Área, Circular, Anillo, Radar |
 
-**Tu ejemplo** ("duración por trimestre, barras + benchmark línea") = `B3=RF`,
-`B4=Duración`, `B5=Trimestral`, `B6=3A`, `B7=Cartera + Benchmark`, `B8=Columnas`.
-La macro detecta "Columnas + ambas series" y dibuja el **benchmark como línea**
-(combo).
+**Tu ejemplo** ("duración por trimestre, barras + benchmark línea") = `B3=RF Privada A`,
+`B4=Riesgo`, `B5=Duración`, `B6=Trimestral`, `B7=Todos`, `B8=3A`,
+`B9=Cartera + Benchmark`, `B10=Columnas`. La macro detecta "Columnas + ambas
+series" y dibuja el **benchmark como línea** (combo).
 
-**El Periodo (B6)** acota cuántos buckets recientes se muestran en las
-dimensiones de tiempo (p. ej. `1A` + `Mensual` = últimos 12 meses); en las de
-composición se ignora (muestra todas las categorías). Es una aproximación del
-*mock*: en la Fase 2, el periodo es un filtro de fechas exacto en la query.
+- **Métrica agrupada** (B4→B5): primero la familia, luego la métrica → ningún
+  desplegable kilométrico.
+- **Filtro de tipo de activo** (B7): en un fondo mixto, `RF` muestra solo la
+  parte de renta fija (p. ej. "duración solo de la RF").
+- **Periodo** (B8): acota los buckets recientes en dimensiones de tiempo
+  (`1A`+`Mensual` = 12 meses); en composición se ignora. Aproximación del *mock*;
+  en la Fase 2 es un filtro de fechas exacto.
 
 Cómo funciona por dentro:
 - La hoja **Datos** está en formato largo:
