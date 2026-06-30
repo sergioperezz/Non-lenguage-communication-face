@@ -9,9 +9,9 @@
 | Parámetro | Valores |
 |---|---|
 | **Fondo / Cartera** | RF Privada A · Bolsa Europa · Mixto Moderado *(y los que añadas)* |
-| **Grupo de métrica** | Rendimiento · Riesgo · Composición · Costes · Liquidez · Valoración |
+| **Grupo de métrica** | Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion |
 | **Métrica** (cascada del grupo) | Rend.: Rentabilidad, Rentab. acum. · Riesgo: Duración, TIR, Spread, Volatilidad, Beta · Comp.: Peso · Costes: TER · Liquidez: Liquidez · Valor.: PER, DividendYield |
-| **Dimensión (eje X)** | *Tiempo*: Mensual, Trimestral, Semestral, Anual — *Composición*: Activo, Geografía, Industria, Sector, Divisa, Rating |
+| **Dimensión (eje X)** | *Tiempo*: Mensual, Trimestral, Semestral, Anual — *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | Todos · RF · RV *(útil en fondos mixtos)* |
 | **Periodo** | MTD · YTD · 3M · 6M · 1A · 3A |
 | **Benchmark** | Con benchmark · Sin benchmark |
@@ -25,7 +25,7 @@
 |---|---|---|---|---|---|---|---|
 | Evolución de rentabilidad | Bolsa Europa | Rentabilidad | Mensual | Todos | 1A | Sin | Líneas |
 | Rentabilidad vs benchmark | Bolsa Europa | Rentabilidad | Trimestral | Todos | 3A | Con | Columnas (combo) |
-| Rentabilidad YTD por geografía | Bolsa Europa | Rentabilidad | Geografía | Todos | YTD | Sin | Barras |
+| Rentabilidad YTD por geografía | Bolsa Europa | Rentabilidad | Geografia | Todos | YTD | Sin | Barras |
 | Rentab. acumulada | Mixto Moderado | Rentab. acum. | Mensual | Todos | 3A | Con | Líneas |
 
 ## ② Riesgo
@@ -43,7 +43,7 @@
 | Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
 | Distribución por tipo de activo | Mixto Moderado | Peso | Activo | Todos | 3A | Sin | Anillo |
-| Distribución geográfica | Mixto Moderado | Peso | Geografía | Todos | 3A | Sin | Circular |
+| Distribución geográfica | Mixto Moderado | Peso | Geografia | Todos | 3A | Sin | Circular |
 | Distribución sectorial (RV) | Mixto Moderado | Peso | Sector | **RV** | 3A | Sin | Barras |
 | Exposición por divisa | RF Privada A | Peso | Divisa | Todos | 3A | Sin | Anillo |
 | Calidad crediticia (rating) | RF Privada A | Peso | Rating | RF | 3A | Sin | Columnas |
@@ -67,7 +67,7 @@
 | Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
 | PER por sector | Bolsa Europa | PER | Sector | RV | 3A | Con | Barras |
-| Rentabilidad por dividendo | Bolsa Europa | DividendYield | Geografía | RV | 3A | Sin | Columnas |
+| Rentabilidad por dividendo | Bolsa Europa | DividendYield | Geografia | RV | 3A | Sin | Columnas |
 
 ---
 

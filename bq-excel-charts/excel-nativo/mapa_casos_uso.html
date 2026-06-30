@@ -23,13 +23,15 @@
 
   h2{font-size:13px;text-transform:uppercase;letter-spacing:.6px;color:#fff;
      background:var(--familia,#666);display:inline-block;padding:5px 12px;border-radius:6px;margin:26px 0 12px}
-  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
   .card{border:1px solid var(--linea);border-radius:12px;padding:14px 16px;background:#fff;
         box-shadow:0 1px 2px rgba(0,0,0,.04);border-left:4px solid var(--familia,#666)}
   .card h3{margin:0 0 4px;font-size:15px}
   .card .uso{font-size:12.5px;color:var(--muted);margin:0 0 10px}
   .chips{display:flex;flex-wrap:wrap;gap:5px}
   .chip{font-size:11px;background:var(--gris);border:1px solid var(--linea);border-radius:20px;padding:2px 9px;color:#33414f}
+  .chip.fondo{background:#eef2f7;border-color:#d6dee8;font-weight:600;color:var(--azul-d)}
+  .chip.f{background:#fff3e8;border-color:#ffd9b3;color:#a85b16}
   .chip.g{background:#eaf4ff;border-color:#cfe6ff;color:var(--azul-d);font-weight:600}
 
   .leyenda{margin-top:30px;padding:16px;background:var(--gris);border-radius:10px;font-size:13px;color:var(--muted)}
@@ -47,157 +49,144 @@
 
   <div class="ejes">
     <div class="eje"><b>Fondo / Cartera</b><span>RF Privada A · Bolsa Europa · Mixto Moderado</span></div>
-    <div class="eje"><b>Grupo de métrica</b><span>Rendimiento · Riesgo · Composición · Costes · Liquidez · Valoración</span></div>
+    <div class="eje"><b>Grupo de métrica</b><span>Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion</span></div>
     <div class="eje"><b>Métrica</b><span>(cascada del grupo) Rentabilidad · Duración · TIR · TER · Volatilidad · Peso · PER…</span></div>
-    <div class="eje"><b>Dimensión (eje X)</b><span>Tiempo: Mensual/Trim/Sem/Anual · Composición: Activo/Geografía/Industria/Sector/Divisa/Rating</span></div>
+    <div class="eje"><b>Dimensión (eje X)</b><span>Tiempo: Mensual/Trimestral/Semestral/Anual · Composición: Activo/Geografia/Industria/Sector/Divisa/Rating</span></div>
     <div class="eje"><b>Filtro tipo activo</b><span>Todos · RF · RV</span></div>
     <div class="eje"><b>Periodo</b><span>MTD · YTD · 3M · 6M · 1A · 3A</span></div>
     <div class="eje"><b>Benchmark</b><span>Con benchmark · Sin benchmark</span></div>
     <div class="eje"><b>Gráfico</b><span>Columnas · Barras · Líneas · Área · Circular · Anillo · Radar</span></div>
   </div>
 
-  <!-- RENDIMIENTO -->
+  <!-- ① RENDIMIENTO -->
   <div style="--familia:#0072CE">
     <h2 style="--familia:#0072CE">① Rendimiento</h2>
     <div class="grid">
       <div class="card" style="--familia:#0072CE">
-        <h3>Evolución de rentabilidad</h3>
-        <p class="uso">Últimos 12 meses del fondo</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">Rentabilidad</span><span class="chip">Mensual</span><span class="chip">1A</span><span class="chip">Sin bench.</span><span class="chip g">Líneas</span></div>
+        <h3>Evolución de rentabilidad</h3><p class="uso">Mensual, último año</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">Rentabilidad</span><span class="chip">Mensual</span><span class="chip">1A</span><span class="chip">Sin bench.</span><span class="chip g">Líneas</span></div>
       </div>
       <div class="card" style="--familia:#0072CE">
-        <h3>Rentabilidad vs benchmark</h3>
-        <p class="uso">3 años, por trimestre (combo)</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">Rentabilidad</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
+        <h3>Rentabilidad vs benchmark</h3><p class="uso">3 años, por trimestre (combo)</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">Rentabilidad</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
       </div>
       <div class="card" style="--familia:#0072CE">
-        <h3>Rentabilidad YTD por geografía</h3>
-        <p class="uso">Aportación geográfica del año</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">Rentabilidad</span><span class="chip">Geografía</span><span class="chip">YTD</span><span class="chip">Sin bench.</span><span class="chip g">Barras</span></div>
+        <h3>Rentabilidad YTD por geografía</h3><p class="uso">Aportación geográfica del año</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">Rentabilidad</span><span class="chip">Geografia</span><span class="chip">YTD</span><span class="chip">Sin bench.</span><span class="chip g">Barras</span></div>
       </div>
       <div class="card" style="--familia:#0072CE">
-        <h3>Rentabilidad anual</h3>
-        <p class="uso">Comparativa por años vs índice</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">Rentabilidad</span><span class="chip">Anual</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
+        <h3>Rentabilidad acumulada</h3><p class="uso">vs índice, mensual</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Rentab. acum.</span><span class="chip">Mensual</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Líneas</span></div>
       </div>
     </div>
   </div>
 
-  <!-- RIESGO RF -->
+  <!-- ② RIESGO -->
   <div style="--familia:#e0701b">
-    <h2 style="--familia:#e0701b">② Riesgo (renta fija)</h2>
+    <h2 style="--familia:#e0701b">② Riesgo</h2>
     <div class="grid">
       <div class="card" style="--familia:#e0701b">
-        <h3>Evolución de duración</h3>
-        <p class="uso">Cartera vs benchmark, 12 meses (combo)</p>
-        <div class="chips"><span class="chip">RF</span><span class="chip">Duración</span><span class="chip">Mensual</span><span class="chip">1A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
+        <h3>Duración cartera vs benchmark</h3><p class="uso">Por trimestre (combo)</p>
+        <div class="chips"><span class="chip fondo">RF Privada A</span><span class="chip">Duración</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
       </div>
       <div class="card" style="--familia:#e0701b">
-        <h3>TIR por rating</h3>
-        <p class="uso">Rendimiento por calidad crediticia</p>
-        <div class="chips"><span class="chip">RF</span><span class="chip">TIR</span><span class="chip">Rating</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Barras</span></div>
+        <h3>Duración solo de la RF</h3><p class="uso">Fondo mixto, filtrando RF</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Duración</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip f">Filtro RF</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
       </div>
       <div class="card" style="--familia:#e0701b">
-        <h3>Spread por sector</h3>
-        <p class="uso">Prima de riesgo por sector</p>
-        <div class="chips"><span class="chip">RF</span><span class="chip">Spread</span><span class="chip">Sector</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
+        <h3>TIR por rating</h3><p class="uso">Rendimiento por calidad crediticia</p>
+        <div class="chips"><span class="chip fondo">RF Privada A</span><span class="chip">TIR</span><span class="chip">Rating</span><span class="chip">3A</span><span class="chip f">Filtro RF</span><span class="chip">Sin bench.</span><span class="chip g">Barras</span></div>
       </div>
       <div class="card" style="--familia:#e0701b">
-        <h3>Evolución de TIR</h3>
-        <p class="uso">Tendencia del yield, trimestral</p>
-        <div class="chips"><span class="chip">RF</span><span class="chip">TIR</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Líneas</span></div>
+        <h3>Spread por sector</h3><p class="uso">Prima de riesgo por sector</p>
+        <div class="chips"><span class="chip fondo">RF Privada A</span><span class="chip">Spread</span><span class="chip">Sector</span><span class="chip">3A</span><span class="chip f">Filtro RF</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
+      </div>
+      <div class="card" style="--familia:#e0701b">
+        <h3>Volatilidad (12m)</h3><p class="uso">Riesgo de la cartera vs índice</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">Volatilidad</span><span class="chip">Mensual</span><span class="chip">1A</span><span class="chip">Con bench.</span><span class="chip g">Líneas</span></div>
       </div>
     </div>
   </div>
 
-  <!-- COMPOSICIÓN -->
+  <!-- ③ COMPOSICIÓN -->
   <div style="--familia:#2e9e6b">
     <h2 style="--familia:#2e9e6b">③ Composición / Asset allocation</h2>
     <div class="grid">
       <div class="card" style="--familia:#2e9e6b">
-        <h3>Peso por tipo de activo</h3>
-        <p class="uso">Distribución de la cartera</p>
-        <div class="chips"><span class="chip">RF/RV</span><span class="chip">Peso</span><span class="chip">Activo</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Anillo</span></div>
+        <h3>Distribución por tipo de activo</h3><p class="uso">Reparto de la cartera</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Peso</span><span class="chip">Activo</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Anillo</span></div>
       </div>
       <div class="card" style="--familia:#2e9e6b">
-        <h3>Peso por sector</h3>
-        <p class="uso">Exposición sectorial</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">Peso</span><span class="chip">Sector</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Barras</span></div>
+        <h3>Distribución geográfica</h3><p class="uso">Reparto por región</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Peso</span><span class="chip">Geografia</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Circular</span></div>
       </div>
       <div class="card" style="--familia:#2e9e6b">
-        <h3>Peso por geografía</h3>
-        <p class="uso">Distribución geográfica</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">Peso</span><span class="chip">Geografía</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Circular</span></div>
+        <h3>Distribución sectorial (RV)</h3><p class="uso">Solo la parte de renta variable</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Peso</span><span class="chip">Sector</span><span class="chip">3A</span><span class="chip f">Filtro RV</span><span class="chip">Sin bench.</span><span class="chip g">Barras</span></div>
       </div>
       <div class="card" style="--familia:#2e9e6b">
-        <h3>Peso por divisa</h3>
-        <p class="uso">Exposición por moneda</p>
-        <div class="chips"><span class="chip">RF/RV</span><span class="chip">Peso</span><span class="chip">Divisa</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Anillo</span></div>
+        <h3>Exposición por divisa</h3><p class="uso">Reparto por moneda</p>
+        <div class="chips"><span class="chip fondo">RF Privada A</span><span class="chip">Peso</span><span class="chip">Divisa</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Anillo</span></div>
       </div>
       <div class="card" style="--familia:#2e9e6b">
-        <h3>Peso por rating</h3>
-        <p class="uso">Calidad crediticia de la cartera (RF)</p>
-        <div class="chips"><span class="chip">RF</span><span class="chip">Peso</span><span class="chip">Rating</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
+        <h3>Calidad crediticia (rating)</h3><p class="uso">Reparto por rating (RF)</p>
+        <div class="chips"><span class="chip fondo">RF Privada A</span><span class="chip">Peso</span><span class="chip">Rating</span><span class="chip">3A</span><span class="chip f">Filtro RF</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
       </div>
     </div>
   </div>
 
-  <!-- COSTES -->
+  <!-- ④ COSTES -->
   <div style="--familia:#8a52c4">
     <h2 style="--familia:#8a52c4">④ Costes</h2>
     <div class="grid">
       <div class="card" style="--familia:#8a52c4">
-        <h3>Evolución del TER</h3>
-        <p class="uso">Coste total a lo largo del tiempo</p>
-        <div class="chips"><span class="chip">RF/RV</span><span class="chip">TER</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Líneas</span></div>
+        <h3>Evolución del TER</h3><p class="uso">Coste total a lo largo del tiempo</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">TER</span><span class="chip">Trimestral</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Líneas</span></div>
       </div>
       <div class="card" style="--familia:#8a52c4">
-        <h3>TER vs benchmark/categoría</h3>
-        <p class="uso">Competitividad de costes</p>
-        <div class="chips"><span class="chip">RF/RV</span><span class="chip">TER</span><span class="chip">Anual</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
+        <h3>TER vs categoría</h3><p class="uso">Competitividad de costes</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">TER</span><span class="chip">Anual</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Columnas</span></div>
       </div>
     </div>
   </div>
 
-  <!-- LIQUIDEZ -->
+  <!-- ⑤ LIQUIDEZ -->
   <div style="--familia:#c43d5c">
     <h2 style="--familia:#c43d5c">⑤ Liquidez</h2>
     <div class="grid">
       <div class="card" style="--familia:#c43d5c">
-        <h3>Evolución de la liquidez</h3>
-        <p class="uso">% de liquidez mensual, 3 años</p>
-        <div class="chips"><span class="chip">RF/RV</span><span class="chip">Liquidez</span><span class="chip">Mensual</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Área</span></div>
+        <h3>Evolución de la liquidez</h3><p class="uso">% de liquidez mensual, 3 años</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Liquidez</span><span class="chip">Mensual</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Área</span></div>
       </div>
       <div class="card" style="--familia:#c43d5c">
-        <h3>Liquidez por tipo de activo</h3>
-        <p class="uso">Dónde está el cash</p>
-        <div class="chips"><span class="chip">RF/RV</span><span class="chip">Liquidez</span><span class="chip">Activo</span><span class="chip">MTD</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
+        <h3>Liquidez por tipo de activo</h3><p class="uso">Dónde está el cash</p>
+        <div class="chips"><span class="chip fondo">Mixto Moderado</span><span class="chip">Liquidez</span><span class="chip">Activo</span><span class="chip">MTD</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
       </div>
     </div>
   </div>
 
-  <!-- VALORACIÓN RV -->
+  <!-- ⑥ VALORACIÓN -->
   <div style="--familia:#2b8a9e">
     <h2 style="--familia:#2b8a9e">⑥ Valoración (renta variable)</h2>
     <div class="grid">
       <div class="card" style="--familia:#2b8a9e">
-        <h3>PER por sector</h3>
-        <p class="uso">Múltiplos de valoración</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">PER</span><span class="chip">Sector</span><span class="chip">3A</span><span class="chip">Con bench.</span><span class="chip g">Barras</span></div>
+        <h3>PER por sector</h3><p class="uso">Múltiplos de valoración vs índice</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">PER</span><span class="chip">Sector</span><span class="chip">3A</span><span class="chip f">Filtro RV</span><span class="chip">Con bench.</span><span class="chip g">Barras</span></div>
       </div>
       <div class="card" style="--familia:#2b8a9e">
-        <h3>Rentabilidad por dividendo</h3>
-        <p class="uso">Yield por geografía</p>
-        <div class="chips"><span class="chip">RV</span><span class="chip">DividendYield</span><span class="chip">Geografía</span><span class="chip">3A</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
+        <h3>Rentabilidad por dividendo</h3><p class="uso">Yield por geografía</p>
+        <div class="chips"><span class="chip fondo">Bolsa Europa</span><span class="chip">DividendYield</span><span class="chip">Geografia</span><span class="chip">3A</span><span class="chip f">Filtro RV</span><span class="chip">Sin bench.</span><span class="chip g">Columnas</span></div>
       </div>
     </div>
   </div>
 
   <div class="leyenda">
-    <b>Cómo leer el mapa.</b> Estas no son plantillas fijas: son <b>ejemplos</b> de combinaciones.
-    El motor admite <b>cualquier</b> combinación de los 8 parámetros (decenas de miles), no solo estas.
-    Las tarjetas son los casos más habituales en un informe de cliente; el chip azul es el <b>tipo de gráfico recomendado</b> para cada uno.
-    En la <b>Fase 2</b>, cada caso tirará de datos reales de BigQuery; el flujo de uso (elegir → ver → copiar a PowerPoint) es el mismo.
+    <b>Cómo leer el mapa.</b> Las tarjetas son <b>ejemplos</b> de combinaciones, no plantillas cerradas:
+    el motor admite cualquier combinación de los 8 parámetros. El chip azul es el <b>tipo de gráfico recomendado</b>;
+    "Filtro RF/RV" aparece solo cuando se acota el tipo de activo (útil en el fondo mixto).
+    <br><br>
+    <b>Nota:</b> algunos valores de desplegable van <b>sin tilde</b> (Geografia, Composicion, Valoracion)
+    por cómo Excel resuelve los nombres internos. En la <b>Fase 2</b> cada caso tirará de datos reales de BigQuery.
   </div>
 
 </div>

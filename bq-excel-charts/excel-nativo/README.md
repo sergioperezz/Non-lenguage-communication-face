@@ -23,13 +23,16 @@ parámetros y construye cualquier gráfico al vuelo.
 | Parámetro | Celda | Opciones |
 |---|---|---|
 | **Fondo / Cartera** | B3 | RF Privada A · Bolsa Europa · Mixto Moderado |
-| **Grupo de métrica** | B4 | Rendimiento · Riesgo · Composición · Costes · Liquidez · Valoración |
+| **Grupo de métrica** | B4 | Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion |
 | **Métrica** (cascada del grupo) | B5 | p. ej. Riesgo → Duración, TIR, Spread, Volatilidad, Beta |
 | **Dimensión / eje X** | B6 | *Tiempo*: Mensual, Trimestral, Semestral, Anual · *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | B7 | Todos · RF · RV *(útil en fondos mixtos)* |
 | **Periodo** | B8 | MTD · YTD · 3M · 6M · 1A · 3A |
 | **Benchmark** | B9 | Con benchmark · Sin benchmark |
 | **Tipo de gráfico** | B10 | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
+
+> Nota: los tokens **Composicion**, **Valoracion** y **Geografia** van **sin tilde** en
+> los desplegables (Excel los usa para resolver nombres internos vía `INDIRECT`).
 
 **Ejemplo** ("duración por trimestre, barras + benchmark en línea") = `B3=RF Privada A`,
 `B4=Riesgo`, `B5=Duración`, `B6=Trimestral`, `B7=Todos`, `B8=3A`,
