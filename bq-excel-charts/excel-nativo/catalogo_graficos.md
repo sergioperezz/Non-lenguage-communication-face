@@ -6,7 +6,7 @@ No se trata de generar "todas" las combinaciones posibles (serían cientos y la
 mayoría no aportan), sino de un **set curado** y elegir el adecuado al *tipo de
 dato*. La clave es la **forma del dato**, no el gusto.
 
-### Drop-in con el panel actual (una métrica × varios segmentos = 1 serie)
+### Disponibles en el panel (1–2 series: cartera y, opcionalmente, benchmark)
 
 | Gráfico | Cuándo usarlo | Tipo Excel (VBA) |
 |---|---|---|
@@ -20,27 +20,30 @@ dato*. La clave es la **forma del dato**, no el gusto.
 > El panel ya incluye estos siete en el desplegable. Cambiar entre ellos es
 > instantáneo (solo cambia `.ChartType` de un único gráfico).
 
-### Requieren datos multi-serie (llegan de forma natural en la Fase 2)
+> El **combo cartera + benchmark** (barras + línea) **ya está** en el panel: se
+> activa con *Columnas + Con benchmark*.
+
+### Más tipos multi-serie (llegan con datos reales en la Fase 2)
 
 | Gráfico | Cuándo usarlo | Nota técnica |
 |---|---|---|
 | **Columnas apiladas / 100%** | Composición que suma al total (peso por sector, asset allocation en el tiempo) | `xlColumnStacked` / `xlColumnStacked100` (≥2 series) |
-| **Combo (columnas + línea)** | Dos magnitudes a la vez (valor + TIR, contribución + acumulado) | Tipo por serie + eje secundario |
 | **Dispersión XY** | Riesgo/retorno (volatilidad vs rentabilidad), duración vs TIR | `xlXYScatter` (series X,Y) |
 | **Cascada / Waterfall** | Atribución de resultados, *bridge* de P&L o de rentabilidad | Gráfico moderno; mejor vía **plantilla .crtx** |
 
-**Recomendación práctica:** estos cuatro se añaden cuando la consulta a BigQuery
-pueda devolver varias series. Para *waterfall* y *combo* lo más robusto es
-guardar una **plantilla de gráfico corporativa (.crtx)** y aplicarla, en vez de
-construirla a mano cada vez.
+**Recomendación práctica:** estos se añaden cuando la consulta a BigQuery pueda
+devolver varias series. Para *waterfall* lo más robusto es guardar una
+**plantilla de gráfico corporativa (.crtx)** y aplicarla.
 
 ## 2. Cómo evitar el "todas las combinaciones" sin perder flexibilidad
 
 En lugar de pre-generar N gráficos estáticos:
 - **Un único gráfico** enlazado a la tabla de resultados; el **dato** lo cambian
-  los desplegables (tipo de activo + métrica) y el **tipo** lo cambia la macro.
-- Así, "todas las combinaciones" = (tipos de activo) × (métricas) × (7 tipos de
-  gráfico) **se generan al vuelo**, sin duplicar objetos ni inflar el libro.
+  los desplegables (fondo, grupo, métrica, dimensión, filtro…) y el **tipo** lo
+  cambia la macro.
+- Así, "todas las combinaciones" = (fondos) × (métricas) × (dimensiones) ×
+  (7 tipos de gráfico) **se generan al vuelo**, sin duplicar objetos ni inflar el
+  libro.
 - Si quieres formato perfecto por tipo, aplica una **plantilla .crtx** por tipo
   (corporativa) en `AplicarTipoGrafico` — formato consistente y sin reconstruir.
 
@@ -76,8 +79,8 @@ para Compliance (es una imagen fija, no datos vivos).
 - **Cambio instantáneo:** se cambia `.ChartType` de un solo gráfico (no se
   reconstruye) y se envuelve en `Application.ScreenUpdating = False` para que no
   parpadee.
-- **Sin estados imposibles:** al pasar de RF a RV, la macro corrige la métrica si
-  dejó de ser válida (no se queda "Duration" en renta variable).
+- **Sin estados imposibles:** al cambiar el grupo de métrica, la macro corrige la
+  métrica si dejó de ser válida para ese grupo.
 - **Datos acotados (Fase 2):** usa rangos acotados en `SUMIFS`/consultas, no
   columnas enteras, para que el recálculo sea rápido con datos reales.
 - **Botón de exportar:** asigna `CopiarAPowerPoint` a una forma/botón en el panel

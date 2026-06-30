@@ -1,29 +1,24 @@
-# Panel interactivo en Excel (Fase 1)
+# Panel de gráficos en Excel (Fase 1)
 
-Gráfico que **se actualiza solo** cuando el usuario cambia tres parámetros, sin
-backend ni add-in. Solo Excel (+ una macro pequeña para el tipo de gráfico).
+Motor de gráficos **en Excel nativo** (sin backend ni add-in; solo Excel + una
+macro). El usuario combina parámetros y el gráfico **se actualiza solo**; un clic
+lo copia a PowerPoint como **EMF**. Hoy con **datos de ejemplo**; en la Fase 2
+esos datos vendrán de **BigQuery** (por tu driver ODBC).
 
 ## Archivos
 
 | Archivo | Qué es |
 |---|---|
-| `Panel_Interactivo.xlsx` | El libro listo para usar (desplegables + gráfico) |
-| `macro_Panel.vba` | Macro: cambia tipo de gráfico, cuida la cascada y **copia a PowerPoint como EMF** |
+| `Panel_Generico.xlsx` | El libro listo para usar (desplegables + gráfico) |
+| `macro_Panel.vba` | Macro: cascada métrica, tipo de gráfico, combo barras+línea y **copia a PowerPoint (EMF)** |
+| `generar_panel.py` | Script que regenera el `.xlsx` (si cambias datos/estructura) |
+| `mapa_casos_uso.html` / `.md` | Mapa de casos de uso por familias |
 | `catalogo_graficos.md` | Qué gráficos usar en un AM, EMF a PowerPoint y notas de UX |
-| `generar_panel.py` | Script que regenera el `.xlsx` (por si cambias los datos) |
 
-Tipos de gráfico disponibles en el desplegable: **Columnas, Barras, Líneas,
-Área, Circular, Anillo, Radar**. Los multi-serie (apiladas, combo, dispersión
-riesgo/retorno, waterfall de atribución) se añaden en la Fase 2. Ver
-`catalogo_graficos.md`.
+## El modelo: 8 parámetros que cubren cualquier caso
 
----
-
-## Versión genérica (recomendada): `Panel_Generico.xlsx`
-
-En lugar de un caso fijo, este libro es un **motor guiado por datos**: cualquier
-combinación se construye al vuelo combinando **5 parámetros**, sin pre-generar
-gráficos. Es la forma de cubrir "todos los casos".
+No se pre-genera un gráfico por caso: un **motor guiado por datos** combina los
+parámetros y construye cualquier gráfico al vuelo.
 
 | Parámetro | Celda | Opciones |
 |---|---|---|
@@ -32,100 +27,79 @@ gráficos. Es la forma de cubrir "todos los casos".
 | **Métrica** (cascada del grupo) | B5 | p. ej. Riesgo → Duración, TIR, Spread, Volatilidad, Beta |
 | **Dimensión / eje X** | B6 | *Tiempo*: Mensual, Trimestral, Semestral, Anual · *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | B7 | Todos · RF · RV *(útil en fondos mixtos)* |
-| **Periodo** (ventana) | B8 | MTD, YTD, 3M, 6M, 1A, 3A |
+| **Periodo** | B8 | MTD · YTD · 3M · 6M · 1A · 3A |
 | **Benchmark** | B9 | Con benchmark · Sin benchmark |
-| Tipo de gráfico | B10 | Columnas, Barras, Líneas, Área, Circular, Anillo, Radar |
+| **Tipo de gráfico** | B10 | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
 
-**Tu ejemplo** ("duración por trimestre, barras + benchmark línea") = `B3=RF Privada A`,
+**Ejemplo** ("duración por trimestre, barras + benchmark en línea") = `B3=RF Privada A`,
 `B4=Riesgo`, `B5=Duración`, `B6=Trimestral`, `B7=Todos`, `B8=3A`,
-`B9=Con benchmark`, `B10=Columnas`. La macro detecta "Columnas + ambas
-series" y dibuja el **benchmark como línea** (combo).
+`B9=Con benchmark`, `B10=Columnas`. La macro detecta "Columnas + Con benchmark" y
+dibuja el benchmark como **línea** (combo).
 
-- **Métrica agrupada** (B4→B5): primero la familia, luego la métrica → ningún
-  desplegable kilométrico.
-- **Filtro de tipo de activo** (B7): en un fondo mixto, `RF` muestra solo la
-  parte de renta fija (p. ej. "duración solo de la RF").
-- **Periodo** (B8): acota los buckets recientes en dimensiones de tiempo
-  (`1A`+`Mensual` = 12 meses); en composición se ignora. Aproximación del *mock*;
-  en la Fase 2 es un filtro de fechas exacto.
-
-Cómo funciona por dentro:
-- La hoja **Datos** está en formato largo:
-  `TipoActivo | Metrica | EjeXTipo | EjeXValor | Serie | Valor`.
-- La tabla de resultados (D2:F8) se calcula con **SUMIFS** según los 5 parámetros;
-  las categorías del eje X salen de la dimensión elegida (`INDIRECT("Cat_"&B5)`).
-- El gráfico está enlazado a esa tabla → se actualiza solo; la macro ajusta el
-  tipo y el combo.
-
-Instalación: igual que arriba, pero pegando `macro_Panel_v2.vba`.
-
-Para añadir una dimensión nueva (p. ej. "Divisa") o una métrica: basta con
-añadir filas en **Datos**, su lista en **Listas** y un rango con nombre. En la
-Fase 2 todo esto lo aportará la consulta a BigQuery automáticamente.
-
-### Cobertura completa de los datos de ejemplo
-
-Los datos de ejemplo cubren **todas** las combinaciones seleccionables
-(activo × métrica × dimensión × serie), así que en "modo diseño" **cualquier**
-gráfico que elijas se ve al instante, sin huecos vacíos (valores ficticios pero
-formato real). Incluye la métrica **Liquidez** y la dimensión **Mes** (36 meses,
-3 años) para comprobar que escala. Las combinaciones imposibles (p. ej. Rating en
-RV) no aparecen como opción gracias a la cascada.
-
-> El "modo real" (botón *Generar con datos reales*) de la Fase 2 sustituirá esos
-> valores ficticios por los de BigQuery para la combinación elegida.
-
-## Cómo funciona
+## Cómo funciona por dentro
 
 Tres hojas:
-- **Panel**: lo que usa el analista. Tres desplegables y el gráfico.
-- **Datos**: tabla de ejemplo en formato largo (`TipoActivo | Metrica | Segmento | Valor`).
-  En la **Fase 2** esta hoja se sustituye por una consulta a BigQuery.
-- **Listas**: las métricas de cada tipo de activo (para el desplegable en cascada).
+- **Panel**: lo que usa el analista (los 8 desplegables + el gráfico).
+- **Datos**: tabla en formato largo
+  `Fondo | TipoActivo | Metrica | EjeXTipo | EjeXValor | Serie | Valor`.
+  En la **Fase 2** esta hoja la rellena la consulta a BigQuery.
+- **Listas**: rangos con nombre para las cascadas y categorías.
 
-El mecanismo:
-1. El usuario elige **Tipo de activo** (B3), **Métrica** (B4) y **Tipo de gráfico** (B5).
-2. La métrica es un **desplegable en cascada**: sus opciones dependen del tipo de
-   activo (vía `INDIRECT` y los rangos con nombre `RF` / `RV`).
-3. La tabla de resultados (D3:E8) usa **`SUMIFS`** para traer los valores del
-   tipo+métrica elegidos.
-4. El **gráfico está enlazado a esa tabla** → al cambiar un desplegable, las
-   fórmulas recalculan y el gráfico **se redibuja automáticamente**.
-5. La **macro** detecta el cambio y: ajusta la métrica si quedó inválida al
-   cambiar de RF a RV, y cambia el gráfico entre **verticales/horizontales**.
+Mecanismo:
+1. La **métrica cascadea del grupo** (B4→B5) vía `INDIRECT("Grupo_"&B4)` → ningún
+   desplegable kilométrico.
+2. La tabla de resultados (D:F) se calcula con **`SUMIFS`** según los parámetros;
+   las categorías del eje X salen de la dimensión elegida (`INDIRECT("Cat_"&B6)`).
+3. El **filtro de tipo de activo** (B7) usa un comodín en `SUMIFS` (`Todos`=`*`).
+4. El **Periodo** (B8) acota cuántos buckets recientes se muestran en dimensiones
+   de tiempo (tabla Periodo×Granularidad); en composición se ignora.
+5. El **gráfico está enlazado a la tabla** → al cambiar un desplegable, recalcula
+   y se redibuja solo. La **macro** ajusta el tipo de gráfico y el combo.
 
 ## Puesta en marcha (una vez)
 
-1. Abre `Panel_Interactivo.xlsx`.
-2. Clic derecho en la pestaña **Panel** → **Ver código** → pega el contenido de
-   `macro_Panel.vba`.
-3. **Guardar como** → tipo *Libro de Excel habilitado para macros (.xlsm)*.
+1. Abre `Panel_Generico.xlsx`.
+2. Pega `macro_Panel.vba`: **Parte A** en la hoja *Panel* (clic derecho en la
+   pestaña → *Ver código*) y **Parte B** en un *Módulo* estándar (Insertar → Módulo).
+3. **Guardar como** → *.xlsm* (libro habilitado para macros).
 4. Al reabrir, **Habilitar macros**.
 
-A partir de ahí: cambias un desplegable y el gráfico cambia solo. Cero fricción.
+Cambias un desplegable y el gráfico cambia solo.
 
 ### Exportar a PowerPoint (EMF)
 
-La macro incluye `CopiarAPowerPoint`: copia el gráfico como **EMF vectorial**
-(nítido, sin vínculos que se rompan) y lo pega en PowerPoint. Para usarla con un
-clic: Insertar → una Forma/botón → clic derecho → *Asignar macro* →
-`CopiarAPowerPoint`. (Pega la PARTE B de la macro en un **módulo estándar**.)
+La macro `CopiarAPowerPoint` copia el gráfico como **EMF vectorial** (nítido, sin
+vínculos que se rompan) y lo pega en PowerPoint. Para un clic: Insertar → una
+Forma/botón → *Asignar macro* → `CopiarAPowerPoint`.
 
-## Cómo adaptarlo a tus datos / métricas
+## Cobertura completa de los datos de ejemplo
+
+Los datos de ejemplo cubren **todas** las combinaciones seleccionables, así que en
+modo diseño **cualquier** gráfico que elijas se ve al instante, sin huecos
+(valores ficticios, formato real). En la Fase 2, el "modo real" sustituirá esos
+valores por los de BigQuery para la combinación elegida.
+
+## Cómo adaptarlo
 
 - **Pocos cambios**: edita la hoja **Datos** (y **Listas** si añades métricas).
-- **Regenerar desde cero**: edita el diccionario `DATOS` en `generar_panel.py` y
-  ejecútalo. (Tras regenerar hay que volver a pegar la macro y guardar como .xlsm.)
-
-Métricas de ejemplo:
-- **RF** (renta fija): Duration, TIR, Spread
-- **RV** (renta variable): Rentabilidad, PER, DividendYield
+- **Regenerar**: edita los diccionarios de `generar_panel.py` (FONDOS, GRUPOS,
+  DIMS, CATEGORIAS, PARAMS) y ejecútalo. Tras regenerar, vuelve a pegar la macro y
+  guarda como `.xlsm`.
 
 ## Puente a la Fase 2 (BigQuery)
 
-El diseño está pensado para que la Fase 2 sea un cambio pequeño:
-- Sustituyes la hoja **Datos** por una **consulta de Power Query** contra
-  BigQuery (con tu driver ODBC), parametrizada por las celdas B3/B4.
-- Descomentas la línea `ThisWorkbook.RefreshAll` de la macro para que, al cambiar
-  un parámetro, se relance la consulta.
+Diseñado para que la Fase 2 sea un cambio pequeño:
+- Sustituyes la hoja **Datos** por una **consulta de Power Query** contra BigQuery
+  (driver ODBC), con las mismas columnas y parametrizada por las celdas del panel.
+- Descomentas `ThisWorkbook.RefreshAll` en la macro para refrescar al cambiar el
+  ámbito de datos (fondo/periodo).
 - **El gráfico y los desplegables no cambian**: siguen enlazados a la misma tabla.
+
+## Limitaciones del *mock* (se resuelven en la Fase 2)
+
+- En un fondo **mixto** con filtro **Todos**, los valores se **suman** entre RF y
+  RV (simplificación); la agregación correcta (media ponderada) es de la Fase 2.
+- El **Periodo** es una aproximación (buckets recientes); en la Fase 2 será un
+  filtro de fechas exacto en la query.
+- Todas las dimensiones aparecen para todos los fondos (cobertura del *mock*); con
+  datos reales solo existirán las combinaciones que de verdad tengan datos.

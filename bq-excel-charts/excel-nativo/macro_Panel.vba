@@ -1,75 +1,85 @@
 ' ============================================================================
-'  Macro del panel interactivo (Fase 1 + copia a PowerPoint como EMF)
+'  Macro del PANEL GENÉRICO (Fase 1) + copia a PowerPoint como EMF
+'  Modelo: Fondo -> Grupo de métrica -> Métrica -> Dimensión -> ...
 '
 '  INSTALACIÓN (una vez):
-'  1) PARTE A  -> clic derecho en la pestaña "Panel" -> "Ver código" y pega ahí.
-'  2) PARTE B  -> menú Insertar -> Módulo, y pega ahí (módulo estándar).
-'  3) Guarda como .xlsm (libro habilitado para macros).
-'  4) (Opcional) Inserta una forma/botón y asígnale la macro "CopiarAPowerPoint".
+'   1) PARTE A -> clic derecho en la pestaña "Panel" -> "Ver código" y pega ahí.
+'   2) PARTE B -> Insertar -> Módulo, y pega ahí.
+'   3) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
+'
+'  Controles: B3 Fondo · B4 Grupo · B5 Métrica · B6 Dimensión · B7 Filtro tipo
+'             activo · B8 Periodo · B9 Benchmark (Con/Sin) · B10 Tipo de gráfico
 ' ============================================================================
 
 
 ' =====================  PARTE A: en la hoja "Panel"  ========================
-' (Worksheet_Change: reacciona al cambiar los desplegables.)
 
 Private Sub Worksheet_Change(ByVal Target As Range)
     On Error GoTo Salir
     Application.EnableEvents = False
-    Application.ScreenUpdating = False          ' sin parpadeo -> cambio "instantáneo"
+    Application.ScreenUpdating = False
 
-    ' Al cambiar el tipo de activo, asegurar que la métrica siga siendo válida.
-    If Not Intersect(Target, Me.Range("B3")) Is Nothing Then AjustarMetrica
+    ' Al cambiar el GRUPO de métrica, asegurar que la métrica siga siendo válida.
+    If Not Intersect(Target, Me.Range("B4")) Is Nothing Then
+        AjustarSeleccion "B5", "Grupo_" & Me.Range("B4").Value
+    End If
 
-    ' Al cambiar cualquier parámetro, aplicar el tipo de gráfico elegido.
-    If Not Intersect(Target, Me.Range("B3:B5")) Is Nothing Then AplicarTipoGrafico
+    ' Cualquier cambio en B3:B10 -> reconstruye la representación del gráfico.
+    If Not Intersect(Target, Me.Range("B3:B10")) Is Nothing Then AplicarGrafico
 
     ' --- Fase 2 (BigQuery por Power Query/ODBC): descomenta para refrescar datos ---
-    ' If Not Intersect(Target, Me.Range("B3:B4")) Is Nothing Then ThisWorkbook.RefreshAll
+    ' If Not Intersect(Target, Me.Range("B3:B8")) Is Nothing Then ThisWorkbook.RefreshAll
 
 Salir:
     Application.ScreenUpdating = True
     Application.EnableEvents = True
 End Sub
 
-' Si la métrica no pertenece al tipo de activo, pone la primera válida.
-Private Sub AjustarMetrica()
-    Dim tipo As String, met As String, rng As Range, c As Range, valida As Boolean
-    tipo = Me.Range("B3").Value
-    met = Me.Range("B4").Value
+' Si el valor de "celda" no está en el rango con nombre "nombreLista",
+' lo sustituye por el primer elemento válido.
+Private Sub AjustarSeleccion(ByVal celda As String, ByVal nombreLista As String)
+    Dim rng As Range, c As Range, actual As String, valido As Boolean
+    actual = Me.Range(celda).Value
     On Error Resume Next
-    Set rng = ThisWorkbook.Names(tipo).RefersToRange   ' rango con nombre RF / RV
+    Set rng = ThisWorkbook.Names(nombreLista).RefersToRange
     On Error GoTo 0
     If rng Is Nothing Then Exit Sub
     For Each c In rng.Cells
-        If c.Value = met Then valida = True
+        If c.Value = actual Then valido = True
     Next c
-    If Not valida Then Me.Range("B4").Value = rng.Cells(1, 1).Value
+    If Not valido Then Me.Range(celda).Value = rng.Cells(1, 1).Value
 End Sub
 
-' Cambia el tipo de gráfico según B5. Cambiar .ChartType de UN solo gráfico es
-' lo más rápido (no se reconstruye nada).
-Private Sub AplicarTipoGrafico()
+' Aplica tipo de gráfico (B10) y el combo barras+línea (benchmark) si procede.
+Private Sub AplicarGrafico()
     Dim ch As Chart
     On Error Resume Next
     Set ch = Me.ChartObjects(1).Chart
     On Error GoTo 0
     If ch Is Nothing Then Exit Sub
 
-    Select Case LCase(Trim(Me.Range("B5").Value))
-        Case "barras":            ch.ChartType = xlBarClustered      ' horizontales
+    Select Case LCase(Trim(Me.Range("B10").Value))
+        Case "barras":            ch.ChartType = xlBarClustered
         Case "líneas", "lineas":  ch.ChartType = xlLineMarkers
         Case "área", "area":      ch.ChartType = xlArea
         Case "circular":          ch.ChartType = xlPie
         Case "anillo":            ch.ChartType = xlDoughnut
         Case "radar":             ch.ChartType = xlRadarMarkers
-        Case Else:                ch.ChartType = xlColumnClustered   ' "Columnas" (vertical)
+        Case Else:                ch.ChartType = xlColumnClustered  ' "Columnas"
     End Select
+
+    ' Combo: en columnas y con benchmark, el benchmark se dibuja como LÍNEA.
+    If LCase(Trim(Me.Range("B10").Value)) = "columnas" _
+       And Me.Range("B9").Value = "Con benchmark" Then
+        On Error Resume Next
+        ch.FullSeriesCollection(2).ChartType = xlLineMarkers
+        On Error GoTo 0
+    End If
 End Sub
 
 
 ' =================  PARTE B: en un Módulo estándar  =========================
-' Copia el gráfico del panel a PowerPoint como EMF (vectorial -> no se rompe,
-' nítido a cualquier tamaño, sin vínculo al Excel). Asígnala a un botón.
+' Copia el gráfico a PowerPoint como EMF (vectorial, sin vínculos -> no se rompe).
 
 Public Sub CopiarAPowerPoint()
     Dim ch As ChartObject
@@ -81,11 +91,8 @@ Public Sub CopiarAPowerPoint()
         Exit Sub
     End If
 
-    ' 1) Copiar el gráfico como imagen VECTORIAL (en Windows, xlPicture = metafile/EMF).
-    ch.Chart.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    ch.Chart.CopyPicture Appearance:=xlScreen, Format:=xlPicture   ' EMF en Windows
 
-    ' 2) Conectar con PowerPoint (lo abre si no está abierto). Late binding: sin
-    '    necesidad de activar referencias.
     Dim ppt As Object, pres As Object, sld As Object
     On Error Resume Next
     Set ppt = GetObject(, "PowerPoint.Application")
@@ -99,23 +106,20 @@ Public Sub CopiarAPowerPoint()
         Set pres = ppt.ActivePresentation
     End If
 
-    ' Usa la diapositiva activa; si no hay, crea una en blanco (layout 12 = ppLayoutBlank).
     On Error Resume Next
     Set sld = ppt.ActiveWindow.View.Slide
     On Error GoTo 0
     If sld Is Nothing Then
         If pres.Slides.Count = 0 Then
-            Set sld = pres.Slides.Add(1, 12)
+            Set sld = pres.Slides.Add(1, 12)   ' 12 = ppLayoutBlank
         Else
             Set sld = pres.Slides(pres.Slides.Count)
         End If
     End If
 
-    ' 3) Pegar como EMF (DataType 2 = ppPasteEnhancedMetafile) -> imagen vectorial.
     Dim shp As Object
-    Set shp = sld.Shapes.PasteSpecial(DataType:=2)
+    Set shp = sld.Shapes.PasteSpecial(DataType:=2)   ' 2 = ppPasteEnhancedMetafile
 
-    ' 4) Centrar en la diapositiva (opcional).
     On Error Resume Next
     shp.Left = (pres.PageSetup.SlideWidth - shp.Width) / 2
     shp.Top = (pres.PageSetup.SlideHeight - shp.Height) / 2
