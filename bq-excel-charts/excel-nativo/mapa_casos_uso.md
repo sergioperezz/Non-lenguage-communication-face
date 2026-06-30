@@ -21,26 +21,26 @@
 
 ## ① Rendimiento
 
-| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Comp. | Gráfico |
+| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
 | Evolución de rentabilidad | Bolsa Europa | Rentabilidad | Mensual | Todos | 1A | Cartera | Líneas |
-| Rentabilidad vs benchmark | Bolsa Europa | Rentabilidad | Trimestral | Todos | 3A | Ambos | Columnas (combo) |
+| Rentabilidad vs benchmark | Bolsa Europa | Rentabilidad | Trimestral | Todos | 3A | Con | Columnas (combo) |
 | Rentabilidad YTD por geografía | Bolsa Europa | Rentabilidad | Geografía | Todos | YTD | Cartera | Barras |
-| Rentab. acumulada | Mixto Moderado | Rentab. acum. | Mensual | Todos | 3A | Ambos | Líneas |
+| Rentab. acumulada | Mixto Moderado | Rentab. acum. | Mensual | Todos | 3A | Con | Líneas |
 
 ## ② Riesgo
 
-| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Comp. | Gráfico |
+| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
-| Duración cartera vs benchmark | RF Privada A | Duración | Trimestral | Todos | 3A | Ambos | Columnas (combo) |
+| Duración cartera vs benchmark | RF Privada A | Duración | Trimestral | Todos | 3A | Con | Columnas (combo) |
 | Duración solo de la RF (fondo mixto) | Mixto Moderado | Duración | Trimestral | **RF** | 3A | Cartera | Columnas |
 | TIR por rating | RF Privada A | TIR | Rating | RF | 3A | Cartera | Barras |
 | Spread por sector | RF Privada A | Spread | Sector | RF | 3A | Cartera | Columnas |
-| Volatilidad (12m) | Bolsa Europa | Volatilidad | Mensual | Todos | 1A | Ambos | Líneas |
+| Volatilidad (12m) | Bolsa Europa | Volatilidad | Mensual | Todos | 1A | Con | Líneas |
 
 ## ③ Composición / Asset allocation
 
-| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Comp. | Gráfico |
+| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
 | Distribución por tipo de activo | Mixto Moderado | Peso | Activo | Todos | 3A | Cartera | Anillo |
 | Distribución geográfica | Mixto Moderado | Peso | Geografía | Todos | 3A | Cartera | Circular |
@@ -50,23 +50,23 @@
 
 ## ④ Costes
 
-| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Comp. | Gráfico |
+| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
 | Evolución del TER | Bolsa Europa | TER | Trimestral | Todos | 3A | Cartera | Líneas |
-| TER vs categoría | Bolsa Europa | TER | Anual | Todos | 3A | Ambos | Columnas |
+| TER vs categoría | Bolsa Europa | TER | Anual | Todos | 3A | Con | Columnas |
 
 ## ⑤ Liquidez
 
-| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Comp. | Gráfico |
+| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
 | Evolución de la liquidez | Mixto Moderado | Liquidez | Mensual | Todos | 3A | Cartera | Área |
 | Liquidez por tipo de activo | Mixto Moderado | Liquidez | Activo | Todos | MTD | Cartera | Columnas |
 
 ## ⑥ Valoración
 
-| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Comp. | Gráfico |
+| Caso | Fondo | Métrica | Dimensión | Filtro | Periodo | Benchmark | Gráfico |
 |---|---|---|---|---|---|---|---|
-| PER por sector | Bolsa Europa | PER | Sector | RV | 3A | Ambos | Barras |
+| PER por sector | Bolsa Europa | PER | Sector | RV | 3A | Con | Barras |
 | Rentabilidad por dividendo | Bolsa Europa | DividendYield | Geografía | RV | 3A | Cartera | Columnas |
 
 ---

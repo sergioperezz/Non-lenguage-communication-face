@@ -8,7 +8,7 @@
 '   3) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
 '
 '  Controles: B3 Fondo · B4 Grupo · B5 Métrica · B6 Dimensión · B7 Filtro tipo
-'             activo · B8 Periodo · B9 Comparación · B10 Tipo de gráfico
+'             activo · B8 Periodo · B9 Benchmark (Con/Sin) · B10 Tipo de gráfico
 ' ============================================================================
 
 
@@ -68,9 +68,9 @@ Private Sub AplicarGrafico()
         Case Else:                ch.ChartType = xlColumnClustered  ' "Columnas"
     End Select
 
-    ' Combo: en columnas con ambas series, el benchmark se dibuja como LÍNEA.
+    ' Combo: en columnas y con benchmark, el benchmark se dibuja como LÍNEA.
     If LCase(Trim(Me.Range("B10").Value)) = "columnas" _
-       And Me.Range("B9").Value = "Cartera + Benchmark" Then
+       And Me.Range("B9").Value = "Con benchmark" Then
         On Error Resume Next
         ch.FullSeriesCollection(2).ChartType = xlLineMarkers
         On Error GoTo 0

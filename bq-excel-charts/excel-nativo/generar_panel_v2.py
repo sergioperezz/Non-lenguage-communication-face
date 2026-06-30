@@ -167,14 +167,14 @@ def build() -> Workbook:
     etiquetas = {
         "A3": "Fondo / Cartera", "A4": "Grupo de métrica", "A5": "Métrica",
         "A6": "Dimensión (eje X)", "A7": "Filtro: tipo de activo", "A8": "Periodo",
-        "A9": "Comparación", "A10": "Tipo de gráfico",
+        "A9": "Benchmark", "A10": "Tipo de gráfico",
     }
     for celda, txt in etiquetas.items():
         ws[celda] = txt
         ws[celda].font = BOLD
     defaults = {
         "B3": "Mixto Moderado", "B4": "Riesgo", "B5": "Duración", "B6": "Trimestral",
-        "B7": "Todos", "B8": "3A", "B9": "Cartera + Benchmark", "B10": "Columnas",
+        "B7": "Todos", "B8": "3A", "B9": "Con benchmark", "B10": "Columnas",
     }
     for celda, val in defaults.items():
         ws[celda] = val
@@ -190,7 +190,7 @@ def build() -> Workbook:
         ("B6", f'"{dims_lst}"'),
         ("B7", '"Todos,RF,RV"'),
         ("B8", '"MTD,YTD,3M,6M,1A,3A"'),
-        ("B9", '"Cartera + Benchmark,Solo cartera,Solo benchmark"'),
+        ("B9", '"Con benchmark,Sin benchmark"'),
         ("B10", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar"'),
     ]
     for celda, formula in dvs:
@@ -209,7 +209,8 @@ def build() -> Workbook:
 
     # Título dinámico
     ws.merge_cells("A15:C15")
-    ws["A15"] = '="Fondo: "&B3&"  ·  "&B5&" por "&B6&"  ·  "&B8&"  ·  "&B9'
+    ws["A15"] = ('="Fondo: "&B3&"  ·  "&B5&" por "&B6&"  ·  "&B8'
+                 '&IF(B9="Con benchmark","  ·  vs benchmark","")')
     ws["A15"].font = Font(bold=True, size=12, color=AZUL[2:])
     ws["A15"].alignment = Alignment(horizontal="left")
 
@@ -234,10 +235,10 @@ def build() -> Workbook:
             f'COUNTA(INDIRECT("Cat_"&$B$6))-$B$12+(ROW()-2)))'
         ))
         ws.cell(row=r, column=5, value=(
-            f'=IF(OR($B$9="Solo benchmark",$D{r}=""),"",{sumifs("Cartera").format(r=r)})'
+            f'=IF($D{r}="","",{sumifs("Cartera").format(r=r)})'      # cartera siempre
         ))
         ws.cell(row=r, column=6, value=(
-            f'=IF(OR($B$9="Solo cartera",$D{r}=""),"",{sumifs("Benchmark").format(r=r)})'
+            f'=IF(OR($B$9="Sin benchmark",$D{r}=""),"",{sumifs("Benchmark").format(r=r)})'
         ))
 
     # Gráfico
