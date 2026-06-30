@@ -25,17 +25,24 @@ En lugar de un caso fijo, este libro es un **motor guiado por datos**: cualquier
 combinación se construye al vuelo combinando **5 parámetros**, sin pre-generar
 gráficos. Es la forma de cubrir "todos los casos".
 
-| Parámetro | Celda | Ejemplo |
+| Parámetro | Celda | Opciones |
 |---|---|---|
 | Tipo de activo | B3 | RF / RV |
-| Métrica (cascada) | B4 | Duration, TIR, Rentabilidad… |
-| **Eje X / dimensión** | B5 | **Trimestre**, Sector, Region, Rating |
-| **Comparación** | B6 | **Cartera + Benchmark**, Solo cartera, Solo benchmark |
-| Tipo de gráfico | B7 | Columnas, Barras, Líneas… |
+| Métrica (cascada) | B4 | Rentabilidad, TIR, TER, Duración, Spread, Liquidez, Peso · (RV: PER, DividendYield) |
+| **Dimensión / eje X** (cascada) | B5 | **Tiempo**: Mensual, Trimestral, Semestral, Anual · **Composición**: Activo, Geografia, Industria, Sector, Divisa, Rating |
+| **Periodo** (ventana) | B6 | MTD, YTD, 3M, 6M, 1A, 3A |
+| **Comparación** | B7 | Cartera + Benchmark, Solo cartera, Solo benchmark |
+| Tipo de gráfico | B8 | Columnas, Barras, Líneas, Área, Circular, Anillo, Radar |
 
 **Tu ejemplo** ("duración por trimestre, barras + benchmark línea") = `B3=RF`,
-`B4=Duration`, `B5=Trimestre`, `B6=Cartera + Benchmark`, `B7=Columnas`. La macro
-detecta "Columnas + ambas series" y dibuja el **benchmark como línea** (combo).
+`B4=Duración`, `B5=Trimestral`, `B6=3A`, `B7=Cartera + Benchmark`, `B8=Columnas`.
+La macro detecta "Columnas + ambas series" y dibuja el **benchmark como línea**
+(combo).
+
+**El Periodo (B6)** acota cuántos buckets recientes se muestran en las
+dimensiones de tiempo (p. ej. `1A` + `Mensual` = últimos 12 meses); en las de
+composición se ignora (muestra todas las categorías). Es una aproximación del
+*mock*: en la Fase 2, el periodo es un filtro de fechas exacto en la query.
 
 Cómo funciona por dentro:
 - La hoja **Datos** está en formato largo:
