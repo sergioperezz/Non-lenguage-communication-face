@@ -86,14 +86,18 @@ def build() -> Workbook:
         ws[celda].font = BOLD
     ws["B3"] = "RF"
     ws["B4"] = "Duration"
-    ws["B5"] = "Verticales"
+    ws["B5"] = "Columnas"
     for celda in ("B3", "B4", "B5"):
         ws[celda].fill = PatternFill("solid", fgColor=GRIS)
 
     # Validaciones (desplegables)
     dv_tipo = DataValidation(type="list", formula1='"RF,RV"', allow_blank=False)
     dv_metrica = DataValidation(type="list", formula1="=INDIRECT($B$3)", allow_blank=False)
-    dv_grafico = DataValidation(type="list", formula1='"Verticales,Horizontales"', allow_blank=False)
+    dv_grafico = DataValidation(
+        type="list",
+        formula1='"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar"',
+        allow_blank=False,
+    )
     ws.add_data_validation(dv_tipo)
     ws.add_data_validation(dv_metrica)
     ws.add_data_validation(dv_grafico)

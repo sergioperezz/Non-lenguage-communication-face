@@ -8,8 +8,14 @@ backend ni add-in. Solo Excel (+ una macro pequeña para el tipo de gráfico).
 | Archivo | Qué es |
 |---|---|
 | `Panel_Interactivo.xlsx` | El libro listo para usar (desplegables + gráfico) |
-| `macro_Panel.vba` | Macro que cambia el tipo de gráfico y cuida la cascada |
+| `macro_Panel.vba` | Macro: cambia tipo de gráfico, cuida la cascada y **copia a PowerPoint como EMF** |
+| `catalogo_graficos.md` | Qué gráficos usar en un AM, EMF a PowerPoint y notas de UX |
 | `generar_panel.py` | Script que regenera el `.xlsx` (por si cambias los datos) |
+
+Tipos de gráfico disponibles en el desplegable: **Columnas, Barras, Líneas,
+Área, Circular, Anillo, Radar**. Los multi-serie (apiladas, combo, dispersión
+riesgo/retorno, waterfall de atribución) se añaden en la Fase 2. Ver
+`catalogo_graficos.md`.
 
 ## Cómo funciona
 
@@ -39,6 +45,13 @@ El mecanismo:
 4. Al reabrir, **Habilitar macros**.
 
 A partir de ahí: cambias un desplegable y el gráfico cambia solo. Cero fricción.
+
+### Exportar a PowerPoint (EMF)
+
+La macro incluye `CopiarAPowerPoint`: copia el gráfico como **EMF vectorial**
+(nítido, sin vínculos que se rompan) y lo pega en PowerPoint. Para usarla con un
+clic: Insertar → una Forma/botón → clic derecho → *Asignar macro* →
+`CopiarAPowerPoint`. (Pega la PARTE B de la macro en un **módulo estándar**.)
 
 ## Cómo adaptarlo a tus datos / métricas
 
