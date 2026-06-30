@@ -50,14 +50,33 @@ Private Sub AjustarSeleccion(ByVal celda As String, ByVal nombreLista As String)
     If Not valido Then Me.Range(celda).Value = rng.Cells(1, 1).Value
 End Sub
 
-' Aplica tipo de gráfico (B10) y el combo barras+línea (benchmark) si procede.
+' Reconstruye las series según "Benchmark", aplica el tipo de gráfico y el combo.
 Private Sub AplicarGrafico()
-    Dim ch As Chart
+    Dim ch As Chart, s As Series, conBench As Boolean
     On Error Resume Next
     Set ch = Me.ChartObjects(1).Chart
     On Error GoTo 0
     If ch Is Nothing Then Exit Sub
 
+    conBench = (Me.Range("B9").Value = "Con benchmark")
+
+    ' 1) Reconstruir series: así "Sin benchmark" deja UNA sola serie (sin entrada
+    '    fantasma en la leyenda). Filas 3:38 = la tabla de resultados (36 categorías).
+    Do While ch.SeriesCollection.Count > 0
+        ch.SeriesCollection(1).Delete
+    Loop
+    Set s = ch.SeriesCollection.NewSeries          ' Cartera
+    s.Name = "=Panel!$E$2"
+    s.Values = "=Panel!$E$3:$E$38"
+    s.XValues = "=Panel!$D$3:$D$38"
+    If conBench Then
+        Set s = ch.SeriesCollection.NewSeries      ' Benchmark
+        s.Name = "=Panel!$F$2"
+        s.Values = "=Panel!$F$3:$F$38"
+        s.XValues = "=Panel!$D$3:$D$38"
+    End If
+
+    ' 2) Tipo de gráfico base (B10).
     Select Case LCase(Trim(Me.Range("B10").Value))
         Case "barras":            ch.ChartType = xlBarClustered
         Case "líneas", "lineas":  ch.ChartType = xlLineMarkers
@@ -68,9 +87,8 @@ Private Sub AplicarGrafico()
         Case Else:                ch.ChartType = xlColumnClustered  ' "Columnas"
     End Select
 
-    ' Combo: en columnas y con benchmark, el benchmark se dibuja como LÍNEA.
-    If LCase(Trim(Me.Range("B10").Value)) = "columnas" _
-       And Me.Range("B9").Value = "Con benchmark" Then
+    ' 3) Combo: en columnas y con benchmark, el benchmark se dibuja como LÍNEA.
+    If LCase(Trim(Me.Range("B10").Value)) = "columnas" And conBench Then
         On Error Resume Next
         ch.FullSeriesCollection(2).ChartType = xlLineMarkers
         On Error GoTo 0

@@ -57,7 +57,9 @@ Mecanismo:
 4. El **Periodo** (B8) acota cuántos buckets recientes se muestran en dimensiones
    de tiempo (tabla Periodo×Granularidad); en composición se ignora.
 5. El **gráfico está enlazado a la tabla** → al cambiar un desplegable, recalcula
-   y se redibuja solo. La **macro** ajusta el tipo de gráfico y el combo.
+   y se redibuja solo. La **macro** ajusta el tipo de gráfico, el combo y
+   **reconstruye las series** según el benchmark (con "Sin benchmark" queda una
+   sola serie, sin entrada fantasma en la leyenda).
 
 ## Puesta en marcha (una vez)
 
