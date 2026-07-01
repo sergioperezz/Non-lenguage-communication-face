@@ -100,9 +100,22 @@ PARAMS = {
     "PER": (15.0, 0.80, 1.04), "DividendYield": (2.8, 0.20, 0.95),
 }
 
-PERIODOS = ["MTD", "YTD", "3M", "6M", "1A", "3A"]
-TABLA_N = {"MTD": [1, 1, 1, 1], "YTD": [6, 2, 1, 1], "3M": [3, 1, 1, 1],
-           "6M": [6, 2, 1, 1], "1A": [12, 4, 2, 1], "3A": [36, 12, 6, 3]}
+PERIODOS = ["MTD", "YTD",
+            "1M", "2M", "3M", "4M", "5M", "6M",
+            "1A", "2A", "3A", "4A", "5A", "6A"]
+# Meses que abarca cada periodo (MTD ~1, YTD = meses del año en curso).
+_MESES_PERIODO = {"MTD": 1, "YTD": 6, "1M": 1, "2M": 2, "3M": 3, "4M": 4, "5M": 5,
+                  "6M": 6, "1A": 12, "2A": 24, "3A": 36, "4A": 48, "5A": 60, "6A": 72}
+# Buckets disponibles por granularidad (hay 3 años de datos de ejemplo).
+_COUNTS = [36, 12, 6, 3]  # Mensual, Trimestral, Semestral, Anual
+
+
+def _n_row(meses):
+    raw = [meses, math.ceil(meses / 3), math.ceil(meses / 6), math.ceil(meses / 12)]
+    return [min(r, c) for r, c in zip(raw, _COUNTS)]  # cap a lo disponible
+
+
+TABLA_N = {p: _n_row(_MESES_PERIODO[p]) for p in PERIODOS}
 
 AZUL, GRIS = "FF0072CE", "FFF2F2F2"
 BOLD = Font(bold=True)
@@ -195,6 +208,7 @@ def build() -> Workbook:
 
     grupos_lst = ",".join(GRUPOS)
     dims_lst = ",".join(DIMS)
+    periodos_lst = ",".join(PERIODOS)
     dvs = [
         ("B3", '"Fondo,Cartera,Indice"'),
         ("B4", '=INDIRECT("Ent_"&$B$3)'),
@@ -202,7 +216,7 @@ def build() -> Workbook:
         ("B6", '=INDIRECT("Grupo_"&$B$5)'),
         ("B7", f'"{dims_lst}"'),
         ("B8", '"Todos,RF,RV"'),
-        ("B9", '"MTD,YTD,3M,6M,1A,3A"'),
+        ("B9", f'"{periodos_lst}"'),
         ("B10", '"Con benchmark,Sin benchmark"'),
         ("B11", '"Barras,Líneas"'),
         ("B12", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar"'),

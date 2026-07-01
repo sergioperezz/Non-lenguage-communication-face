@@ -25,7 +25,7 @@ esos datos vendrán de **BigQuery** (por tu driver ODBC).
 | **Métrica** (cascada del grupo) | B6 | p. ej. Riesgo → Duración, TIR, Spread, Volatilidad, Beta |
 | **Dimensión / eje X** | B7 | *Tiempo*: Mensual, Trimestral, Semestral, Anual · *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | B8 | Todos · RF · RV |
-| **Periodo** | B9 | MTD · YTD · 3M · 6M · 1A · 3A |
+| **Periodo** | B9 | MTD · YTD · 1M–6M · 1A–6A |
 | **Benchmark** | B10 | Con benchmark · Sin benchmark |
 | **Estilo benchmark** | B11 | Barras · Líneas |
 | **Tipo de gráfico** | B12 | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
@@ -96,3 +96,5 @@ PowerPoint. Para un clic: Insertar → una Forma/botón → *Asignar macro* →
 - Filtrar a un tipo de activo que la entidad no tiene (p. ej. RF en un índice de
   renta variable) muestra vacío — es el comportamiento esperado.
 - El **Periodo** es una aproximación; en la Fase 2 será un filtro de fechas exacto.
+- Solo hay **3 años** de datos de ejemplo, así que 3A/4A/5A/6A muestran lo mismo
+  (todo lo disponible). Con datos reales, cada plazo mostrará su histórico.

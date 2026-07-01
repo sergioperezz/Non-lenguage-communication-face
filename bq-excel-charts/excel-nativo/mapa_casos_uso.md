@@ -14,7 +14,7 @@
 | **Métrica** (cascada del grupo) | Rend.: Rentabilidad, Rentab. acum. · Riesgo: Duración, TIR, Spread, Volatilidad, Beta · Comp.: Peso · Costes: TER · Liquidez: Liquidez · Valor.: PER, DividendYield |
 | **Dimensión (eje X)** | *Tiempo*: Mensual, Trimestral, Semestral, Anual — *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | Todos · RF · RV *(útil en fondos mixtos)* |
-| **Periodo** | MTD · YTD · 3M · 6M · 1A · 3A |
+| **Periodo** | MTD · YTD · 1M–6M · 1A–6A |
 | **Benchmark** | Con benchmark · Sin benchmark |
 | **Estilo benchmark** | Barras · Líneas |
 | **Gráfico** | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
