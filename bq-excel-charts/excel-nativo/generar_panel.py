@@ -246,13 +246,19 @@ def build() -> Workbook:
         ws.cell(row=r, column=5).number_format = "#,##0.00"
         ws.cell(row=r, column=6).number_format = "#,##0.00"
 
-    # Gráfico
+    # Gráfico. Rango inicial = categorías visibles por defecto (la macro lo hace
+    # dinámico luego). Con B6=Trimestral y B8=3A -> 12 categorías.
+    vis0 = TABLA_N["3A"][DIM_TIEMPO.index("Trimestral")]
+    last = 2 + vis0
     chart = BarChart()
     chart.type = "col"
     chart.title = "Cartera vs Benchmark"
     chart.height = 8.5
     chart.width = 18
-    last = 2 + MAX_CATS
+    chart.y_axis.title = "Duración"      # métrica por defecto (la macro lo actualiza)
+    chart.x_axis.title = "Trimestral"    # dimensión por defecto
+    chart.y_axis.delete = False
+    chart.x_axis.delete = False
     chart.add_data(Reference(ws, min_col=5, max_col=6, min_row=2, max_row=last),
                    titles_from_data=True)
     chart.set_categories(Reference(ws, min_col=4, min_row=3, max_row=last))

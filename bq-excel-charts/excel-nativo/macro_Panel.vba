@@ -58,34 +58,42 @@ Private Sub AjustarSeleccion(ByVal celda As String, ByVal nombreLista As String)
     If Not valido Then Me.Range(celda).Value = rng.Cells(1, 1).Value
 End Sub
 
-' Reconstruye las series según "Benchmark", aplica el tipo de gráfico y el combo.
+' Reconstruye las series (rango dinámico), aplica tipo, combo, título y ejes.
 Private Sub AplicarGrafico()
-    Dim ch As Chart, s As Series, conBench As Boolean
+    Dim ch As Chart, s As Series, conBench As Boolean, tipo As String
+    Dim vis As Long, lastRow As Long, rng As String
     On Error Resume Next
     Set ch = Me.ChartObjects(1).Chart
     On Error GoTo 0
     If ch Is Nothing Then Exit Sub
 
     conBench = (Me.Range("B9").Value = "Con benchmark")
+    tipo = LCase(Trim(Me.Range("B10").Value))
 
-    ' 1) Reconstruir series: así "Sin benchmark" deja UNA sola serie (sin entrada
-    '    fantasma en la leyenda). Filas 3:38 = la tabla de resultados (36 categorías).
+    ' Nº de categorías visibles (B12) -> última fila de datos del gráfico.
+    ' Así el gráfico muestra SOLO las categorías activas (5 para Geografía, 36
+    ' para Mensual...), sin filas vacías ni línea del benchmark cruzando ceros.
+    vis = Me.Range("B12").Value
+    If vis < 1 Then vis = 1
+    lastRow = 2 + vis
+
+    ' 1) Reconstruir series con rango dinámico. "Sin benchmark" -> una sola serie.
     Do While ch.SeriesCollection.Count > 0
         ch.SeriesCollection(1).Delete
     Loop
     Set s = ch.SeriesCollection.NewSeries          ' Cartera
     s.Name = "=Panel!$E$2"
-    s.Values = "=Panel!$E$3:$E$38"
-    s.XValues = "=Panel!$D$3:$D$38"
+    s.Values = "=Panel!$E$3:$E$" & lastRow
+    s.XValues = "=Panel!$D$3:$D$" & lastRow
     If conBench Then
         Set s = ch.SeriesCollection.NewSeries      ' Benchmark
         s.Name = "=Panel!$F$2"
-        s.Values = "=Panel!$F$3:$F$38"
-        s.XValues = "=Panel!$D$3:$D$38"
+        s.Values = "=Panel!$F$3:$F$" & lastRow
+        s.XValues = "=Panel!$D$3:$D$" & lastRow
     End If
 
     ' 2) Tipo de gráfico base (B10).
-    Select Case LCase(Trim(Me.Range("B10").Value))
+    Select Case tipo
         Case "barras":            ch.ChartType = xlBarClustered
         Case "líneas", "lineas":  ch.ChartType = xlLineMarkers
         Case "área", "area":      ch.ChartType = xlArea
@@ -96,16 +104,24 @@ Private Sub AplicarGrafico()
     End Select
 
     ' 3) Combo: en columnas y con benchmark, el benchmark se dibuja como LÍNEA.
-    If LCase(Trim(Me.Range("B10").Value)) = "columnas" And conBench Then
+    If tipo = "columnas" And conBench Then
         On Error Resume Next
         ch.FullSeriesCollection(2).ChartType = xlLineMarkers
         On Error GoTo 0
     End If
 
-    ' 4) Título dinámico: refleja fondo · métrica · dimensión · periodo (celda A15).
+    ' 4) Título del gráfico (celda A15: fondo · métrica · dimensión · periodo).
     On Error Resume Next
     ch.HasTitle = True
     ch.ChartTitle.Text = Me.Range("A15").Value
+
+    ' 5) Títulos de eje: Y = métrica, X = dimensión (no en circular/anillo/radar).
+    If tipo <> "circular" And tipo <> "anillo" And tipo <> "radar" Then
+        ch.Axes(xlValue).HasTitle = True
+        ch.Axes(xlValue).AxisTitle.Text = Me.Range("B5").Value       ' métrica
+        ch.Axes(xlCategory).HasTitle = True
+        ch.Axes(xlCategory).AxisTitle.Text = Me.Range("B6").Value    ' dimensión
+    End If
     On Error GoTo 0
 End Sub
 
