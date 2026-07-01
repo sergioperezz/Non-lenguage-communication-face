@@ -164,6 +164,10 @@ def build() -> Workbook:
 
     for tipo_ent, letter in {"Fondo": "A", "Cartera": "B", "Indice": "C"}.items():
         name(f"Ent_{tipo_ent}", col(letter, f"Ent_{tipo_ent}", list(ENTIDADES[tipo_ent])))
+    # Listas para los comparadores opcionales: "(ninguna)" + entidades.
+    for tipo_ent, letter in {"Fondo": "AD", "Cartera": "AE", "Indice": "AF"}.items():
+        name(f"Ent_{tipo_ent}_opt",
+             col(letter, f"Ent_{tipo_ent}_opt", ["(ninguna)"] + list(ENTIDADES[tipo_ent])))
 
     grp_cols = ["D", "E", "F", "G", "H", "I"]
     for letter, g in zip(grp_cols, GRUPOS):
@@ -197,7 +201,7 @@ def build() -> Workbook:
         ws[celda] = txt
         ws[celda].font = BOLD
     defaults = {
-        "B3": "Fondo", "B4": "RF Privada A", "B5": "", "B6": "", "B7": "Riesgo",
+        "B3": "Fondo", "B4": "RF Privada A", "B5": "(ninguna)", "B6": "(ninguna)", "B7": "Riesgo",
         "B8": "Duración", "B9": "Trimestral", "B10": "Todos", "B11": "3A",
         "B12": "Con benchmark", "B13": "Líneas", "B14": "Columnas",
     }
@@ -211,8 +215,8 @@ def build() -> Workbook:
     dvs = [
         ("B3", '"Fondo,Cartera,Indice"', False),
         ("B4", '=INDIRECT("Ent_"&$B$3)', False),
-        ("B5", '=INDIRECT("Ent_"&$B$3)', True),      # opcional (puede quedar vacío)
-        ("B6", '=INDIRECT("Ent_"&$B$3)', True),      # opcional
+        ("B5", '=INDIRECT("Ent_"&$B$3&"_opt")', True),   # opcional: incluye "(ninguna)"
+        ("B6", '=INDIRECT("Ent_"&$B$3&"_opt")', True),   # opcional
         ("B7", f'"{grupos_lst}"', False),
         ("B8", '=INDIRECT("Grupo_"&$B$7)', False),
         ("B9", f'"{dims_lst}"', False),
@@ -245,7 +249,10 @@ def build() -> Workbook:
 
     # Tabla de resultados: Categoría | Ent1 | Ent2 | Ent3 | Benchmark
     ws["D2"] = "Categoría"
-    ws["E2"], ws["F2"], ws["G2"], ws["H2"] = "=B4", "=B5", "=B6", "Benchmark"
+    ws["E2"] = "=B4"
+    ws["F2"] = '=IF(B5="(ninguna)","",B5)'
+    ws["G2"] = '=IF(B6="(ninguna)","",B6)'
+    ws["H2"] = "Benchmark"
     for celda in ("D2", "E2", "F2", "G2", "H2"):
         ws[celda].font = BOLD_WHITE
         ws[celda].fill = PatternFill("solid", fgColor=AZUL)
@@ -265,9 +272,9 @@ def build() -> Workbook:
         ws.cell(row=r, column=5, value=(
             f'=IF(OR($B$4="",$D{r}=""),"",{sumifs("$B$4", "Cartera").format(r=r)})'))
         ws.cell(row=r, column=6, value=(
-            f'=IF(OR($B$5="",$D{r}=""),"",{sumifs("$B$5", "Cartera").format(r=r)})'))
+            f'=IF(OR($B$5="",$B$5="(ninguna)",$D{r}=""),"",{sumifs("$B$5", "Cartera").format(r=r)})'))
         ws.cell(row=r, column=7, value=(
-            f'=IF(OR($B$6="",$D{r}=""),"",{sumifs("$B$6", "Cartera").format(r=r)})'))
+            f'=IF(OR($B$6="",$B$6="(ninguna)",$D{r}=""),"",{sumifs("$B$6", "Cartera").format(r=r)})'))
         ws.cell(row=r, column=8, value=(
             f'=IF(OR($B$12="Sin benchmark",$B$4="",$D{r}=""),"",'
             f'{sumifs("$B$4", "Benchmark").format(r=r)})'))

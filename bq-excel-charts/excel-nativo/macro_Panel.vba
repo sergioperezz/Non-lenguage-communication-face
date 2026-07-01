@@ -23,8 +23,8 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     ' Al cambiar el TIPO de entidad: ajustar Entidad 1 y limpiar comparadores inválidos.
     If Not Intersect(Target, Me.Range("B3")) Is Nothing Then
         AjustarSeleccion "B4", "Ent_" & Me.Range("B3").Value
-        LimpiarSiInvalida "B5", "Ent_" & Me.Range("B3").Value
-        LimpiarSiInvalida "B6", "Ent_" & Me.Range("B3").Value
+        Me.Range("B5").Value = "(ninguna)"   ' resetear comparadores al cambiar de tipo
+        Me.Range("B6").Value = "(ninguna)"
     End If
     ' Al cambiar el GRUPO de métrica: ajustar la métrica.
     If Not Intersect(Target, Me.Range("B7")) Is Nothing Then
@@ -60,24 +60,12 @@ Private Sub AjustarSeleccion(ByVal celda As String, ByVal nombreLista As String)
     If Not valido Then Me.Range(celda).Value = rng.Cells(1, 1).Value
 End Sub
 
-' Como AjustarSeleccion pero para celdas opcionales: si no es válida, la vacía.
-Private Sub LimpiarSiInvalida(ByVal celda As String, ByVal nombreLista As String)
-    Dim rng As Range, c As Range, valido As Boolean
-    If Me.Range(celda).Value = "" Then Exit Sub
-    On Error Resume Next
-    Set rng = ThisWorkbook.Names(nombreLista).RefersToRange
-    On Error GoTo 0
-    If rng Is Nothing Then Exit Sub
-    For Each c In rng.Cells
-        If c.Value = Me.Range(celda).Value Then valido = True
-    Next c
-    If Not valido Then Me.Range(celda).Value = ""
-End Sub
-
-' Añade una serie de entidad (columna colLetter) si su slot no está vacío.
+' Añade una serie de entidad (columna colLetter) si el slot tiene una entidad
+' real (ni vacío ni "(ninguna)").
 Private Sub AddEnt(ByVal ch As Chart, ByVal slotCell As String, ByVal colLetter As String, ByVal lastRow As Long)
-    Dim s As Series
-    If Trim(Me.Range(slotCell).Value) = "" Then Exit Sub
+    Dim s As Series, v As String
+    v = Trim(Me.Range(slotCell).Value)
+    If v = "" Or v = "(ninguna)" Then Exit Sub
     Set s = ch.SeriesCollection.NewSeries
     s.Name = "=Panel!$" & colLetter & "$2"          ' cabecera = nombre de la entidad
     s.Values = "=Panel!$" & colLetter & "$3:$" & colLetter & "$" & lastRow
