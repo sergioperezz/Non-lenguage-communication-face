@@ -29,8 +29,8 @@ esos datos vendrán de **BigQuery** (por tu driver ODBC).
 | **Filtro: tipo de activo** | B10 | Todos · RF · RV |
 | **Periodo** | B11 | MTD · YTD · 1M–6M · 1A–6A |
 | **Benchmark** | B12 | Con benchmark · Sin benchmark (de la Entidad 1) |
-| **Estilo benchmark** | B13 | Barras · Líneas |
-| **Tipo de gráfico** | B14 | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
+| **Estilo benchmark** | B13 | Barras · Líneas · **Puntos** |
+| **Tipo de gráfico** | B14 | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar · **Apiladas** · **100% apiladas** |
 
 > Nota: los tokens **Indice**, **Composicion**, **Valoracion**, **Geografia** van
 > **sin tilde** en los desplegables (Excel los usa para nombres internos vía `INDIRECT`).
@@ -74,6 +74,30 @@ PowerPoint. Un clic: Insertar → una Forma → *Asignar macro* → `CopiarAPowe
 
 - Edita la hoja **Datos**/**Listas**, o regenera con `generar_panel.py`
   (ENTIDADES, GRUPOS, DIMS, CATEGORIAS, PARAMS). Tras regenerar, repega la macro.
+
+## Hoja "Tablas" (generador de tablas)
+
+Además del panel de gráficos, la hoja **Tablas** genera tablas formateadas desde
+los mismos datos, con **formato condicional**:
+- **Mapa de calor** (escala de color verde-amarillo-rojo): filas = entidades del
+  tipo elegido, columnas = categorías de la dimensión, valor = métrica. Selectores
+  en B3 (tipo entidad), B4 (métrica), B5 (dimensión de columnas), B6 (serie).
+- **Barras de datos** (data bars) en una columna de valores por entidad.
+- Todo con `SUMIFS` + formato condicional; **sin macro**.
+
+Cubre los casos "Mapa de Calor RF" y "Comportamiento de mercados" de los decks.
+Pendiente (siguiente paso): variante **+/- verde/rojo** por celda y tablas de
+**posiciones/holdings**.
+
+## Pendiente de implementar (siguiente paso)
+
+- **Dispersión (riesgo-retorno)**: necesita un modo con **dos métricas** (X e Y)
+  y un punto por entidad. Es un modo aparte; se hará con pruebas en tu Excel.
+- **Sectorial apilado + eje secundario** (distribución sectorial con puntos de
+  tracking error): junta apiladas por componentes + eje secundario.
+- Nota: **Apiladas / 100% apiladas** apilan las **series seleccionadas** (las
+  entidades). La composición apilada por *componentes* (sub-industrias) es el modo
+  avanzado de arriba.
 
 ## Puente a la Fase 2 (BigQuery)
 

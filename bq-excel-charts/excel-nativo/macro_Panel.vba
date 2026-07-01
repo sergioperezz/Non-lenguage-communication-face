@@ -115,17 +115,23 @@ Private Sub AplicarGrafico()
         Case "circular":          ch.ChartType = xlPie
         Case "anillo":            ch.ChartType = xlDoughnut
         Case "radar":             ch.ChartType = xlRadarMarkers
+        Case "apiladas":          ch.ChartType = xlColumnStacked
+        Case "100% apiladas":     ch.ChartType = xlColumnStacked100
         Case Else:                ch.ChartType = xlColumnClustered  ' "Columnas"
     End Select
 
-    ' Estilo del benchmark (B13): su serie se dibuja como Barras o Líneas.
+    ' Estilo del benchmark (B13): su serie se dibuja como Barras, Líneas o Puntos.
     If benchIdx > 0 Then
         On Error Resume Next
-        If benchLinea Then
-            ch.FullSeriesCollection(benchIdx).ChartType = xlLineMarkers
-        Else
-            ch.FullSeriesCollection(benchIdx).ChartType = xlColumnClustered
-        End If
+        Select Case LCase(Trim(Me.Range("B13").Value))
+            Case "líneas", "lineas"
+                ch.FullSeriesCollection(benchIdx).ChartType = xlLineMarkers
+            Case "puntos"
+                ch.FullSeriesCollection(benchIdx).ChartType = xlLineMarkers
+                ch.FullSeriesCollection(benchIdx).Format.Line.Visible = msoFalse  ' solo marcadores
+            Case Else  ' Barras
+                ch.FullSeriesCollection(benchIdx).ChartType = xlColumnClustered
+        End Select
         On Error GoTo 0
     End If
 

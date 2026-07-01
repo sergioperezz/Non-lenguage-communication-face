@@ -23,7 +23,9 @@ from pathlib import Path
 
 from openpyxl import Workbook
 from openpyxl.chart import BarChart, Reference
+from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
 
@@ -223,8 +225,8 @@ def build() -> Workbook:
         ("B10", '"Todos,RF,RV"', False),
         ("B11", f'"{periodos_lst}"', False),
         ("B12", '"Con benchmark,Sin benchmark"', False),
-        ("B13", '"Barras,Líneas"', False),
-        ("B14", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar"', False),
+        ("B13", '"Barras,Líneas,Puntos"', False),
+        ("B14", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar,Apiladas,100% apiladas"', False),
     ]
     for celda, formula, blank in dvs:
         dv = DataValidation(type="list", formula1=formula, allow_blank=blank)
@@ -301,7 +303,84 @@ def build() -> Workbook:
     for c, w in {"A": 20, "B": 22, "D": 16, "E": 14, "F": 14, "G": 14, "H": 12}.items():
         ws.column_dimensions[c].width = w
 
+    build_tablas(wb, n)
     return wb
+
+
+def build_tablas(wb, n):
+    """Hoja 'Tablas': generador de mapa de calor (entidades x categorías) con
+    escala de color, y una columna con barras de datos. Todo con fórmulas
+    (SUMIFS) + formato condicional; sin macro."""
+    ws = wb.create_sheet("Tablas")
+    ws.sheet_view.showGridLines = False
+    ws["A1"] = "Generador de tablas — Mapa de calor"
+    ws["A1"].font = Font(bold=True, size=14)
+
+    for celda, txt in {"A3": "Tipo de entidad", "A4": "Métrica",
+                       "A5": "Dimensión (columnas)", "A6": "Serie"}.items():
+        ws[celda] = txt
+        ws[celda].font = BOLD
+    ws["B3"], ws["B4"], ws["B5"], ws["B6"] = "Cartera", "Rentabilidad", "Anual", "Cartera"
+    for celda in ("B3", "B4", "B5", "B6"):
+        ws[celda].fill = PatternFill("solid", fgColor=GRIS)
+
+    dvs = [
+        ("B3", '"Fondo,Cartera,Indice"'),
+        ("B4", f'"{",".join(ALL_METRICS)}"'),
+        ("B5", f'"{",".join(DIMS)}"'),
+        ("B6", '"Cartera,Benchmark"'),
+    ]
+    for celda, formula in dvs:
+        dv = DataValidation(type="list", formula1=formula, allow_blank=False)
+        ws.add_data_validation(dv)
+        dv.add(ws[celda])
+
+    HDR, NCOL, NROW = 8, 8, 8  # fila cabecera, nº columnas y filas de la tabla
+    ws.cell(HDR, 1, "Entidad \\ Categoría").font = BOLD
+    for j in range(NCOL):
+        c = ws.cell(HDR, 2 + j, f'=IFERROR(INDEX(INDIRECT("Cat_"&$B$5),{j + 1}),"")')
+        c.font = BOLD_WHITE
+        c.fill = PatternFill("solid", fgColor=AZUL)
+    for i in range(NROW):
+        r = HDR + 1 + i
+        ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")').font = BOLD
+        for j in range(NCOL):
+            cc = 2 + j
+            cl = get_column_letter(cc)
+            ws.cell(r, cc, (
+                f'=IF(OR($A{r}="",{cl}${HDR}=""),"",'
+                f'SUMIFS(Datos!$G$2:$G${n},Datos!$A$2:$A${n},$A{r},'
+                f'Datos!$C$2:$C${n},$B$4,Datos!$D$2:$D${n},$B$5,'
+                f'Datos!$E$2:$E${n},{cl}${HDR},Datos!$F$2:$F${n},$B$6))'
+            ))
+            ws.cell(r, cc).number_format = "#,##0.00"
+
+    body = f"B{HDR + 1}:{get_column_letter(1 + NCOL)}{HDR + NROW}"
+    ws.conditional_formatting.add(body, ColorScaleRule(
+        start_type="min", start_color="F8696B",          # rojo (bajo)
+        mid_type="percentile", mid_value=50, mid_color="FFEB84",  # amarillo
+        end_type="max", end_color="63BE7B"))             # verde (alto)
+
+    # Segunda tabla: una métrica por entidad con BARRAS DE DATOS (estilo "mercados").
+    r0 = HDR + NROW + 3
+    ws.cell(r0, 1, "Con barras de datos (1ª categoría)").font = BOLD
+    ws.cell(r0 + 1, 1, "Entidad").font = BOLD_WHITE
+    ws.cell(r0 + 1, 1).fill = PatternFill("solid", fgColor=AZUL)
+    ws.cell(r0 + 1, 2, "Valor").font = BOLD_WHITE
+    ws.cell(r0 + 1, 2).fill = PatternFill("solid", fgColor=AZUL)
+    for i in range(NROW):
+        r = r0 + 2 + i
+        ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")')
+        ws.cell(r, 2, f'=IF($A{r}="","",B{HDR + 1 + i})')  # reutiliza la 1ª columna del heatmap
+        ws.cell(r, 2).number_format = "#,##0.00"
+    ws.conditional_formatting.add(
+        f"B{r0 + 2}:B{r0 + 1 + NROW}",
+        DataBarRule(start_type="min", end_type="max", color="0072CE"))
+
+    ws.column_dimensions["A"].width = 24
+    for j in range(NCOL):
+        ws.column_dimensions[get_column_letter(2 + j)].width = 12
+    return ws
 
 
 if __name__ == "__main__":
