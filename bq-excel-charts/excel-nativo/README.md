@@ -97,6 +97,16 @@ la **Contribución al Tracking Error** en un **eje secundario**. Selector de
 entidad en B3; la tabla se calcula con `SUMIFS` (hoja `DatosSector`) y el gráfico
 combo está construido con openpyxl — **sin macro**.
 
+## Hoja "Comparativa" (eje X = carteras + columnas *diff*)
+
+Reproduce el caso **"Comportamiento de las Carteras"** (DPM Global Managers) de
+los decks: el **eje X es la lista de carteras** (no tiempo ni composición) y por
+cada cartera hay **columnas agrupadas** de varias versiones (**Gestionada / IMP /
+Benchmark**), más una tabla con columnas **"diff"** (cartera − benchmark) en
+**verde/rojo** según el signo. Es un **corte transversal**: aquí las entidades son
+las *categorías*, al revés que en el Panel (donde son *series*). Selectores: B3
+(tipo entidad) y B4 (métrica); tabla con `SUMIFS` (hoja `DatosComp`) — **sin macro**.
+
 ## Pendiente de implementar (siguiente paso)
 
 - **Dispersión (riesgo-retorno)**: necesita un modo con **dos métricas** (X e Y)

@@ -26,7 +26,7 @@ from openpyxl.chart import BarChart, LineChart, Reference
 from openpyxl.chart.marker import Marker
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.drawing.line import LineProperties
-from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
+from openpyxl.formatting.rule import CellIsRule, ColorScaleRule, DataBarRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
@@ -308,7 +308,109 @@ def build() -> Workbook:
 
     build_tablas(wb, n)
     build_sectorial(wb)
+    build_comparativa(wb)
     return wb
+
+
+def build_comparativa(wb):
+    """Hoja 'Comparativa': eje X = LISTA DE CARTERAS, con varias versiones por
+    cartera en columnas AGRUPADAS (Gestionada / IMP / Benchmark) + una tabla con
+    columnas 'diff' (cartera - benchmark) en verde/rojo. Reproduce el caso
+    'Comportamiento de las Carteras' (DPM Global Managers) de los decks. Es un
+    corte transversal: las entidades son las categorías, no las series. Su tabla
+    se calcula con SUMIFS (hoja 'DatosComp') -> sin macro."""
+    VERSIONES = ["Gestionada", "IMP", "Benchmark"]
+
+    # Datos de ejemplo (Entidad | Metrica | Version | Valor): un valor escalar por
+    # cartera y versión (snapshot del periodo, como el "MTD return" del deck).
+    ws_d = wb.create_sheet("DatosComp")
+    ws_d.append(["Entidad", "Metrica", "Version", "Valor"])
+    for c in ws_d[1]:
+        c.font = BOLD
+    for ei, ent in enumerate(_ENT_LIST):
+        for met in ALL_METRICS:
+            base = _valor(met, 0, ei)
+            factor = PARAMS[met][2]
+            vals = {
+                "Gestionada": base,
+                "IMP": round(base * (1.0 + 0.06 * math.sin(ei + 1)), 2),
+                "Benchmark": round(base * factor, 2),
+            }
+            for ver in VERSIONES:
+                ws_d.append([ent, met, ver, vals[ver]])
+    n3 = ws_d.max_row
+
+    ws = wb.create_sheet("Comparativa")
+    ws.sheet_view.showGridLines = False
+    ws["A1"] = "Comparativa de carteras (eje X = carteras) + columnas 'diff'"
+    ws["A1"].font = Font(bold=True, size=13)
+
+    for celda, txt in {"A3": "Tipo de entidad", "A4": "Métrica"}.items():
+        ws[celda] = txt
+        ws[celda].font = BOLD
+    ws["B3"], ws["B4"] = "Cartera", "Rentabilidad"
+    for celda in ("B3", "B4"):
+        ws[celda].fill = PatternFill("solid", fgColor=GRIS)
+    dvs = [
+        ("B3", '"Fondo,Cartera,Indice"'),
+        ("B4", f'"{",".join(ALL_METRICS)}"'),
+    ]
+    for celda, formula in dvs:
+        dv = DataValidation(type="list", formula1=formula, allow_blank=False)
+        ws.add_data_validation(dv)
+        dv.add(ws[celda])
+
+    # Nº máximo de entidades de un tipo (Cartera = 4).
+    NROW = max(len(e) for e in ENTIDADES.values())
+    HDR = 6
+    headers = ["Cartera"] + VERSIONES + ["Dif. vs Bench", "Dif. IMP vs Bench"]
+    for j, h in enumerate(headers):
+        c = ws.cell(HDR, 1 + j, h)
+        c.font = BOLD_WHITE
+        c.fill = PatternFill("solid", fgColor=AZUL)
+    for i in range(NROW):
+        r = HDR + 1 + i
+        ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")').font = BOLD
+        for j, ver in enumerate(VERSIONES):
+            ws.cell(r, 2 + j, (
+                f'=IF($A{r}="","",SUMIFS(DatosComp!$D$2:$D${n3},'
+                f'DatosComp!$A$2:$A${n3},$A{r},DatosComp!$B$2:$B${n3},$B$4,'
+                f'DatosComp!$C$2:$C${n3},"{ver}"))'
+            ))
+            ws.cell(r, 2 + j).number_format = "#,##0.00"
+        # Columnas diff: Gestionada - Benchmark, IMP - Benchmark.
+        ws.cell(r, 5, f'=IF($A{r}="","",B{r}-D{r})')
+        ws.cell(r, 6, f'=IF($A{r}="","",C{r}-D{r})')
+        for cc in (5, 6):
+            ws.cell(r, cc).number_format = "+#,##0.00;-#,##0.00;0.00"
+    last = HDR + NROW
+
+    # Columnas AGRUPADAS: una serie por versión, categorías = carteras.
+    bar = BarChart()
+    bar.type = "col"
+    bar.grouping = "clustered"
+    bar.title = "Comportamiento de las carteras"
+    bar.height, bar.width = 9, 19
+    bar.add_data(Reference(ws, min_col=2, max_col=1 + len(VERSIONES),
+                           min_row=HDR, max_row=last), titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=1, min_row=HDR + 1, max_row=last))
+    bar.y_axis.title = "Valor"
+    bar.x_axis.title = "Cartera"
+    bar.y_axis.delete = False
+    bar.x_axis.delete = False
+    ws.add_chart(bar, "I3")
+
+    # Diff en verde (positivo) / rojo (negativo), como el "diff Return" del deck.
+    diff_rng = f"E{HDR + 1}:F{last}"
+    ws.conditional_formatting.add(diff_rng, CellIsRule(
+        operator="greaterThan", formula=["0"], font=Font(color="FF107C41")))
+    ws.conditional_formatting.add(diff_rng, CellIsRule(
+        operator="lessThan", formula=["0"], font=Font(color="FFC00000")))
+
+    ws.column_dimensions["A"].width = 22
+    for cl in ("B", "C", "D", "E", "F"):
+        ws.column_dimensions[cl].width = 15
+    return ws
 
 
 def build_sectorial(wb):
