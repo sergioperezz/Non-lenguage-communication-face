@@ -89,15 +89,21 @@ Cubre los casos "Mapa de Calor RF" y "Comportamiento de mercados" de los decks.
 Pendiente (siguiente paso): variante **+/- verde/rojo** por celda y tablas de
 **posiciones/holdings**.
 
+## Hoja "Sectorial" (apilado + eje secundario)
+
+Reproduce la **"Distribución sectorial"** de los decks: columnas **apiladas** por
+componentes (Large/Mid/Small Cap) por sector, **más** una serie de **puntos** con
+la **Contribución al Tracking Error** en un **eje secundario**. Selector de
+entidad en B3; la tabla se calcula con `SUMIFS` (hoja `DatosSector`) y el gráfico
+combo está construido con openpyxl — **sin macro**.
+
 ## Pendiente de implementar (siguiente paso)
 
 - **Dispersión (riesgo-retorno)**: necesita un modo con **dos métricas** (X e Y)
   y un punto por entidad. Es un modo aparte; se hará con pruebas en tu Excel.
-- **Sectorial apilado + eje secundario** (distribución sectorial con puntos de
-  tracking error): junta apiladas por componentes + eje secundario.
-- Nota: **Apiladas / 100% apiladas** apilan las **series seleccionadas** (las
-  entidades). La composición apilada por *componentes* (sub-industrias) es el modo
-  avanzado de arriba.
+- Nota: en el panel, **Apiladas / 100% apiladas** apilan las **series
+  seleccionadas** (las entidades). La composición apilada por *componentes*
+  (sub-industrias/caps) es la **hoja Sectorial** de arriba.
 
 ## Puente a la Fase 2 (BigQuery)
 

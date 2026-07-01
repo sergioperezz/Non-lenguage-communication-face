@@ -22,7 +22,10 @@ import math
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.chart import BarChart, Reference
+from openpyxl.chart import BarChart, LineChart, Reference
+from openpyxl.chart.marker import Marker
+from openpyxl.chart.shapes import GraphicalProperties
+from openpyxl.drawing.line import LineProperties
 from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
@@ -304,7 +307,99 @@ def build() -> Workbook:
         ws.column_dimensions[c].width = w
 
     build_tablas(wb, n)
+    build_sectorial(wb)
     return wb
+
+
+def build_sectorial(wb):
+    """Hoja 'Sectorial': columnas APILADAS (componentes por sector) + serie de
+    puntos en EJE SECUNDARIO (Contribución al Tracking Error). Combo construido
+    con openpyxl y enlazado a una tabla SUMIFS -> sin macro."""
+    SECTORS = CATEGORIAS["Sector"]
+    COMPONENTES = ["Large Cap", "Mid Cap", "Small Cap"]
+
+    # Datos de ejemplo (Entidad | Sector | Serie | Valor); Serie = componente o TE.
+    ws_d = wb.create_sheet("DatosSector")
+    ws_d.append(["Entidad", "Sector", "Serie", "Valor"])
+    for c in ws_d[1]:
+        c.font = BOLD
+    for ei, ent in enumerate(_ENT_LIST):
+        for si, sec in enumerate(SECTORS):
+            for ci, comp in enumerate(COMPONENTES):
+                v = round(0.15 + 0.10 * ((si + ci) % 3) + 0.05 * abs(math.sin(ei + si + ci)), 3)
+                ws_d.append([ent, sec, comp, v])
+            te = round(0.004 + 0.003 * abs(math.sin(si + ei * 0.5)), 4)
+            ws_d.append([ent, sec, "Tracking Error", te])
+    n2 = ws_d.max_row
+
+    # Lista de todas las entidades para el desplegable.
+    ws_l = wb["Listas"]
+    ws_l.cell(row=1, column=34, value="EntidadesAll").font = BOLD  # col AH
+    for i, e in enumerate(_ENT_LIST, start=2):
+        ws_l.cell(row=i, column=34, value=e)
+    wb.defined_names.add(DefinedName("EntidadesAll",
+                                     attr_text=f"Listas!$AH$2:$AH${1 + len(_ENT_LIST)}"))
+
+    ws = wb.create_sheet("Sectorial")
+    ws.sheet_view.showGridLines = False
+    ws["A1"] = "Distribución sectorial (apilado) + Tracking Error (eje secundario)"
+    ws["A1"].font = Font(bold=True, size=13)
+    ws["A3"] = "Entidad"
+    ws["A3"].font = BOLD
+    ws["B3"] = _ENT_LIST[0]
+    ws["B3"].fill = PatternFill("solid", fgColor=GRIS)
+    dv = DataValidation(type="list", formula1="=EntidadesAll", allow_blank=False)
+    ws.add_data_validation(dv)
+    dv.add(ws["B3"])
+
+    HDR = 5
+    ws.cell(HDR, 1, "Sector").font = BOLD_WHITE
+    ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
+    headers = COMPONENTES + ["Tracking Error"]
+    for j, h in enumerate(headers):
+        c = ws.cell(HDR, 2 + j, h)
+        c.font = BOLD_WHITE
+        c.fill = PatternFill("solid", fgColor=AZUL)
+    for i, sec in enumerate(SECTORS):
+        r = HDR + 1 + i
+        ws.cell(r, 1, sec)
+        for j, h in enumerate(headers):
+            ws.cell(r, 2 + j, (
+                f'=SUMIFS(DatosSector!$D$2:$D${n2},DatosSector!$A$2:$A${n2},$B$3,'
+                f'DatosSector!$B$2:$B${n2},$A{r},DatosSector!$C$2:$C${n2},"{h}")'
+            ))
+            ws.cell(r, 2 + j).number_format = "0.000"
+    last = HDR + len(SECTORS)
+
+    # Columnas apiladas (los componentes)
+    bar = BarChart()
+    bar.type = "col"
+    bar.grouping = "stacked"
+    bar.overlap = 100
+    bar.title = "Distribución sectorial + Tracking Error"
+    bar.height, bar.width = 9, 19
+    bar.add_data(Reference(ws, min_col=2, max_col=1 + len(COMPONENTES),
+                           min_row=HDR, max_row=last), titles_from_data=True)
+    bar.set_categories(Reference(ws, min_col=1, min_row=HDR + 1, max_row=last))
+    bar.y_axis.title = "Peso activo (%)"
+
+    # Serie de puntos (Tracking Error) en eje secundario
+    line = LineChart()
+    line.add_data(Reference(ws, min_col=2 + len(COMPONENTES), max_col=2 + len(COMPONENTES),
+                            min_row=HDR, max_row=last), titles_from_data=True)
+    s = line.series[0]
+    s.marker = Marker(symbol="circle", size=7)
+    s.graphicalProperties = GraphicalProperties()
+    s.graphicalProperties.line = LineProperties(noFill=True)  # solo marcadores, sin línea
+    line.y_axis.axId = 200
+    line.y_axis.title = "Contrib. Tracking Error"
+    bar.y_axis.crosses = "autoZero"
+    line.y_axis.crosses = "max"
+    bar += line
+    ws.add_chart(bar, "H3")
+
+    ws.column_dimensions["A"].width = 16
+    return ws
 
 
 def build_tablas(wb, n):
