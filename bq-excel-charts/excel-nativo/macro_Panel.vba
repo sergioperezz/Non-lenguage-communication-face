@@ -1,14 +1,15 @@
 ' ============================================================================
 '  Macro del PANEL GENÉRICO (Fase 1) + copia a PowerPoint como EMF
-'  Modelo: Fondo -> Grupo de métrica -> Métrica -> Dimensión -> ...
+'  Modelo: Tipo entidad -> Entidad -> Grupo -> Métrica -> Dimensión -> ...
 '
 '  INSTALACIÓN (una vez):
 '   1) PARTE A -> clic derecho en la pestaña "Panel" -> "Ver código" y pega ahí.
 '   2) PARTE B -> Insertar -> Módulo, y pega ahí.
 '   3) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
 '
-'  Controles: B3 Fondo · B4 Grupo · B5 Métrica · B6 Dimensión · B7 Filtro tipo
-'             activo · B8 Periodo · B9 Benchmark (Con/Sin) · B10 Tipo de gráfico
+'  Controles: B3 Tipo entidad · B4 Entidad · B5 Grupo · B6 Métrica · B7 Dimensión
+'   · B8 Filtro tipo activo · B9 Periodo · B10 Benchmark (Con/Sin)
+'   · B11 Estilo benchmark (Barras/Líneas) · B12 Tipo de gráfico
 ' ============================================================================
 
 
@@ -19,24 +20,27 @@ Private Sub Worksheet_Change(ByVal Target As Range)
     Application.EnableEvents = False
     Application.ScreenUpdating = False
 
-    ' Al cambiar el GRUPO de métrica, asegurar que la métrica siga siendo válida.
-    If Not Intersect(Target, Me.Range("B4")) Is Nothing Then
-        AjustarSeleccion "B5", "Grupo_" & Me.Range("B4").Value
+    ' Al cambiar el TIPO de entidad, asegurar que la entidad sea válida.
+    If Not Intersect(Target, Me.Range("B3")) Is Nothing Then
+        AjustarSeleccion "B4", "Ent_" & Me.Range("B3").Value
+    End If
+    ' Al cambiar el GRUPO de métrica, asegurar que la métrica sea válida.
+    If Not Intersect(Target, Me.Range("B5")) Is Nothing Then
+        AjustarSeleccion "B6", "Grupo_" & Me.Range("B5").Value
     End If
 
-    ' Cualquier cambio en B3:B10 -> reconstruye la representación del gráfico.
-    If Not Intersect(Target, Me.Range("B3:B10")) Is Nothing Then AplicarGrafico
+    ' Cualquier cambio en B3:B12 -> reconstruye el gráfico.
+    If Not Intersect(Target, Me.Range("B3:B12")) Is Nothing Then AplicarGrafico
 
     ' --- Fase 2 (BigQuery por Power Query/ODBC): descomenta para refrescar datos ---
-    ' If Not Intersect(Target, Me.Range("B3:B8")) Is Nothing Then ThisWorkbook.RefreshAll
+    ' If Not Intersect(Target, Me.Range("B3:B9")) Is Nothing Then ThisWorkbook.RefreshAll
 
 Salir:
     Application.ScreenUpdating = True
     Application.EnableEvents = True
 End Sub
 
-' Al mostrar la hoja, renderiza el gráfico según los desplegables actuales
-' (así el combo/series correctos se ven sin tener que tocar nada primero).
+' Al mostrar la hoja, renderiza el gráfico según los desplegables actuales.
 Private Sub Worksheet_Activate()
     Application.ScreenUpdating = False
     AplicarGrafico
@@ -58,26 +62,25 @@ Private Sub AjustarSeleccion(ByVal celda As String, ByVal nombreLista As String)
     If Not valido Then Me.Range(celda).Value = rng.Cells(1, 1).Value
 End Sub
 
-' Reconstruye las series (rango dinámico), aplica tipo, combo, título y ejes.
+' Reconstruye las series (rango dinámico), aplica tipo, estilo benchmark, título y ejes.
 Private Sub AplicarGrafico()
     Dim ch As Chart, s As Series, conBench As Boolean, tipo As String
-    Dim vis As Long, lastRow As Long, rng As String
+    Dim benchLinea As Boolean, vis As Long, lastRow As Long
     On Error Resume Next
     Set ch = Me.ChartObjects(1).Chart
     On Error GoTo 0
     If ch Is Nothing Then Exit Sub
 
-    conBench = (Me.Range("B9").Value = "Con benchmark")
-    tipo = LCase(Trim(Me.Range("B10").Value))
+    conBench = (Me.Range("B10").Value = "Con benchmark")
+    benchLinea = (LCase(Trim(Me.Range("B11").Value)) Like "l*")   ' "Líneas"
+    tipo = LCase(Trim(Me.Range("B12").Value))
 
-    ' Nº de categorías visibles (B12) -> última fila de datos del gráfico.
-    ' Así el gráfico muestra SOLO las categorías activas (5 para Geografía, 36
-    ' para Mensual...), sin filas vacías ni línea del benchmark cruzando ceros.
-    vis = Me.Range("B12").Value
+    ' Nº de categorías visibles (B14) -> última fila de datos del gráfico.
+    vis = Me.Range("B14").Value
     If vis < 1 Then vis = 1
     lastRow = 2 + vis
 
-    ' 1) Reconstruir series con rango dinámico. "Sin benchmark" -> una sola serie.
+    ' 1) Reconstruir series con rango dinámico (solo categorías activas).
     Do While ch.SeriesCollection.Count > 0
         ch.SeriesCollection(1).Delete
     Loop
@@ -92,7 +95,7 @@ Private Sub AplicarGrafico()
         s.XValues = "=Panel!$D$3:$D$" & lastRow
     End If
 
-    ' 2) Tipo de gráfico base (B10).
+    ' 2) Tipo de gráfico base (B12).
     Select Case tipo
         Case "barras":            ch.ChartType = xlBarClustered
         Case "líneas", "lineas":  ch.ChartType = xlLineMarkers
@@ -103,24 +106,26 @@ Private Sub AplicarGrafico()
         Case Else:                ch.ChartType = xlColumnClustered  ' "Columnas"
     End Select
 
-    ' 3) Combo: en columnas y con benchmark, el benchmark se dibuja como LÍNEA.
-    If tipo = "columnas" And conBench Then
+    ' 3) Estilo del benchmark (B11): la serie 2 se dibuja como Barras o Líneas.
+    If conBench And ch.SeriesCollection.Count >= 2 Then
         On Error Resume Next
-        ch.FullSeriesCollection(2).ChartType = xlLineMarkers
+        If benchLinea Then
+            ch.FullSeriesCollection(2).ChartType = xlLineMarkers
+        Else
+            ch.FullSeriesCollection(2).ChartType = xlColumnClustered
+        End If
         On Error GoTo 0
     End If
 
-    ' 4) Título del gráfico (celda A15: fondo · métrica · dimensión · periodo).
+    ' 4) Título (A17) y títulos de eje (Y = métrica B6, X = dimensión B7).
     On Error Resume Next
     ch.HasTitle = True
-    ch.ChartTitle.Text = Me.Range("A15").Value
-
-    ' 5) Títulos de eje: Y = métrica, X = dimensión (no en circular/anillo/radar).
+    ch.ChartTitle.Text = Me.Range("A17").Value
     If tipo <> "circular" And tipo <> "anillo" And tipo <> "radar" Then
         ch.Axes(xlValue).HasTitle = True
-        ch.Axes(xlValue).AxisTitle.Text = Me.Range("B5").Value       ' métrica
+        ch.Axes(xlValue).AxisTitle.Text = Me.Range("B6").Value
         ch.Axes(xlCategory).HasTitle = True
-        ch.Axes(xlCategory).AxisTitle.Text = Me.Range("B6").Value    ' dimensión
+        ch.Axes(xlCategory).AxisTitle.Text = Me.Range("B7").Value
     End If
     On Error GoTo 0
 End Sub

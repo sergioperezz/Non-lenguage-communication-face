@@ -42,19 +42,20 @@
 <body>
 <header>
   <h1>Mapa de casos de uso · Panel de gráficos</h1>
-  <p>Cada caso = una combinación de 8 parámetros = una diapositiva. El mismo motor los genera todos.</p>
+  <p>Cada caso = una combinación de 10 parámetros = una diapositiva. El mismo motor los genera todos.</p>
 </header>
 
 <div class="wrap">
 
   <div class="ejes">
-    <div class="eje"><b>Fondo / Cartera</b><span>RF Privada A · Bolsa Europa · Mixto Moderado</span></div>
+    <div class="eje"><b>Tipo de entidad</b><span>Fondo · Cartera · Indice</span></div>
+    <div class="eje"><b>Entidad</b><span>(cascada) el fondo/cartera/índice concreto</span></div>
     <div class="eje"><b>Grupo de métrica</b><span>Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion</span></div>
     <div class="eje"><b>Métrica</b><span>(cascada del grupo) Rentabilidad · Duración · TIR · TER · Volatilidad · Peso · PER…</span></div>
     <div class="eje"><b>Dimensión (eje X)</b><span>Tiempo: Mensual/Trimestral/Semestral/Anual · Composición: Activo/Geografia/Industria/Sector/Divisa/Rating</span></div>
     <div class="eje"><b>Filtro tipo activo</b><span>Todos · RF · RV</span></div>
     <div class="eje"><b>Periodo</b><span>MTD · YTD · 3M · 6M · 1A · 3A</span></div>
-    <div class="eje"><b>Benchmark</b><span>Con benchmark · Sin benchmark</span></div>
+    <div class="eje"><b>Benchmark</b><span>Con · Sin · estilo Barras/Líneas</span></div>
     <div class="eje"><b>Gráfico</b><span>Columnas · Barras · Líneas · Área · Circular · Anillo · Radar</span></div>
   </div>
 
@@ -182,7 +183,7 @@
 
   <div class="leyenda">
     <b>Cómo leer el mapa.</b> Las tarjetas son <b>ejemplos</b> de combinaciones, no plantillas cerradas:
-    el motor admite cualquier combinación de los 8 parámetros. El chip azul es el <b>tipo de gráfico recomendado</b>;
+    el motor admite cualquier combinación de los 10 parámetros. El chip azul es el <b>tipo de gráfico recomendado</b>;
     "Filtro RF/RV" aparece solo cuando se acota el tipo de activo (útil en el fondo mixto).
     <br><br>
     <b>Nota:</b> algunos valores de desplegable van <b>sin tilde</b> (Geografia, Composicion, Valoracion)

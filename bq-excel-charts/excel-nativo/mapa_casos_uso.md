@@ -1,20 +1,22 @@
 # Mapa de casos de uso — Panel de gráficos
 
 > Cada caso = una combinación de parámetros = una diapositiva.
-> Modelo: **Fondo → Grupo de métrica → Métrica → Dimensión → (Filtro) → Periodo → Benchmark → Gráfico**.
+> Modelo: **Tipo entidad → Entidad → Grupo → Métrica → Dimensión → (Filtro) → Periodo → Benchmark (+estilo) → Gráfico**.
 > Las tablas son **ejemplos**, no plantillas cerradas: el motor admite cualquier combinación.
 
 ## El espacio de parámetros
 
 | Parámetro | Valores |
 |---|---|
-| **Fondo / Cartera** | RF Privada A · Bolsa Europa · Mixto Moderado *(y los que añadas)* |
+| **Tipo de entidad** | Fondo · Cartera · Indice |
+| **Entidad** (cascada) | los fondos / carteras / índices de ese tipo |
 | **Grupo de métrica** | Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion |
 | **Métrica** (cascada del grupo) | Rend.: Rentabilidad, Rentab. acum. · Riesgo: Duración, TIR, Spread, Volatilidad, Beta · Comp.: Peso · Costes: TER · Liquidez: Liquidez · Valor.: PER, DividendYield |
 | **Dimensión (eje X)** | *Tiempo*: Mensual, Trimestral, Semestral, Anual — *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | Todos · RF · RV *(útil en fondos mixtos)* |
 | **Periodo** | MTD · YTD · 3M · 6M · 1A · 3A |
 | **Benchmark** | Con benchmark · Sin benchmark |
+| **Estilo benchmark** | Barras · Líneas |
 | **Gráfico** | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
 
 ---
