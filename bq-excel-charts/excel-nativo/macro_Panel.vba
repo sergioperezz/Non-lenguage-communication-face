@@ -75,14 +75,13 @@ End Sub
 ' Reconstruye series (multi-entidad + benchmark), tipo, estilo, título y ejes.
 Private Sub AplicarGrafico()
     Dim ch As Chart, s As Series, conBench As Boolean, tipo As String
-    Dim benchLinea As Boolean, vis As Long, lastRow As Long, benchIdx As Long
+    Dim vis As Long, lastRow As Long, benchIdx As Long
     On Error Resume Next
     Set ch = Me.ChartObjects(1).Chart
     On Error GoTo 0
     If ch Is Nothing Then Exit Sub
 
     conBench = (Me.Range("B12").Value = "Con benchmark")
-    benchLinea = (LCase(Trim(Me.Range("B13").Value)) Like "l*")
     tipo = LCase(Trim(Me.Range("B14").Value))
     vis = Me.Range("B16").Value
     If vis < 1 Then vis = 1
