@@ -1,18 +1,18 @@
-"""Genera el panel GENÉRICO (Fase 1) — modelo Entidad -> Grupo -> Métrica.
+"""Genera el panel GENÉRICO (Fase 1) — con comparación de varias entidades.
 
 Motor guiado por datos. Jerarquía:
 
   Tipo de entidad   -> Fondo / Cartera / Indice
-  Entidad           -> cascada del tipo (el fondo/cartera/índice concreto)
-  Grupo de métrica  -> familia (Rendimiento...)  -> agrupa para no saturar
-  Métrica           -> cascada del grupo
+  Entidad 1         -> cascada del tipo (principal)
+  Entidad 2, 3      -> opcionales, para comparar varias a la vez
+  Grupo de métrica  -> familia; Métrica -> cascada del grupo
   Dimensión (eje X) -> tiempo o composición
-  Filtro Tipo activo-> opcional (Todos/RF/RV)
-  Periodo           -> ventana (MTD/YTD/3M/6M/1A/3A)
-  Benchmark         -> Con / Sin
-  Estilo benchmark  -> Barras / Líneas
+  Filtro Tipo activo-> Todos/RF/RV
+  Periodo           -> MTD/YTD/1M..6M/1A..6A
+  Benchmark         -> Con/Sin (de la Entidad 1) · Estilo Barras/Líneas
   Tipo de gráfico   -> representación
 
+Cada entidad seleccionada es una serie -> permite "cartera A vs cartera B".
 Datos de ejemplo (ficticios). En la Fase 2 vienen de BigQuery por ODBC.
 """
 
@@ -29,8 +29,6 @@ from openpyxl.worksheet.datavalidation import DataValidation
 
 
 # === Modelo ================================================================
-# Tipo de entidad -> {entidad: [tipos de activo que contiene]}. Tokens de tipo
-# SIN acentos ("Indice") porque se usan para nombres definidos vía INDIRECT.
 ENTIDADES = {
     "Fondo": {
         "RF Privada A": ["RF"],
@@ -38,6 +36,8 @@ ENTIDADES = {
         "Mixto Moderado": ["RF", "RV"],
     },
     "Cartera": {
+        "Cartera RF Gobierno": ["RF"],
+        "Cartera RF Crédito": ["RF"],
         "Cartera Conservadora": ["RF", "RV"],
         "Cartera Dinamica": ["RF", "RV"],
     },
@@ -89,8 +89,6 @@ CATEGORIAS = {
     "Rating": ["AAA", "AA", "A", "BBB", "BB", "B"],
 }
 MAX_CATS = max(len(c) for c in CATEGORIAS.values())
-# OJO: la tabla de resultados ocupa las filas 3..(2+MAX_CATS). Con MAX_CATS=36 -> 3:38.
-# El gráfico usa un rango dinámico (la macro lo ajusta a las categorías visibles).
 
 PARAMS = {
     "Rentabilidad": (9.0, 0.60, 0.90), "Rentab. acum.": (12.0, 1.20, 0.90),
@@ -100,31 +98,33 @@ PARAMS = {
     "PER": (15.0, 0.80, 1.04), "DividendYield": (2.8, 0.20, 0.95),
 }
 
-PERIODOS = ["MTD", "YTD",
-            "1M", "2M", "3M", "4M", "5M", "6M",
+PERIODOS = ["MTD", "YTD", "1M", "2M", "3M", "4M", "5M", "6M",
             "1A", "2A", "3A", "4A", "5A", "6A"]
-# Meses que abarca cada periodo (MTD ~1, YTD = meses del año en curso).
 _MESES_PERIODO = {"MTD": 1, "YTD": 6, "1M": 1, "2M": 2, "3M": 3, "4M": 4, "5M": 5,
                   "6M": 6, "1A": 12, "2A": 24, "3A": 36, "4A": 48, "5A": 60, "6A": 72}
-# Buckets disponibles por granularidad (hay 3 años de datos de ejemplo).
-_COUNTS = [36, 12, 6, 3]  # Mensual, Trimestral, Semestral, Anual
+_COUNTS = [36, 12, 6, 3]
 
 
 def _n_row(meses):
     raw = [meses, math.ceil(meses / 3), math.ceil(meses / 6), math.ceil(meses / 12)]
-    return [min(r, c) for r, c in zip(raw, _COUNTS)]  # cap a lo disponible
+    return [min(r, c) for r, c in zip(raw, _COUNTS)]
 
 
 TABLA_N = {p: _n_row(_MESES_PERIODO[p]) for p in PERIODOS}
+
+# Índice de la entidad (columna de datos) y offset por serie/entidad para variar
+# los valores ficticios entre entidades (para que la comparación no salga igual).
+_ENT_LIST = [e for ents in ENTIDADES.values() for e in ents]
 
 AZUL, GRIS = "FF0072CE", "FFF2F2F2"
 BOLD = Font(bold=True)
 BOLD_WHITE = Font(bold=True, color="FFFFFFFF")
 
 
-def _valor(metrica, idx):
+def _valor(metrica, idx, ent_off=0):
     base, paso, _ = PARAMS[metrica]
-    return round(base + paso * (2.0 * math.sin(idx * 0.6) + (idx % 4) - 1.5), 2)
+    return round(base + paso * (2.0 * math.sin((idx + ent_off) * 0.6) + (idx % 4) - 1.5)
+                 + ent_off * paso * 0.4, 2)
 
 
 def build() -> Workbook:
@@ -138,12 +138,13 @@ def build() -> Workbook:
         c.font = BOLD
     for tipo_ent, entidades in ENTIDADES.items():
         for entidad, tipos in entidades.items():
+            ent_off = _ENT_LIST.index(entidad)              # varía entre entidades
             for tipo in tipos:
                 for met in ALL_METRICS:
                     factor = PARAMS[met][2]
                     for dim in DIMS:
                         for idx, cat in enumerate(CATEGORIAS[dim]):
-                            v = _valor(met, idx)
+                            v = _valor(met, idx, ent_off)
                             ws_d.append([entidad, tipo, met, dim, cat, "Cartera", v])
                             ws_d.append([entidad, tipo, met, dim, cat, "Benchmark", round(v * factor, 2)])
     n = ws_d.max_row
@@ -161,9 +162,7 @@ def build() -> Workbook:
     def name(nm, ref):
         wb.defined_names.add(DefinedName(nm, attr_text=ref))
 
-    # Entidades por tipo (cascada)
-    ent_cols = {"Fondo": "A", "Cartera": "B", "Indice": "C"}
-    for tipo_ent, letter in ent_cols.items():
+    for tipo_ent, letter in {"Fondo": "A", "Cartera": "B", "Indice": "C"}.items():
         name(f"Ent_{tipo_ent}", col(letter, f"Ent_{tipo_ent}", list(ENTIDADES[tipo_ent])))
 
     grp_cols = ["D", "E", "F", "G", "H", "I"]
@@ -189,18 +188,18 @@ def build() -> Workbook:
     ws["A1"].font = Font(bold=True, size=14)
 
     etiquetas = {
-        "A3": "Tipo de entidad", "A4": "Entidad", "A5": "Grupo de métrica",
-        "A6": "Métrica", "A7": "Dimensión (eje X)", "A8": "Filtro: tipo de activo",
-        "A9": "Periodo", "A10": "Benchmark", "A11": "Estilo benchmark",
-        "A12": "Tipo de gráfico",
+        "A3": "Tipo de entidad", "A4": "Entidad 1", "A5": "Entidad 2 (opc.)",
+        "A6": "Entidad 3 (opc.)", "A7": "Grupo de métrica", "A8": "Métrica",
+        "A9": "Dimensión (eje X)", "A10": "Filtro: tipo de activo", "A11": "Periodo",
+        "A12": "Benchmark", "A13": "Estilo benchmark", "A14": "Tipo de gráfico",
     }
     for celda, txt in etiquetas.items():
         ws[celda] = txt
         ws[celda].font = BOLD
     defaults = {
-        "B3": "Fondo", "B4": "Mixto Moderado", "B5": "Riesgo", "B6": "Duración",
-        "B7": "Trimestral", "B8": "Todos", "B9": "3A", "B10": "Con benchmark",
-        "B11": "Líneas", "B12": "Columnas",
+        "B3": "Fondo", "B4": "RF Privada A", "B5": "", "B6": "", "B7": "Riesgo",
+        "B8": "Duración", "B9": "Trimestral", "B10": "Todos", "B11": "3A",
+        "B12": "Con benchmark", "B13": "Líneas", "B14": "Columnas",
     }
     for celda, val in defaults.items():
         ws[celda] = val
@@ -210,85 +209,89 @@ def build() -> Workbook:
     dims_lst = ",".join(DIMS)
     periodos_lst = ",".join(PERIODOS)
     dvs = [
-        ("B3", '"Fondo,Cartera,Indice"'),
-        ("B4", '=INDIRECT("Ent_"&$B$3)'),
-        ("B5", f'"{grupos_lst}"'),
-        ("B6", '=INDIRECT("Grupo_"&$B$5)'),
-        ("B7", f'"{dims_lst}"'),
-        ("B8", '"Todos,RF,RV"'),
-        ("B9", f'"{periodos_lst}"'),
-        ("B10", '"Con benchmark,Sin benchmark"'),
-        ("B11", '"Barras,Líneas"'),
-        ("B12", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar"'),
+        ("B3", '"Fondo,Cartera,Indice"', False),
+        ("B4", '=INDIRECT("Ent_"&$B$3)', False),
+        ("B5", '=INDIRECT("Ent_"&$B$3)', True),      # opcional (puede quedar vacío)
+        ("B6", '=INDIRECT("Ent_"&$B$3)', True),      # opcional
+        ("B7", f'"{grupos_lst}"', False),
+        ("B8", '=INDIRECT("Grupo_"&$B$7)', False),
+        ("B9", f'"{dims_lst}"', False),
+        ("B10", '"Todos,RF,RV"', False),
+        ("B11", f'"{periodos_lst}"', False),
+        ("B12", '"Con benchmark,Sin benchmark"', False),
+        ("B13", '"Barras,Líneas"', False),
+        ("B14", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar"', False),
     ]
-    for celda, formula in dvs:
-        dv = DataValidation(type="list", formula1=formula, allow_blank=False)
+    for celda, formula, blank in dvs:
+        dv = DataValidation(type="list", formula1=formula, allow_blank=blank)
         ws.add_data_validation(dv)
         dv.add(ws[celda])
 
     # Helpers
-    ws["A14"] = "Buckets visibles"
-    ws["A14"].font = Font(italic=True, size=9)
-    ws["B14"] = ('=IFERROR(INDEX(TablaN,MATCH($B$9,Periodos,0),MATCH($B$7,DimTiempo,0)),'
-                 'COUNTA(INDIRECT("Cat_"&$B$7)))')
-    ws["A15"] = "Criterio tipo activo"
-    ws["A15"].font = Font(italic=True, size=9)
-    ws["B15"] = '=IF($B$8="Todos","*",$B$8)'
+    ws["A16"] = "Buckets visibles"
+    ws["A16"].font = Font(italic=True, size=9)
+    ws["B16"] = ('=IFERROR(INDEX(TablaN,MATCH($B$11,Periodos,0),MATCH($B$9,DimTiempo,0)),'
+                 'COUNTA(INDIRECT("Cat_"&$B$9)))')
+    ws["A17"] = "Criterio tipo activo"
+    ws["A17"].font = Font(italic=True, size=9)
+    ws["B17"] = '=IF($B$10="Todos","*",$B$10)'
 
     # Título dinámico
-    ws.merge_cells("A17:C17")
-    ws["A17"] = ('="Entidad: "&B4&"  ·  "&B6&" por "&B7&"  ·  "&B9'
-                 '&IF(B10="Con benchmark","  ·  vs benchmark","")')
-    ws["A17"].font = Font(bold=True, size=12, color=AZUL[2:])
-    ws["A17"].alignment = Alignment(horizontal="left")
+    ws.merge_cells("A19:C19")
+    ws["A19"] = ('="Entidad: "&B4&IF(B5<>""," vs "&B5,"")&IF(B6<>""," vs "&B6,"")'
+                 '&"  ·  "&B8&" por "&B9&"  ·  "&B11')
+    ws["A19"].font = Font(bold=True, size=12, color=AZUL[2:])
+    ws["A19"].alignment = Alignment(horizontal="left")
 
-    # Tabla de resultados
-    ws["D2"], ws["E2"], ws["F2"] = "Categoría", "Cartera", "Benchmark"
-    for celda in ("D2", "E2", "F2"):
+    # Tabla de resultados: Categoría | Ent1 | Ent2 | Ent3 | Benchmark
+    ws["D2"] = "Categoría"
+    ws["E2"], ws["F2"], ws["G2"], ws["H2"] = "=B4", "=B5", "=B6", "Benchmark"
+    for celda in ("D2", "E2", "F2", "G2", "H2"):
         ws[celda].font = BOLD_WHITE
         ws[celda].fill = PatternFill("solid", fgColor=AZUL)
 
-    def sumifs(serie):
-        return (
-            f'SUMIFS(Datos!$G$2:$G${n},Datos!$A$2:$A${n},$B$4,'
-            f'Datos!$B$2:$B${n},$B$15,Datos!$C$2:$C${n},$B$6,'
-            f'Datos!$D$2:$D${n},$B$7,Datos!$E$2:$E${n},$D{{r}},'
-            f'Datos!$F$2:$F${n},"{serie}")'
-        )
+    def sumifs(ent, serie):
+        return (f'SUMIFS(Datos!$G$2:$G${n},Datos!$A$2:$A${n},{ent},'
+                f'Datos!$B$2:$B${n},$B$17,Datos!$C$2:$C${n},$B$8,'
+                f'Datos!$D$2:$D${n},$B$9,Datos!$E$2:$E${n},$D{{r}},'
+                f'Datos!$F$2:$F${n},"{serie}")')
 
     for i in range(MAX_CATS):
         r = 3 + i
         ws.cell(row=r, column=4, value=(
-            f'=IF((ROW()-2)>$B$14,"",INDEX(INDIRECT("Cat_"&$B$7),'
-            f'COUNTA(INDIRECT("Cat_"&$B$7))-$B$14+(ROW()-2)))'
+            f'=IF((ROW()-2)>$B$16,"",INDEX(INDIRECT("Cat_"&$B$9),'
+            f'COUNTA(INDIRECT("Cat_"&$B$9))-$B$16+(ROW()-2)))'
         ))
         ws.cell(row=r, column=5, value=(
-            f'=IF($D{r}="","",{sumifs("Cartera").format(r=r)})'
-        ))
+            f'=IF(OR($B$4="",$D{r}=""),"",{sumifs("$B$4", "Cartera").format(r=r)})'))
         ws.cell(row=r, column=6, value=(
-            f'=IF(OR($B$10="Sin benchmark",$D{r}=""),"",{sumifs("Benchmark").format(r=r)})'
-        ))
-        ws.cell(row=r, column=5).number_format = "#,##0.00"
-        ws.cell(row=r, column=6).number_format = "#,##0.00"
+            f'=IF(OR($B$5="",$D{r}=""),"",{sumifs("$B$5", "Cartera").format(r=r)})'))
+        ws.cell(row=r, column=7, value=(
+            f'=IF(OR($B$6="",$D{r}=""),"",{sumifs("$B$6", "Cartera").format(r=r)})'))
+        ws.cell(row=r, column=8, value=(
+            f'=IF(OR($B$12="Sin benchmark",$B$4="",$D{r}=""),"",'
+            f'{sumifs("$B$4", "Benchmark").format(r=r)})'))
+        for cc in (5, 6, 7, 8):
+            ws.cell(row=r, column=cc).number_format = "#,##0.00"
 
-    # Gráfico (rango inicial = categorías visibles por defecto; la macro lo hace dinámico)
-    vis0 = TABLA_N["3A"][DIM_TIEMPO.index("Trimestral")]  # default Trimestral+3A = 12
+    # Gráfico inicial (Ent1 + Benchmark; la macro lo hace dinámico y multi-serie)
+    vis0 = TABLA_N["3A"][DIM_TIEMPO.index("Trimestral")]
     last = 2 + vis0
     chart = BarChart()
     chart.type = "col"
-    chart.title = "Cartera vs Benchmark"
+    chart.title = "Comparación"
     chart.height = 8.5
     chart.width = 18
     chart.y_axis.title = "Duración"
     chart.x_axis.title = "Trimestral"
     chart.y_axis.delete = False
     chart.x_axis.delete = False
-    chart.add_data(Reference(ws, min_col=5, max_col=6, min_row=2, max_row=last),
-                   titles_from_data=True)
+    chart.add_data(Reference(ws, min_col=5, min_row=2, max_row=last), titles_from_data=True)  # Ent1
+    chart.add_data(Reference(ws, min_col=8, min_row=2, max_row=last), titles_from_data=True)  # Benchmark
     chart.set_categories(Reference(ws, min_col=4, min_row=3, max_row=last))
     ws.add_chart(chart, "H2")
 
-    for c, w in {"A": 20, "B": 22, "D": 16, "E": 12, "F": 12}.items():
+    for c, w in {"A": 20, "B": 22, "D": 16, "E": 14, "F": 14, "G": 14, "H": 12}.items():
         ws.column_dimensions[c].width = w
 
     return wb

@@ -9,7 +9,7 @@
 | Parámetro | Valores |
 |---|---|
 | **Tipo de entidad** | Fondo · Cartera · Indice |
-| **Entidad** (cascada) | los fondos / carteras / índices de ese tipo |
+| **Entidad 1-3** (cascada) | 1 principal + hasta 2 para **comparar varias a la vez** |
 | **Grupo de métrica** | Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion |
 | **Métrica** (cascada del grupo) | Rend.: Rentabilidad, Rentab. acum. · Riesgo: Duración, TIR, Spread, Volatilidad, Beta · Comp.: Peso · Costes: TER · Liquidez: Liquidez · Valor.: PER, DividendYield |
 | **Dimensión (eje X)** | *Tiempo*: Mensual, Trimestral, Semestral, Anual — *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
