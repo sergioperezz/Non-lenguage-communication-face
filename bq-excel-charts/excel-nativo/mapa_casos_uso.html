@@ -42,7 +42,7 @@
 <body>
 <header>
   <h1>Mapa de casos de uso · Panel de gráficos</h1>
-  <p>Cada caso = una combinación de 10 parámetros = una diapositiva. El mismo motor los genera todos.</p>
+  <p>Cada caso = una combinación de 12 parámetros = una diapositiva. El mismo motor los genera todos.</p>
 </header>
 
 <div class="wrap">
@@ -55,8 +55,8 @@
     <div class="eje"><b>Dimensión (eje X)</b><span>Tiempo: Mensual/Trimestral/Semestral/Anual · Composición: Activo/Geografia/Industria/Sector/Divisa/Rating</span></div>
     <div class="eje"><b>Filtro tipo activo</b><span>Todos · RF · RV</span></div>
     <div class="eje"><b>Periodo</b><span>MTD · YTD · 1M–6M · 1A–6A</span></div>
-    <div class="eje"><b>Benchmark</b><span>Con · Sin · estilo Barras/Líneas</span></div>
-    <div class="eje"><b>Gráfico</b><span>Columnas · Barras · Líneas · Área · Circular · Anillo · Radar</span></div>
+    <div class="eje"><b>Benchmark</b><span>Con · Sin · estilo Barras/Líneas/Puntos</span></div>
+    <div class="eje"><b>Gráfico</b><span>Columnas · Barras · Líneas · Área · Circular · Anillo · Radar · Apiladas · 100% apiladas</span></div>
   </div>
 
   <!-- ① RENDIMIENTO -->
@@ -181,9 +181,28 @@
     </div>
   </div>
 
+  <!-- CASOS ESPECIALES (hojas aparte) -->
+  <div style="--familia:#5b6b7c">
+    <h2 style="--familia:#5b6b7c">⑦ Casos especiales · hojas aparte (sin macro)</h2>
+    <div class="grid">
+      <div class="card" style="--familia:#5b6b7c">
+        <h3>Mapa de calor / mercados</h3><p class="uso">Hoja <b>Tablas</b></p>
+        <div class="chips"><span class="chip">Entidades × categorías</span><span class="chip">Escala de color</span><span class="chip">Barras de datos</span></div>
+      </div>
+      <div class="card" style="--familia:#5b6b7c">
+        <h3>Distribución sectorial</h3><p class="uso">Hoja <b>Sectorial</b></p>
+        <div class="chips"><span class="chip">Apiladas (Large/Mid/Small)</span><span class="chip g">+ eje secundario</span><span class="chip">Tracking Error (puntos)</span></div>
+      </div>
+      <div class="card" style="--familia:#5b6b7c">
+        <h3>Comportamiento de las carteras</h3><p class="uso">Hoja <b>Comparativa</b> · DPM Global Managers</p>
+        <div class="chips"><span class="chip">Eje X = carteras</span><span class="chip">Gestionada/IMP/Benchmark</span><span class="chip g">Columnas diff +/−</span></div>
+      </div>
+    </div>
+  </div>
+
   <div class="leyenda">
     <b>Cómo leer el mapa.</b> Las tarjetas son <b>ejemplos</b> de combinaciones, no plantillas cerradas:
-    el motor admite cualquier combinación de los 10 parámetros. El chip azul es el <b>tipo de gráfico recomendado</b>;
+    el motor admite cualquier combinación de los 12 parámetros. El chip azul es el <b>tipo de gráfico recomendado</b>;
     "Filtro RF/RV" aparece solo cuando se acota el tipo de activo (útil en el fondo mixto).
     <br><br>
     <b>Nota:</b> algunos valores de desplegable van <b>sin tilde</b> (Geografia, Composicion, Valoracion)

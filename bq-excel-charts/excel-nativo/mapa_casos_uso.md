@@ -16,8 +16,23 @@
 | **Filtro: tipo de activo** | Todos · RF · RV *(útil en fondos mixtos)* |
 | **Periodo** | MTD · YTD · 1M–6M · 1A–6A |
 | **Benchmark** | Con benchmark · Sin benchmark |
-| **Estilo benchmark** | Barras · Líneas |
-| **Gráfico** | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar |
+| **Estilo benchmark** | Barras · Líneas · Puntos |
+| **Gráfico** | Columnas · Barras · Líneas · Área · Circular · Anillo · Radar · Apiladas · 100% apiladas |
+
+---
+
+## Casos especiales (hojas aparte, sin macro)
+
+Además del Panel, tres hojas cubren casos que no encajan en "entidades = series":
+
+| Hoja | Caso del deck | Cómo |
+|---|---|---|
+| **Tablas** | Mapa de calor RF · Comportamiento de mercados | Rejilla entidades × categorías con escala de color + barras de datos |
+| **Sectorial** | Distribución sectorial | Columnas **apiladas** (Large/Mid/Small Cap) + **Tracking Error en eje secundario** |
+| **Comparativa** | Comportamiento de las Carteras (DPM Global Managers) | Eje X = **carteras**; columnas agrupadas Gestionada/IMP/Benchmark + columnas **diff** en verde/rojo |
+
+> **Fuera de alcance (por ahora):** dispersión riesgo-retorno (*scatter* X-Y). Es el
+> único tipo de los decks sin cubrir; requiere un modo de dos métricas.
 
 ---
 
