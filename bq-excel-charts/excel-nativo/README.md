@@ -44,7 +44,8 @@ del gráfico. Deja B5/B6 vacías si no quieres comparar.
 
 ## Cómo funciona por dentro
 
-Tres hojas:
+El **Panel** se apoya en tres hojas (además, Tablas/Sectorial/Comparativa son
+generadores aparte con sus propias hojas de datos):
 - **Panel**: los desplegables + el gráfico.
 - **Datos**: formato largo `Entidad | TipoActivo | Metrica | EjeXTipo | EjeXValor | Serie | Valor`.
 - **Listas**: rangos con nombre para cascadas y categorías.
