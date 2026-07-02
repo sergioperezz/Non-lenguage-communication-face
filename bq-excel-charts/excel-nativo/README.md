@@ -131,23 +131,37 @@ las *categorías*, al revés que en el Panel (donde son *series*). Selectores: B
 ## Fase 2 (BigQuery por ODBC) — PARTE D de la macro
 
 La **PARTE D** (módulo estándar nuevo) convierte los parámetros del Panel en una
-consulta a BigQuery, la ejecuta por **ODBC (ADODB)** y vuelca el resultado en la
-hoja **Datos**; luego redibuja el gráfico. El resto del libro no cambia.
+consulta al **modelo homologado** (esquema en estrella real), la ejecuta por
+**ODBC (ADODB)** y vuelca el resultado en la hoja **`BQ_Resultado`**.
 
-- **`ConstruirSQL`**: arma la `SELECT ... WHERE` desde B8 (métrica), B9 (dimensión),
-  B4/B5/B6 (entidades → `IN (...)`), B10 (filtro tipo activo) y B11 (periodo →
-  rango de fechas con `DATE_SUB`/`DATE_TRUNC`).
-- **Vista previa en vivo**: al cambiar un parámetro, la SQL se escribe en el Panel
-  (celda **A41**); no conecta, solo construye el texto.
-- **`VerSQL`** (botón): muestra la consulta. **`RefrescarDatos`** (botón): conecta,
-  ejecuta y actualiza los datos.
-- **CONFIG** (arriba de la PARTE D): cadena de conexión (`DSN=...` o `Driver={...}`),
-  tabla y **nombres de columna**. Se asume una tabla en **formato largo** con las
-  mismas columnas que la hoja `Datos` (+ una columna de fecha); si tu modelo es
-  distinto, ajustas el mapeo o añades un `GROUP BY` en `ConstruirSQL`.
+**Mapeo (según el diccionario de datos homologado):**
 
-> Requisito: las etiquetas de `eje_valor` en BigQuery deben coincidir con las
-> listas `Cat_*` del libro (p. ej. `2026-T2`, `Europa`), o adaptas esas listas.
+| Métrica del Panel | Tabla | Columna |
+|---|---|---|
+| Rentabilidad / Rentab. acum. | `CAM_TX_PERFORMANCE_FIGURES_PD` | `TWR_<periodo>` (fondo) y `TWR_<periodo>_BMK` (benchmark) |
+| Volatilidad | `CAM_TX_PERFORMANCE_FIGURES_PD` | `VOL_1Y_260` |
+| Beta | `CAM_TX_PERFORMANCE_FIGURES_PD` | `BETA` |
+| Duración / TIR / Spread | `CAM_TX_RISK_FIG_AGG_PD` | `PK_VARIABLE_TARGET` + `PK_CRITERIO_AGREGACION` *(pendiente)* |
+| Peso / Composición | `CAM_TM_PORTFOLIOS_PD` / `CAM_TX_BENCHMARK_COMP_PD` | `COMPONENT`, `WEIGHT` *(pendiente)* |
+
+- Identidad y tipo de la entidad: `CAM_TM_PORTFOLIOS_PD` (`PORTFOLIO_NAME`,
+  `PTF_PORTFOLIO_TYPE`, `PK_PORTFOLIO_ID`, `PK_FECHA_DATOS`).
+- **Periodo → columna** (no es un filtro de fecha): `MTD→MTD`, `YTD→YTD`, `1M→1M`,
+  `1A→1Y`, `3A→3Y`, `5A→5Y`. Los periodos `2M/3M/4M/5M/6M` y `2A/4A/6A` **no
+  tienen columna directa** en el DWH (habría que calcularlos de una serie).
+- La consulta es de **corte transversal**: un valor por portfolio en la **última
+  fecha** (`PK_FECHA_DATOS = MAX(...)`), fondo y benchmark vía `UNION ALL`.
+- **Vista previa en vivo** en el Panel (celda **A41**) al cambiar un parámetro;
+  **`VerSQL`** la muestra; **`RefrescarDatos`** conecta y trae los datos a
+  `BQ_Resultado`.
+- **CONFIG** (arriba de la PARTE D): `BQ_CONN` (`DSN=...` o `Driver={...}`) y
+  `BQ_DATASET` (`proyecto.dataset`).
+
+> **Pendiente de acordar** para cerrar el mapeo: (1) columna de valor de
+> `CAM_TX_RISK_FIG_AGG_PD` y las etiquetas de `PK_CRITERIO_AGREGACION` para las
+> dimensiones (sector/rating/…); (2) si la selección de entidad va por
+> `PORTFOLIO_NAME` o por `PK_PORTFOLIO_ID`; (3) alinear la lista de periodos del
+> Panel a los horizontes reales del DWH.
 
 ## Limitaciones del *mock* (se resuelven en la Fase 2)
 

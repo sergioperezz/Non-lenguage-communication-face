@@ -286,38 +286,52 @@ End Sub
 
 
 ' =============  PARTE D: en un MÓDULO ESTÁNDAR NUEVO (Fase 2)  ==============
-' Con los parámetros del Panel construye la SQL de BigQuery, la ejecuta por ODBC
-' (ADODB) y vuelca los datos en la hoja "Datos"; luego redibuja el gráfico.
+' Con los parámetros del Panel construye la SQL contra el MODELO HOMOLOGADO real
+' (esquema en estrella), la ejecuta por ODBC (ADODB) y vuelca los datos en una
+' hoja de aterrizaje "BQ_Resultado".
 '
 ' INSTALACIÓN: Insertar -> Módulo (uno NUEVO, distinto al de la PARTE B) y pega
-' todo esto. Rellena el bloque CONFIG con tu entorno.
+' todo esto. Rellena BQ_CONN y BQ_DATASET con tu entorno.
 '
 ' Botones sugeridos (Insertar -> Forma -> Asignar macro):
 '   · "Ver SQL"          -> VerSQL         (solo muestra la consulta)
-'   · "Traer de BigQuery"-> RefrescarDatos (conecta y actualiza los datos)
+'   · "Traer de BigQuery"-> RefrescarDatos (conecta y trae los datos)
 '
-' NOTA: se asume una tabla en formato largo con las MISMAS columnas que la hoja
-' "Datos" (entidad, tipo_activo, metrica, eje_tipo, eje_valor, serie, valor) y
-' una columna de fecha para el periodo. Si tu modelo es distinto, ajusta el
-' bloque CONFIG y/o la función ConstruirSQL (por ejemplo, añadiendo un GROUP BY).
+' MAPEO (según el diccionario de datos homologado):
+'   · Rentabilidad / Rentab. acum. -> CAM_TX_PERFORMANCE_FIGURES_PD, columna
+'     TWR_<periodo> (MTD/QTD/YTD/1M/1Y/3Y/5Y); benchmark = TWR_<periodo>_BMK.
+'   · Volatilidad -> VOL_1Y_260 ; Beta -> BETA (misma tabla, valor por portfolio).
+'   · Identidad y tipo: CAM_TM_PORTFOLIOS_PD (PORTFOLIO_NAME, PTF_PORTFOLIO_TYPE).
+'   · Duración/TIR/Spread -> CAM_TX_RISK_FIG_AGG_PD (PK_VARIABLE_TARGET +
+'     PK_CRITERIO_AGREGACION/PK_ETIQUETA_AGREGACION)  [pendiente de mapear].
+'   · Peso/Composición -> composición de CAM_TM_PORTFOLIOS_PD y benchmark en
+'     CAM_TX_BENCHMARK_COMP_PD (COMPONENT, WEIGHT)          [pendiente de mapear].
+' NOTA: la consulta es de CORTE TRANSVERSAL (un valor por portfolio en la última
+' fecha), que es como el DWH guarda las rentabilidades rolling.
 ' ---------------------------------------------------------------------------
 
 ' ==== CONFIG (rellena con tu entorno de BigQuery) ====
-Private Const BQ_CONN As String = "DSN=BigQuery;"          ' DSN ODBC ya configurado (o cadena Driver={...};...)
-Private Const BQ_TABLA As String = "`proyecto.dataset.hechos_metricas`"
-Private Const COL_ENTIDAD As String = "entidad"
-Private Const COL_TIPOACTIVO As String = "tipo_activo"
-Private Const COL_METRICA As String = "metrica"
-Private Const COL_DIMENSION As String = "eje_tipo"        ' distingue Mensual/Trimestral/.../Geografia...
-Private Const COL_EJEVALOR As String = "eje_valor"        ' etiqueta del eje X (debe casar con las listas Cat_*)
-Private Const COL_SERIE As String = "serie"               ' 'Cartera' / 'Benchmark'
-Private Const COL_VALOR As String = "valor"
-Private Const COL_FECHA As String = "fecha"               ' para acotar el periodo
+Private Const BQ_CONN As String = "DSN=BigQuery;"                 ' DSN ODBC (o cadena Driver={...};...)
+Private Const BQ_DATASET As String = "proyecto.dataset"          ' proyecto.dataset de BigQuery (sin backticks)
+Private Const LANDING As String = "BQ_Resultado"                 ' hoja donde se vuelcan los datos
+' Tablas del modelo homologado:
+Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
+Private Const T_PORT As String = "CAM_TM_PORTFOLIOS_PD"
+' Columnas de identidad de portfolio:
+Private Const P_ID As String = "PK_PORTFOLIO_ID"
+Private Const P_NAME As String = "PORTFOLIO_NAME"
+Private Const P_TYPE As String = "PTF_PORTFOLIO_TYPE"
+Private Const P_FECHA As String = "PK_FECHA_DATOS"
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
 Private Function Esc(ByVal s As String) As String
     Esc = Replace(CStr(s), "'", "''")
+End Function
+
+' Nombre de tabla cualificado: `proyecto.dataset.TABLA`
+Private Function Tbl(ByVal t As String) As String
+    Tbl = "`" & BQ_DATASET & "." & t & "`"
 End Function
 
 ' Lista de entidades seleccionadas (B4/B5/B6), saltando vacías y "(ninguna)".
@@ -333,48 +347,77 @@ Private Function ListaEntidades(ws As Worksheet) As String
     ListaEntidades = out
 End Function
 
-' Traduce el periodo (B11) a un predicado de fecha para BigQuery.
-Private Function FiltroPeriodo(ByVal p As String) As String
-    Dim n As Long
-    p = Trim(UCase(p))
-    Select Case p
-        Case "MTD": FiltroPeriodo = COL_FECHA & " >= DATE_TRUNC(CURRENT_DATE(), MONTH)"
-        Case "YTD": FiltroPeriodo = COL_FECHA & " >= DATE_TRUNC(CURRENT_DATE(), YEAR)"
-        Case Else
-            If Len(p) >= 2 And IsNumeric(Left(p, Len(p) - 1)) Then
-                n = CLng(Left(p, Len(p) - 1))
-                If Right(p, 1) = "M" Then
-                    FiltroPeriodo = COL_FECHA & " >= DATE_SUB(CURRENT_DATE(), INTERVAL " & n & " MONTH)"
-                ElseIf Right(p, 1) = "A" Then
-                    FiltroPeriodo = COL_FECHA & " >= DATE_SUB(CURRENT_DATE(), INTERVAL " & n & " YEAR)"
-                End If
-            End If
+' Periodo del Panel (B11) -> sufijo de columna TWR del DWH ("" si no hay columna).
+Private Function SufijoPeriodo(ByVal p As String) As String
+    Select Case UCase(Trim(p))
+        Case "MTD": SufijoPeriodo = "MTD"
+        Case "YTD": SufijoPeriodo = "YTD"
+        Case "1M":  SufijoPeriodo = "1M"
+        Case "1A":  SufijoPeriodo = "1Y"
+        Case "3A":  SufijoPeriodo = "3Y"
+        Case "5A":  SufijoPeriodo = "5Y"
+        Case Else:  SufijoPeriodo = ""     ' 2M/3M/4M/5M/6M, 2A/4A/6A: sin columna directa
     End Select
 End Function
 
-' Construye la SQL a partir de los parámetros del Panel.
-Public Function ConstruirSQL() As String
-    Dim ws As Worksheet, sql As String, ents As String, wF As String
-    Dim met As String, dimen As String, filtro As String, periodo As String
-    Set ws = ThisWorkbook.Sheets("Panel")
-    met = Esc(ws.Range("B8").Value)
-    dimen = Esc(ws.Range("B9").Value)
-    filtro = Trim(CStr(ws.Range("B10").Value))
-    periodo = Trim(CStr(ws.Range("B11").Value))
-    ents = ListaEntidades(ws)
+' Métrica del Panel -> tabla + columna del fondo + columna del benchmark del DWH.
+' Devuelve True si la métrica está mapeada.
+Private Function MapMetrica(ByVal met As String, ByVal per As String, _
+        ByRef colVal As String, ByRef colBmk As String) As Boolean
+    Dim suf As String: suf = SufijoPeriodo(per)
+    colVal = "": colBmk = ""
+    Select Case met
+        Case "Rentabilidad", "Rentab. acum."
+            If Len(suf) = 0 Then Exit Function            ' periodo sin columna en el DWH
+            colVal = "TWR_" & suf
+            colBmk = "TWR_" & suf & "_BMK"
+            MapMetrica = True
+        Case "Volatilidad"
+            colVal = "VOL_1Y_260": MapMetrica = True
+        Case "Beta"
+            colVal = "BETA": MapMetrica = True
+    End Select
+End Function
 
-    sql = "SELECT " & COL_ENTIDAD & ", " & COL_TIPOACTIVO & ", " & COL_METRICA & ", " & _
-          COL_DIMENSION & ", " & COL_EJEVALOR & ", " & COL_SERIE & ", " & COL_VALOR & vbLf & _
-          "FROM " & BQ_TABLA & vbLf & _
-          "WHERE " & COL_METRICA & " = '" & met & "'" & vbLf & _
-          "  AND " & COL_DIMENSION & " = '" & dimen & "'"
-    If Len(ents) > 0 Then sql = sql & vbLf & "  AND " & COL_ENTIDAD & " IN (" & ents & ")"
-    If filtro <> "" And filtro <> "Todos" Then
-        sql = sql & vbLf & "  AND " & COL_TIPOACTIVO & " = '" & Esc(filtro) & "'"
+' Construye la SQL a partir de los parámetros del Panel (corte transversal).
+Public Function ConstruirSQL() As String
+    Dim ws As Worksheet, met As String, per As String, ents As String
+    Dim colVal As String, colBmk As String, whereEnt As String, sql As String
+    Dim conBmk As Boolean
+    Set ws = ThisWorkbook.Sheets("Panel")
+    met = Trim(CStr(ws.Range("B8").Value))
+    per = Trim(CStr(ws.Range("B11").Value))
+    ents = ListaEntidades(ws)
+    conBmk = (ws.Range("B12").Value = "Con benchmark")
+
+    If Not MapMetrica(met, per, colVal, colBmk) Then
+        ConstruirSQL = _
+            "-- Métrica '" & met & "' / periodo '" & per & "': aún no mapeada a BigQuery." & vbLf & _
+            "-- Riesgo (Duración/TIR/Spread) -> " & T_PERF & " y CAM_TX_RISK_FIG_AGG_PD" & vbLf & _
+            "--   (PK_VARIABLE_TARGET, PK_CRITERIO_AGREGACION, PK_ETIQUETA_AGREGACION)." & vbLf & _
+            "-- Peso/Composición -> CAM_TM_PORTFOLIOS_PD (composición) / CAM_TX_BENCHMARK_COMP_PD" & vbLf & _
+            "--   (COMPONENT, WEIGHT). Rellena el mapeo cuando definamos criterio/etiqueta."
+        Exit Function
     End If
-    wF = FiltroPeriodo(periodo)
-    If Len(wF) > 0 Then sql = sql & vbLf & "  AND " & wF
-    sql = sql & vbLf & "ORDER BY " & COL_SERIE & ", " & COL_EJEVALOR
+
+    whereEnt = ""
+    If Len(ents) > 0 Then whereEnt = " AND p." & P_NAME & " IN (" & ents & ")"
+
+    sql = "SELECT p." & P_NAME & " AS entidad, p." & P_TYPE & " AS tipo_activo," & vbLf & _
+          "       '" & Esc(met) & "' AS metrica, CAST(f." & P_FECHA & " AS STRING) AS eje_valor," & vbLf & _
+          "       'Cartera' AS serie, f." & colVal & " AS valor" & vbLf & _
+          "FROM " & Tbl(T_PERF) & " f" & vbLf & _
+          "JOIN " & Tbl(T_PORT) & " p ON p." & P_ID & " = f." & P_ID & vbLf & _
+          "WHERE f." & P_FECHA & " = (SELECT MAX(" & P_FECHA & ") FROM " & Tbl(T_PERF) & ")" & whereEnt
+    If conBmk And Len(colBmk) > 0 Then
+        sql = sql & vbLf & "UNION ALL" & vbLf & _
+          "SELECT p." & P_NAME & ", p." & P_TYPE & ", '" & Esc(met) & "', CAST(f." & P_FECHA & " AS STRING)," & vbLf & _
+          "       'Benchmark', f." & colBmk & vbLf & _
+          "FROM " & Tbl(T_PERF) & " f" & vbLf & _
+          "JOIN " & Tbl(T_PORT) & " p ON p." & P_ID & " = f." & P_ID & vbLf & _
+          "WHERE f." & P_FECHA & " = (SELECT MAX(" & P_FECHA & ") FROM " & Tbl(T_PERF) & ")" & whereEnt
+    End If
+    sql = sql & vbLf & "ORDER BY serie, entidad"
     ConstruirSQL = sql
 End Function
 
@@ -390,10 +433,15 @@ Public Sub VerSQL()
     MsgBox ConstruirSQL(), vbInformation, "SQL para los parámetros actuales"
 End Sub
 
-' Conecta a BigQuery (ODBC), ejecuta la SQL y vuelca los datos en "Datos".
+' Conecta a BigQuery (ODBC), ejecuta la SQL y vuelca el resultado en "BQ_Resultado".
 Public Sub RefrescarDatos()
-    Dim cn As Object, rs As Object, wsD As Worksheet, sql As String
+    Dim cn As Object, rs As Object, ws As Object, sql As String, j As Long
     sql = ConstruirSQL()
+    If Left(sql, 2) = "--" Then
+        MsgBox "Esta métrica/periodo aún no está mapeada a BigQuery:" & vbLf & vbLf & sql, _
+               vbExclamation, "Fase 2"
+        Exit Sub
+    End If
     On Error GoTo fallo
 
     Set cn = CreateObject("ADODB.Connection")
@@ -402,20 +450,24 @@ Public Sub RefrescarDatos()
     Set rs = CreateObject("ADODB.Recordset")
     rs.Open sql, cn, 1, 1                       ' adOpenKeyset, adLockReadOnly
 
-    Set wsD = ThisWorkbook.Sheets("Datos")
+    ' Hoja de aterrizaje (se crea si no existe).
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets(LANDING)
+    On Error GoTo fallo
+    If ws Is Nothing Then
+        Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
+        ws.Name = LANDING
+    End If
     Application.EnableEvents = False
-    wsD.Range("A2:G" & wsD.Rows.Count).ClearContents   ' limpia datos previos (deja cabecera)
-    If Not rs.EOF Then wsD.Range("A2").CopyFromRecordset rs
+    ws.Cells.ClearContents
+    For j = 0 To rs.Fields.Count - 1            ' cabeceras
+        ws.Cells(1, j + 1).Value = rs.Fields(j).Name
+    Next j
+    If Not rs.EOF Then ws.Range("A2").CopyFromRecordset rs
     rs.Close: cn.Close
     Application.EnableEvents = True
 
-    Application.Calculate
-    ' Redibuja el gráfico re-disparando el evento del Panel.
-    With ThisWorkbook.Sheets("Panel")
-        .Activate
-        .Range("B14").Value = .Range("B14").Value
-    End With
-    MsgBox "Datos actualizados desde BigQuery.", vbInformation, "Fase 2"
+    MsgBox "Datos traídos de BigQuery a la hoja '" & LANDING & "'.", vbInformation, "Fase 2"
     Exit Sub
 
 fallo:
