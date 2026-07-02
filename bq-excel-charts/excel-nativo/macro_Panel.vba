@@ -331,8 +331,9 @@ Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMAN1"         ' columna FO
 ' Composición por sector (posiciones x maestro de valores):
 Private Const T_POS As String = "CAM_TM_PORTFOLIOS_PD"             ' posiciones (dataset DS_PROD)
 Private Const T_VALORES As String = "CAM_TM_MSTR_VALORES_PD"       ' maestro de valores (dataset DS_MERC)
-Private Const POS_VALOR As String = "VALUATION_PC"                 ' valor de la posición (peso); PC=divisa cartera
+Private Const POS_VALOR As String = "VALUATION_PC"                 ' valor de la posición (peso); PC=divisa base cartera
 Private Const SECTOR_COL As String = "CLASSIFICATION_GICS"         ' estándar sectorial (GICS/BICS/ICB)
+Private Const RATING_COL As String = "COMPOSITERATINGSPCOMPOSITE"  ' rating (S&P; o MOODYS/FITCH/WORST...)
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
@@ -457,28 +458,60 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
     SQLRiesgo = sql
 End Function
 
-' SQL de composición (Peso por sector): posiciones (CAM_TM_PORTFOLIOS_PD) cruzadas
-' con el maestro de valores (CAM_TM_MSTR_VALORES_PD) por PK_SECURITY_IK, agregando
-' el valor de mercado por clasificación sectorial. Última fecha por portfolio.
+' Dimensión del Panel -> columna de clasificación del maestro de valores.
+Private Function DimAClasificacion(ByVal dimen As String) As String
+    Select Case dimen
+        Case "Sector": DimAClasificacion = "v." & SECTOR_COL
+        Case "Rating": DimAClasificacion = "v." & RATING_COL
+        Case Else:     DimAClasificacion = ""
+    End Select
+End Function
+
+' JOIN de posiciones con el maestro de valores (por PK_SECURITY_IK y fecha).
+Private Function JoinValores() As String
+    JoinValores = "JOIN " & Tbl(DS_MERC, T_VALORES) & " v" & vbLf & _
+                  "  ON v.PK_SECURITY_IK = p.PK_SECURITY_IK AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS" & vbLf
+End Function
+
+' SQL de composición (Peso): posiciones (CAM_TM_PORTFOLIOS_PD) x maestro de valores,
+' SUMANDO el valor de mercado por clasificación (Sector/Rating). Última fecha.
 Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
     Dim dimen As String, grp As String, sql As String
     dimen = Trim(CStr(ws.Range("B9").Value))
-    Select Case dimen
-        Case "Sector": grp = "v." & SECTOR_COL
-        Case Else
-            SQLComposicion = "-- Composición por '" & dimen & "': por ahora solo Sector (" & SECTOR_COL & ")." & vbLf & _
-                             "-- Otras dimensiones necesitan su columna de clasificación en el maestro de valores."
-            Exit Function
-    End Select
+    grp = DimAClasificacion(dimen)
+    If Len(grp) = 0 Then
+        SQLComposicion = "-- Composición por '" & dimen & "': disponible por Sector (" & SECTOR_COL & _
+                         ") y Rating (" & RATING_COL & ")." & vbLf & _
+                         "-- Otras dimensiones necesitan su columna de clasificación en el maestro de valores."
+        Exit Function
+    End If
     sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, SUM(p." & POS_VALOR & ") AS valor" & vbLf & _
-          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & _
-          "JOIN " & Tbl(DS_MERC, T_VALORES) & " v" & vbLf & _
-          "  ON v.PK_SECURITY_IK = p.PK_SECURITY_IK AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID, " & grp & vbLf & _
           "ORDER BY p.PK_PORTFOLIO_ID, valor DESC"
     SQLComposicion = sql
+End Function
+
+' SQL de Spread: media PONDERADA por valor de mercado del SPREAD de las posiciones.
+' Por Sector/Rating si esa es la dimensión; si no, un total por portfolio.
+Private Function SQLSpread(ws As Worksheet, ByVal ents As String) As String
+    Dim dimen As String, grp As String, selCat As String, grpBy As String, joinV As String, sql As String
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    grp = DimAClasificacion(dimen)
+    If Len(grp) > 0 Then
+        selCat = ", " & grp & " AS categoria"
+        grpBy = ", " & grp
+        joinV = JoinValores
+    End If
+    sql = "SELECT p.PK_PORTFOLIO_ID" & selCat & "," & vbLf & _
+          "       SUM(p.SPREAD * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS valor" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & joinV & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID" & grpBy & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
+    SQLSpread = sql
 End Function
 
 ' Construye la SQL a partir de los parámetros del Panel.
@@ -505,17 +538,22 @@ Public Function ConstruirSQL() As String
         ConstruirSQL = SQLRiesgo(ws, "", ents, "TIR")
         Exit Function
     End If
-    ' Peso/Composición: posiciones x maestro de valores (por sector).
+    ' Peso/Composición: posiciones x maestro de valores (Sector/Rating).
     If met = "Peso" Then
         ConstruirSQL = SQLComposicion(ws, ents)
+        Exit Function
+    End If
+    ' Spread: media ponderada del SPREAD de las posiciones (por Sector/Rating o total).
+    If met = "Spread" Then
+        ConstruirSQL = SQLSpread(ws, ents)
         Exit Function
     End If
 
     If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
         ConstruirSQL = _
             "-- Métrica '" & met & "' / periodo '" & per & "': aún no mapeada a BigQuery." & vbLf & _
-            "-- Spread -> CAM_TM_PORTFOLIOS_PD.SPREAD (posiciones, media ponderada)." & vbLf & _
-            "-- TER / PER / DividendYield / Liquidez -> pendiente de identificar fuente."
+            "-- TER -> CAM_TM_MSTR_VALORES_PD.KEYFIGURESTER (decidir: TER del fondo o look-through)." & vbLf & _
+            "-- PER / DividendYield: no aparecen en el diccionario. Liquidez: figura como 'Pte'."
         Exit Function
     End If
 

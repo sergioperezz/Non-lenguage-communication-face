@@ -148,9 +148,10 @@ la hoja **`BQ_Resultado`**.
 | Beta | `CAM_TX_PERFORMANCE_FIGURES_PD` | `BETA` |
 | Duración (Modificada/Efectiva) | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (con `PK_VARIABLE_TARGET`=nombre de la métrica, `PK_TIPOGAMAN1='FONDO'`, desglose por `PK_ETIQUETA_AGREGACION`) |
 | TIR | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (criterio `PK_CRITERIO_AGREGACION='TIR'`, total) |
-| Peso (por Sector) | `CAM_TM_PORTFOLIOS_PD` × `CAM_TM_MSTR_VALORES_PD` | `SUM(VALUATION_PC)` agrupado por `CLASSIFICATION_GICS` (join por `PK_SECURITY_IK`) |
-| Spread | `CAM_TM_PORTFOLIOS_PD` | `SPREAD` (posiciones, media ponderada) *(pendiente)* |
-| TER / PER / DividendYield / Liquidez | — | *(pendiente de fuente)* |
+| Peso (Sector / Rating) | `CAM_TM_PORTFOLIOS_PD` × `CAM_TM_MSTR_VALORES_PD` | `SUM(VALUATION_PC)` por `CLASSIFICATION_GICS` / `COMPOSITERATINGSPCOMPOSITE` (join `PK_SECURITY_IK`) |
+| Spread (total / Sector / Rating) | `CAM_TM_PORTFOLIOS_PD` | media ponderada `SUM(SPREAD·VALUATION_PC)/SUM(VALUATION_PC)` |
+| TER | `CAM_TM_MSTR_VALORES_PD.KEYFIGURESTER` | *(pendiente: TER del fondo vs look-through)* |
+| PER / DividendYield / Liquidez | — | no en el diccionario (Liquidez = "Pte") |
 
 - **Filtros obligatorios** en performance: `PK_NAV_GNAV = 'GNAV'` y
   `BENCHMARK = 'Benchmark 1'` (si no, filas duplicadas). La consulta filtra por
