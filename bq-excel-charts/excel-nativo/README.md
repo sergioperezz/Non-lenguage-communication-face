@@ -146,8 +146,9 @@ la hoja **`BQ_Resultado`**.
 | Rentabilidad / Rentab. acum. | `CAM_TX_PERFORMANCE_FIGURES_PD` | `TWR_<per>`, `TWR_<per>_BMK`, `DIFERENCIAL_<per>` |
 | Volatilidad | `CAM_TX_PERFORMANCE_FIGURES_PD` | `VOL_1Y_260` |
 | Beta | `CAM_TX_PERFORMANCE_FIGURES_PD` | `BETA` |
-| Duración / TIR / Spread | `CAM_TX_RISK_FIG_AGG_PD` | *(pendiente)* |
-| Peso / Composición | `CAM_TX_PORTFOLIOS_COMP_PD` / `CAM_TX_BENCHMARK_COMP_PD` | `COMPONENT`, `WEIGHT` *(pendiente)* |
+| Duración | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (con `PK_VARIABLE_TARGET='Duración Modificada'`, desglose por `PK_ETIQUETA_AGREGACION`) |
+| TIR | `CAM_TM_PORTFOLIOS_PD` | `TIR_VALORACION` *(pendiente de enrutar)* |
+| Spread / Peso / Composición | `CAM_TX_RISK_FIG_AGG_PD` / `CAM_TX_*_COMP_PD` | *(pendiente)* |
 
 - **Filtros obligatorios** en performance: `PK_NAV_GNAV = 'GNAV'` y
   `BENCHMARK = 'Benchmark 1'` (si no, filas duplicadas). La consulta filtra por
@@ -163,9 +164,11 @@ la hoja **`BQ_Resultado`**.
   `BQ_Resultado`). Vista previa de la SQL en vivo en el Panel (celda **A41**).
 - **CONFIG** (arriba de la PARTE D): DSN, proyecto, datasets y filtros.
 
-> **Pendiente** (acordado): mapear **Riesgo RF** (Duración/TIR/Spread) contra
-> `CAM_TX_RISK_FIG_AGG_PD` cuando definamos su columna de valor y las etiquetas de
-> `PK_CRITERIO_AGREGACION`. Nota: **fondos y carteras están en tablas distintas**.
+> **Duración** ya usa la columna real **`VALOR`** de `CAM_TX_RISK_FIG_AGG_PD`. Falta
+> confirmar (CONFIG): la variante exacta de `PK_VARIABLE_TARGET` (`Duración Modificada`
+> vs Efectiva), el nombre de la columna **FONDO/BENCHMARK** (`PK_TIPOGAMA`?) y los
+> valores de `PK_CRITERIO_AGREGACION` para dimensiones distintas de Activo (`AssetType`).
+> Nota: **fondos y carteras están en tablas distintas**.
 
 ## Limitaciones del *mock* (se resuelven en la Fase 2)
 

@@ -304,7 +304,9 @@ End Sub
 '     TWR_<per>_BMK y DIFERENCIAL_<per>. Filtros fijos PK_NAV_GNAV='GNAV' y
 '     BENCHMARK='Benchmark 1'. Se filtra por PK_PORTFOLIO_ID y se toma la última fecha.
 '   · Volatilidad -> VOL_1Y_260 ; Beta -> BETA (misma tabla).
-'   · Duración/TIR/Spread -> CAM_TX_RISK_FIG_AGG_PD                 [pendiente de mapear].
+'   · Duración -> CAM_TX_RISK_FIG_AGG_PD: VALOR por PK_ETIQUETA_AGREGACION
+'     (PK_VARIABLE_TARGET='Duración Modificada', PK_CRITERIO_AGREGACION segun dimensión).
+'   · TIR -> CAM_TM_PORTFOLIOS_PD.TIR_VALORACION (otra tabla)          [pendiente].
 '   · Peso/Composición -> CAM_TX_PORTFOLIOS_COMP_PD / CAM_TX_BENCHMARK_COMP_PD  [pendiente].
 ' NOTA: fondos y carteras están en tablas distintas; aquí se cubre performance
 ' de portfolios. El nombre visible se traduce a PK_PORTFOLIO_ID vía MapaEntidades.
@@ -323,6 +325,10 @@ Private Const F_NAV_GNAV As String = "GNAV"
 Private Const F_BENCHMARK As String = "Benchmark 1"
 ' Tabla de rentabilidades:
 Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
+' Tabla de riesgo (VALOR = número; PK_VARIABLE_TARGET = métrica; criterio/etiqueta = desglose):
+Private Const T_RISK As String = "CAM_TX_RISK_FIG_AGG_PD"
+Private Const RISK_VAR_DURACION As String = "Duración Modificada"   ' variante exacta (confirmar)
+Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMA"           ' columna FONDO/BENCHMARK (confirmar nombre)
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
@@ -400,9 +406,42 @@ Private Function MapMetrica(ByVal met As String, ByVal per As String, _
     End Select
 End Function
 
+' Dimensión del Panel (B9) -> valor de PK_CRITERIO_AGREGACION en la tabla de riesgo.
+' Solo 'AssetType' está confirmado (=Activo); el resto, pídelo al equipo de datos.
+Private Function DimACriterio(ByVal dimen As String) As String
+    Select Case dimen
+        Case "Activo": DimACriterio = "AssetType"
+        Case Else:     DimACriterio = ""
+    End Select
+End Function
+
+' SQL de riesgo (Duración) desde CAM_TX_RISK_FIG_AGG_PD: VALOR por etiqueta de
+' agregación (desglose), última fecha por portfolio.
+Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents As String) As String
+    Dim dimen As String, crit As String, sql As String
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    crit = DimACriterio(dimen)
+    If Len(crit) = 0 Then
+        SQLRiesgo = "-- Dimensión '" & dimen & "': falta el valor de PK_CRITERIO_AGREGACION." & vbLf & _
+                    "-- Confirmado 'AssetType' (=Activo). Pide a datos el criterio para " & dimen & "."
+        Exit Function
+    End If
+    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION, VALOR" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
+          "WHERE PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf & _
+          "  AND PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
+          "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & _
+          "QUALIFY ROW_NUMBER() OVER (PARTITION BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION" & _
+          " ORDER BY PK_FECHA_DATOS DESC) = 1" & vbLf & _
+          "ORDER BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION"
+    SQLRiesgo = sql
+End Function
+
 ' Construye la SQL a partir de los parámetros del Panel.
-' Formato real: CAM_TX_PERFORMANCE_FIGURES_PD con filtros PK_NAV_GNAV y BENCHMARK,
-' filtrando por PK_PORTFOLIO_ID, y quedándose con la última fecha por portfolio.
+' Rentabilidad/Volatilidad/Beta -> CAM_TX_PERFORMANCE_FIGURES_PD (última fecha por
+' portfolio). Duración -> CAM_TX_RISK_FIG_AGG_PD (VALOR por etiqueta de agregación).
 Public Function ConstruirSQL() As String
     Dim ws As Worksheet, met As String, per As String, ents As String
     Dim colVal As String, colBmk As String, colDif As String
@@ -413,11 +452,17 @@ Public Function ConstruirSQL() As String
     ents = ListaEntidades(ws)
     conBmk = (ws.Range("B12").Value = "Con benchmark")
 
+    ' Riesgo: Duración (VALOR en CAM_TX_RISK_FIG_AGG_PD).
+    If met = "Duración" Then
+        ConstruirSQL = SQLRiesgo(ws, RISK_VAR_DURACION, ents)
+        Exit Function
+    End If
+
     If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
         ConstruirSQL = _
             "-- Métrica '" & met & "' / periodo '" & per & "': aún no mapeada a BigQuery." & vbLf & _
-            "-- Riesgo (Duración/TIR/Spread) -> CAM_TX_RISK_FIG_AGG_PD" & vbLf & _
-            "--   (PK_VARIABLE_TARGET, PK_CRITERIO_AGREGACION, PK_ETIQUETA_AGREGACION)." & vbLf & _
+            "-- TIR -> CAM_TM_PORTFOLIOS_PD.TIR_VALORACION (otra tabla)." & vbLf & _
+            "-- Spread y otras de riesgo -> CAM_TX_RISK_FIG_AGG_PD (VALOR, PK_VARIABLE_TARGET)." & vbLf & _
             "-- Peso/Composición -> CAM_TX_PORTFOLIOS_COMP_PD / CAM_TX_BENCHMARK_COMP_PD (COMPONENT, WEIGHT)."
         Exit Function
     End If
