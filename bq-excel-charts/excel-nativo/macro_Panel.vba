@@ -299,10 +299,11 @@ End Sub
 ' INSTALACIÓN: Insertar -> Módulo (uno NUEVO, distinto al de la PARTE B) y pega
 ' todo esto. Revisa el bloque CONFIG (DSN, proyecto, datasets, filtros).
 '
-' Botones sugeridos (Insertar -> Forma -> Asignar macro):
-'   · "Ver SQL"           -> VerSQL          (muestra la consulta SQL)
-'   · "Ver M"             -> VerM            (muestra el M de Power Query)
-'   · "Traer de BigQuery" -> RefrescarDatos  (lanza, vuelca en W y dibuja el gráfico)
+' Botón principal (Insertar -> Forma -> Asignar macro):
+'   · "Actualizar"        -> Actualizar      (HACE TODO: SQL + lanzar + volcar + dibujar)
+' Botones opcionales:
+'   · "Ver SQL"           -> VerSQL          (solo muestra la consulta SQL)
+'   · "Ver M"             -> VerM            (solo muestra el M de Power Query)
 ' NOTA: al refrescar, la tabla D:H pasa a contener los datos reales (sustituye las
 ' fórmulas del mock). Para volver al modo ejemplo, regenera el libro.
 '
@@ -645,6 +646,14 @@ Public Sub VerM()
 End Sub
 
 ' Conecta a BigQuery (ODBC), ejecuta la SQL y vuelca el resultado en "BQ_Resultado".
+' ======= BOTÓN ÚNICO: hace TODO =======
+' Genera la SQL, la lanza, vuelca el resultado en la columna W, lo pivota a la
+' tabla del gráfico y lo redibuja. Asigna ESTE macro a un botón del Panel.
+Public Sub Actualizar()
+    ActualizarSQL          ' 1) refresca la vista previa de la SQL (celda A41)
+    RefrescarDatos         ' 2) lanza + vuelca en W + pivota + dibuja
+End Sub
+
 ' FLUJO COMPLETO: lanza la consulta, vuelca el resultado CRUDO a partir de la
 ' columna W del Panel, lo pivota a la tabla del gráfico (D:H) y redibuja.
 Public Sub RefrescarDatos()

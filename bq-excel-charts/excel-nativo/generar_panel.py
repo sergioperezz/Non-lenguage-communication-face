@@ -317,8 +317,9 @@ def build() -> Workbook:
     ws["A40"].font = Font(bold=True, size=10, color=AZUL[2:])
     ws.merge_cells("A41:H49")
     sqlc = ws["A41"]
-    sqlc.value = ("« Pega la PARTE D de la macro y pulsa el botón 'Ver SQL', "
-                  "o cambia un parámetro para verla aquí. »")
+    sqlc.value = ("« Pega la macro (macro_Panel.vba), guarda como .xlsm y añade un "
+                  "botón con la macro 'Actualizar'. Al pulsarlo, aquí verás la SQL, "
+                  "en la columna W el resultado y el gráfico ya dibujado. »")
     sqlc.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
     sqlc.font = Font(name="Consolas", size=9)
     sqlc.fill = PatternFill("solid", fgColor="F7F9FC")
