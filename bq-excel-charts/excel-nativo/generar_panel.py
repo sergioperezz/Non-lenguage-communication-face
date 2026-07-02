@@ -57,7 +57,8 @@ ENTIDADES = {
 
 GRUPOS = {
     "Rendimiento": ["Rentabilidad", "Rentab. acum."],
-    "Riesgo": ["Duración", "TIR", "Spread", "Volatilidad", "Beta"],
+    "Riesgo": ["Duración Modificada", "Duración Efectiva", "TIR", "Spread",
+               "Volatilidad", "Beta"],
     "Composicion": ["Peso"],
     "Costes": ["TER"],
     "Liquidez": ["Liquidez"],
@@ -99,7 +100,8 @@ MAX_CATS = max(len(c) for c in CATEGORIAS.values())
 
 PARAMS = {
     "Rentabilidad": (9.0, 0.60, 0.90), "Rentab. acum.": (12.0, 1.20, 0.90),
-    "Duración": (5.0, 0.30, 0.92), "TIR": (3.5, 0.20, 1.05), "Spread": (120.0, 15.0, 0.85),
+    "Duración Modificada": (5.0, 0.30, 0.92), "Duración Efectiva": (5.2, 0.30, 0.92),
+    "TIR": (3.5, 0.20, 1.05), "Spread": (120.0, 15.0, 0.85),
     "Volatilidad": (12.0, 0.80, 1.10), "Beta": (1.0, 0.05, 1.00), "Peso": (18.0, 3.0, 1.00),
     "TER": (0.85, 0.03, 1.00), "Liquidez": (5.0, 0.10, 1.02),
     "PER": (15.0, 0.80, 1.04), "DividendYield": (2.8, 0.20, 0.95),
@@ -209,7 +211,7 @@ def build() -> Workbook:
         ws[celda].font = BOLD
     defaults = {
         "B3": "Fondo", "B4": "RF Privada A", "B5": "(ninguna)", "B6": "(ninguna)", "B7": "Riesgo",
-        "B8": "Duración", "B9": "Trimestral", "B10": "Todos", "B11": "3A",
+        "B8": "Duración Modificada", "B9": "Trimestral", "B10": "Todos", "B11": "3A",
         "B12": "Con benchmark", "B13": "Líneas", "B14": "Columnas",
     }
     for celda, val in defaults.items():

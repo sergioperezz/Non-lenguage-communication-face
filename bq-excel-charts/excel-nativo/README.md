@@ -24,7 +24,7 @@ esos datos vendrán de **BigQuery** (por tu driver ODBC).
 | **Entidad 2** (opcional) | B5 | otra entidad **para comparar** (vacía = no se usa) |
 | **Entidad 3** (opcional) | B6 | otra entidad para comparar |
 | **Grupo de métrica** | B7 | Rendimiento · Riesgo · Composicion · Costes · Liquidez · Valoracion |
-| **Métrica** (cascada del grupo) | B8 | p. ej. Riesgo → Duración, TIR, Spread, Volatilidad, Beta |
+| **Métrica** (cascada del grupo) | B8 | p. ej. Riesgo → Duración Modificada, Duración Efectiva, TIR, Spread, Volatilidad, Beta |
 | **Dimensión / eje X** | B9 | *Tiempo*: Mensual, Trimestral, Semestral, Anual · *Composición*: Activo, Geografia, Industria, Sector, Divisa, Rating |
 | **Filtro: tipo de activo** | B10 | Todos · RF · RV |
 | **Periodo** | B11 | MTD · YTD · 1M–6M · 1A–6A |
@@ -146,7 +146,7 @@ la hoja **`BQ_Resultado`**.
 | Rentabilidad / Rentab. acum. | `CAM_TX_PERFORMANCE_FIGURES_PD` | `TWR_<per>`, `TWR_<per>_BMK`, `DIFERENCIAL_<per>` |
 | Volatilidad | `CAM_TX_PERFORMANCE_FIGURES_PD` | `VOL_1Y_260` |
 | Beta | `CAM_TX_PERFORMANCE_FIGURES_PD` | `BETA` |
-| Duración | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (con `PK_VARIABLE_TARGET='Duración Modificada'`, desglose por `PK_ETIQUETA_AGREGACION`) |
+| Duración (Modificada/Efectiva) | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (con `PK_VARIABLE_TARGET`=nombre de la métrica, `PK_TIPOGAMAN1='FONDO'`, desglose por `PK_ETIQUETA_AGREGACION`) |
 | TIR | `CAM_TM_PORTFOLIOS_PD` | `TIR_VALORACION` *(pendiente de enrutar)* |
 | Spread / Peso / Composición | `CAM_TX_RISK_FIG_AGG_PD` / `CAM_TX_*_COMP_PD` | *(pendiente)* |
 
@@ -164,10 +164,11 @@ la hoja **`BQ_Resultado`**.
   `BQ_Resultado`). Vista previa de la SQL en vivo en el Panel (celda **A41**).
 - **CONFIG** (arriba de la PARTE D): DSN, proyecto, datasets y filtros.
 
-> **Duración** ya usa la columna real **`VALOR`** de `CAM_TX_RISK_FIG_AGG_PD`. Falta
-> confirmar (CONFIG): la variante exacta de `PK_VARIABLE_TARGET` (`Duración Modificada`
-> vs Efectiva), el nombre de la columna **FONDO/BENCHMARK** (`PK_TIPOGAMA`?) y los
-> valores de `PK_CRITERIO_AGREGACION` para dimensiones distintas de Activo (`AssetType`).
+> **Duración Modificada/Efectiva** ya usan la columna real **`VALOR`** de
+> `CAM_TX_RISK_FIG_AGG_PD` (el nombre de la métrica = `PK_VARIABLE_TARGET`, y la
+> columna FONDO/BENCHMARK es `PK_TIPOGAMAN1`). Falta solo el mapeo de
+> `PK_CRITERIO_AGREGACION` para dimensiones distintas de Activo (`AssetType`), que
+> se saca con `SELECT DISTINCT PK_CRITERIO_AGREGACION, PK_ETIQUETA_AGREGACION ...`.
 > Nota: **fondos y carteras están en tablas distintas**.
 
 ## Limitaciones del *mock* (se resuelven en la Fase 2)

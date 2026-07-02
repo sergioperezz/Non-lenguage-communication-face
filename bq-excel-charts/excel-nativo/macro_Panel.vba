@@ -327,8 +327,7 @@ Private Const F_BENCHMARK As String = "Benchmark 1"
 Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
 ' Tabla de riesgo (VALOR = número; PK_VARIABLE_TARGET = métrica; criterio/etiqueta = desglose):
 Private Const T_RISK As String = "CAM_TX_RISK_FIG_AGG_PD"
-Private Const RISK_VAR_DURACION As String = "Duración Modificada"   ' variante exacta (confirmar)
-Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMA"           ' columna FONDO/BENCHMARK (confirmar nombre)
+Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMAN1"         ' columna FONDO/BENCHMARK
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
@@ -452,9 +451,10 @@ Public Function ConstruirSQL() As String
     ents = ListaEntidades(ws)
     conBmk = (ws.Range("B12").Value = "Con benchmark")
 
-    ' Riesgo: Duración (VALOR en CAM_TX_RISK_FIG_AGG_PD).
-    If met = "Duración" Then
-        ConstruirSQL = SQLRiesgo(ws, RISK_VAR_DURACION, ents)
+    ' Riesgo: Duración Modificada / Efectiva (VALOR en CAM_TX_RISK_FIG_AGG_PD).
+    ' El nombre de la métrica del Panel coincide con PK_VARIABLE_TARGET del DWH.
+    If InStr(met, "Duración") = 1 Then
+        ConstruirSQL = SQLRiesgo(ws, met, ents)
         Exit Function
     End If
 
