@@ -287,41 +287,42 @@ End Sub
 
 ' =============  PARTE D: en un MÓDULO ESTÁNDAR NUEVO (Fase 2)  ==============
 ' Con los parámetros del Panel construye la SQL contra el MODELO HOMOLOGADO real
-' (esquema en estrella), la ejecuta por ODBC (ADODB) y vuelca los datos en una
-' hoja de aterrizaje "BQ_Resultado".
+' (proyecto go-cam-beg-camd9-camcd9p01-pro), como tu Consulta de Power Query.
+' Puedes: (a) copiar la SQL/M a tu Power Query (Odbc.Query), o (b) usar
+' RefrescarDatos para traerla por ODBC (ADODB) a la hoja "BQ_Resultado".
 '
 ' INSTALACIÓN: Insertar -> Módulo (uno NUEVO, distinto al de la PARTE B) y pega
-' todo esto. Rellena BQ_CONN y BQ_DATASET con tu entorno.
+' todo esto. Revisa el bloque CONFIG (DSN, proyecto, datasets, filtros).
 '
 ' Botones sugeridos (Insertar -> Forma -> Asignar macro):
-'   · "Ver SQL"          -> VerSQL         (solo muestra la consulta)
-'   · "Traer de BigQuery"-> RefrescarDatos (conecta y trae los datos)
+'   · "Ver SQL"           -> VerSQL          (muestra la consulta SQL)
+'   · "Ver M"             -> VerM            (muestra el M de Power Query)
+'   · "Traer de BigQuery" -> RefrescarDatos  (conecta por ODBC y trae los datos)
 '
-' MAPEO (según el diccionario de datos homologado):
-'   · Rentabilidad / Rentab. acum. -> CAM_TX_PERFORMANCE_FIGURES_PD, columna
-'     TWR_<periodo> (MTD/QTD/YTD/1M/1Y/3Y/5Y); benchmark = TWR_<periodo>_BMK.
-'   · Volatilidad -> VOL_1Y_260 ; Beta -> BETA (misma tabla, valor por portfolio).
-'   · Identidad y tipo: CAM_TM_PORTFOLIOS_PD (PORTFOLIO_NAME, PTF_PORTFOLIO_TYPE).
-'   · Duración/TIR/Spread -> CAM_TX_RISK_FIG_AGG_PD (PK_VARIABLE_TARGET +
-'     PK_CRITERIO_AGREGACION/PK_ETIQUETA_AGREGACION)  [pendiente de mapear].
-'   · Peso/Composición -> composición de CAM_TM_PORTFOLIOS_PD y benchmark en
-'     CAM_TX_BENCHMARK_COMP_PD (COMPONENT, WEIGHT)          [pendiente de mapear].
-' NOTA: la consulta es de CORTE TRANSVERSAL (un valor por portfolio en la última
-' fecha), que es como el DWH guarda las rentabilidades rolling.
+' MAPEO (diccionario + query de ejemplo):
+'   · Rentabilidad / Rentab. acum. -> CAM_TX_PERFORMANCE_FIGURES_PD: TWR_<per>,
+'     TWR_<per>_BMK y DIFERENCIAL_<per>. Filtros fijos PK_NAV_GNAV='GNAV' y
+'     BENCHMARK='Benchmark 1'. Se filtra por PK_PORTFOLIO_ID y se toma la última fecha.
+'   · Volatilidad -> VOL_1Y_260 ; Beta -> BETA (misma tabla).
+'   · Duración/TIR/Spread -> CAM_TX_RISK_FIG_AGG_PD                 [pendiente de mapear].
+'   · Peso/Composición -> CAM_TX_PORTFOLIOS_COMP_PD / CAM_TX_BENCHMARK_COMP_PD  [pendiente].
+' NOTA: fondos y carteras están en tablas distintas; aquí se cubre performance
+' de portfolios. El nombre visible se traduce a PK_PORTFOLIO_ID vía MapaEntidades.
 ' ---------------------------------------------------------------------------
 
-' ==== CONFIG (rellena con tu entorno de BigQuery) ====
-Private Const BQ_CONN As String = "DSN=BigQuery;"                 ' DSN ODBC (o cadena Driver={...};...)
-Private Const BQ_DATASET As String = "proyecto.dataset"          ' proyecto.dataset de BigQuery (sin backticks)
-Private Const LANDING As String = "BQ_Resultado"                 ' hoja donde se vuelcan los datos
-' Tablas del modelo homologado:
+' ==== CONFIG (valores reales del entorno; ajústalos si cambian) ====
+Private Const BQ_DSN As String = "Conexión_BQ"                          ' DSN ODBC ya configurado
+Private Const BQ_CONN As String = "DSN=Conexión_BQ;"                    ' cadena de conexión ADODB
+Private Const BQ_PROJECT As String = "go-cam-beg-camd9-camcd9p01-pro"   ' proyecto de BigQuery
+Private Const DS_PROD As String = "productosdatosdecontratos_ds01"      ' rentabilidad, riesgo, patrimonios
+Private Const DS_OPER As String = "operativafinanciera_ds01"            ' benchmark, indices, lookthrough
+Private Const DS_MERC As String = "informaciondemercado_ds01"           ' maestros de valores/precios
+Private Const LANDING As String = "BQ_Resultado"                        ' hoja donde se vuelcan los datos
+' Filtros obligatorios de la tabla de performance (si no, filas duplicadas):
+Private Const F_NAV_GNAV As String = "GNAV"
+Private Const F_BENCHMARK As String = "Benchmark 1"
+' Tabla de rentabilidades:
 Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
-Private Const T_PORT As String = "CAM_TM_PORTFOLIOS_PD"
-' Columnas de identidad de portfolio:
-Private Const P_ID As String = "PK_PORTFOLIO_ID"
-Private Const P_NAME As String = "PORTFOLIO_NAME"
-Private Const P_TYPE As String = "PTF_PORTFOLIO_TYPE"
-Private Const P_FECHA As String = "PK_FECHA_DATOS"
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
@@ -330,8 +331,8 @@ Private Function Esc(ByVal s As String) As String
 End Function
 
 ' Nombre de tabla cualificado: `proyecto.dataset.TABLA`
-Private Function Tbl(ByVal t As String) As String
-    Tbl = "`" & BQ_DATASET & "." & t & "`"
+Private Function Tbl(ByVal ds As String, ByVal t As String) As String
+    Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
 End Function
 
 ' Traduce el nombre de entidad a su PK_PORTFOLIO_ID vía el rango MapaEntidades
@@ -379,17 +380,18 @@ Private Function SufijoPeriodo(ByVal p As String) As String
     End Select
 End Function
 
-' Métrica del Panel -> tabla + columna del fondo + columna del benchmark del DWH.
+' Métrica del Panel -> columnas del DWH (fondo, benchmark, diferencial).
 ' Devuelve True si la métrica está mapeada.
 Private Function MapMetrica(ByVal met As String, ByVal per As String, _
-        ByRef colVal As String, ByRef colBmk As String) As Boolean
+        ByRef colVal As String, ByRef colBmk As String, ByRef colDif As String) As Boolean
     Dim suf As String: suf = SufijoPeriodo(per)
-    colVal = "": colBmk = ""
+    colVal = "": colBmk = "": colDif = ""
     Select Case met
         Case "Rentabilidad", "Rentab. acum."
             If Len(suf) = 0 Then Exit Function            ' periodo sin columna en el DWH
             colVal = "TWR_" & suf
             colBmk = "TWR_" & suf & "_BMK"
+            colDif = "DIFERENCIAL_" & suf
             MapMetrica = True
         Case "Volatilidad"
             colVal = "VOL_1Y_260": MapMetrica = True
@@ -398,46 +400,51 @@ Private Function MapMetrica(ByVal met As String, ByVal per As String, _
     End Select
 End Function
 
-' Construye la SQL a partir de los parámetros del Panel (corte transversal).
+' Construye la SQL a partir de los parámetros del Panel.
+' Formato real: CAM_TX_PERFORMANCE_FIGURES_PD con filtros PK_NAV_GNAV y BENCHMARK,
+' filtrando por PK_PORTFOLIO_ID, y quedándose con la última fecha por portfolio.
 Public Function ConstruirSQL() As String
     Dim ws As Worksheet, met As String, per As String, ents As String
-    Dim colVal As String, colBmk As String, whereEnt As String, sql As String
-    Dim conBmk As Boolean
+    Dim colVal As String, colBmk As String, colDif As String
+    Dim cols As String, sql As String, conBmk As Boolean
     Set ws = ThisWorkbook.Sheets("Panel")
     met = Trim(CStr(ws.Range("B8").Value))
     per = Trim(CStr(ws.Range("B11").Value))
     ents = ListaEntidades(ws)
     conBmk = (ws.Range("B12").Value = "Con benchmark")
 
-    If Not MapMetrica(met, per, colVal, colBmk) Then
+    If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
         ConstruirSQL = _
             "-- Métrica '" & met & "' / periodo '" & per & "': aún no mapeada a BigQuery." & vbLf & _
-            "-- Riesgo (Duración/TIR/Spread) -> " & T_PERF & " y CAM_TX_RISK_FIG_AGG_PD" & vbLf & _
+            "-- Riesgo (Duración/TIR/Spread) -> CAM_TX_RISK_FIG_AGG_PD" & vbLf & _
             "--   (PK_VARIABLE_TARGET, PK_CRITERIO_AGREGACION, PK_ETIQUETA_AGREGACION)." & vbLf & _
-            "-- Peso/Composición -> CAM_TM_PORTFOLIOS_PD (composición) / CAM_TX_BENCHMARK_COMP_PD" & vbLf & _
-            "--   (COMPONENT, WEIGHT). Rellena el mapeo cuando definamos criterio/etiqueta."
+            "-- Peso/Composición -> CAM_TX_PORTFOLIOS_COMP_PD / CAM_TX_BENCHMARK_COMP_PD (COMPONENT, WEIGHT)."
         Exit Function
     End If
 
-    whereEnt = ""
-    If Len(ents) > 0 Then whereEnt = " AND p." & P_ID & " IN (" & ents & ")"
+    cols = "PK_FECHA_DATOS, PK_PORTFOLIO_ID, " & colVal
+    If conBmk And Len(colBmk) > 0 Then cols = cols & ", " & colBmk
+    If conBmk And Len(colDif) > 0 Then cols = cols & ", " & colDif
 
-    sql = "SELECT p." & P_NAME & " AS entidad, p." & P_TYPE & " AS tipo_activo," & vbLf & _
-          "       '" & Esc(met) & "' AS metrica, CAST(f." & P_FECHA & " AS STRING) AS eje_valor," & vbLf & _
-          "       'Cartera' AS serie, f." & colVal & " AS valor" & vbLf & _
-          "FROM " & Tbl(T_PERF) & " f" & vbLf & _
-          "JOIN " & Tbl(T_PORT) & " p ON p." & P_ID & " = f." & P_ID & vbLf & _
-          "WHERE f." & P_FECHA & " = (SELECT MAX(" & P_FECHA & ") FROM " & Tbl(T_PERF) & ")" & whereEnt
-    If conBmk And Len(colBmk) > 0 Then
-        sql = sql & vbLf & "UNION ALL" & vbLf & _
-          "SELECT p." & P_NAME & ", p." & P_TYPE & ", '" & Esc(met) & "', CAST(f." & P_FECHA & " AS STRING)," & vbLf & _
-          "       'Benchmark', f." & colBmk & vbLf & _
-          "FROM " & Tbl(T_PERF) & " f" & vbLf & _
-          "JOIN " & Tbl(T_PORT) & " p ON p." & P_ID & " = f." & P_ID & vbLf & _
-          "WHERE f." & P_FECHA & " = (SELECT MAX(" & P_FECHA & ") FROM " & Tbl(T_PERF) & ")" & whereEnt
-    End If
-    sql = sql & vbLf & "ORDER BY serie, entidad"
+    sql = "SELECT " & cols & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
+          "WHERE PK_NAV_GNAV = '" & F_NAV_GNAV & "'" & vbLf & _
+          "  AND BENCHMARK = '" & F_BENCHMARK & "'"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & _
+          "QUALIFY ROW_NUMBER() OVER (PARTITION BY PK_PORTFOLIO_ID ORDER BY PK_FECHA_DATOS DESC) = 1" & vbLf & _
+          "ORDER BY PK_PORTFOLIO_ID"
     ConstruirSQL = sql
+End Function
+
+' Envuelve la SQL en Power Query M (Odbc.Query), como en tu Consulta actual.
+Public Function ConstruirM() As String
+    Dim sql As String
+    sql = ConstruirSQL()
+    If Left(sql, 2) = "--" Then ConstruirM = sql: Exit Function
+    ConstruirM = "let" & vbLf & _
+        "    Origen = Odbc.Query(""dsn=" & BQ_DSN & """, """ & Replace(sql, vbLf, " ") & """)" & vbLf & _
+        "in" & vbLf & "    Origen"
 End Function
 
 ' Escribe la SQL en la vista previa del Panel (A41). La llama Worksheet_Change.
@@ -450,6 +457,11 @@ End Sub
 Public Sub VerSQL()
     ActualizarSQL
     MsgBox ConstruirSQL(), vbInformation, "SQL para los parámetros actuales"
+End Sub
+
+' Muestra el código Power Query M (Odbc.Query) listo para pegar en una consulta.
+Public Sub VerM()
+    MsgBox ConstruirM(), vbInformation, "Power Query (M) para los parámetros actuales"
 End Sub
 
 ' Conecta a BigQuery (ODBC), ejecuta la SQL y vuelca el resultado en "BQ_Resultado".

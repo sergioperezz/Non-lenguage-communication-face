@@ -460,13 +460,17 @@ def build_sectorial(wb):
     wb.defined_names.add(DefinedName("EntidadesAll",
                                      attr_text=f"Listas!$AH$2:$AH${1 + len(_ENT_LIST)}"))
 
-    # Fase 2: mapa Nombre -> PK_PORTFOLIO_ID (la macro filtra por ID). Los IDs son
-    # PLACEHOLDER; reemplázalos por los PK_PORTFOLIO_ID reales de BigQuery.
+    # Fase 2: mapa Nombre -> PK_PORTFOLIO_ID (la macro filtra por ID). Se usan como
+    # EJEMPLO los PK_PORTFOLIO_ID reales del entorno; reconcilia cada nombre visible
+    # con su ID real (los nombres del mock son ficticios).
+    IDS_REALES = ["CBNKITER", "DIVERDIN", "FALBUSFI", "GESTIO30", "GESTIO60",
+                  "GESTOTAL", "IMP030RV", "IMP060RV", "IMP100RV", "MIXTRF10",
+                  "MIXTRF15", "PRO030RV", "PRO060RV", "PRO100RV"]
     ws_l.cell(row=1, column=36, value="Entidad").font = BOLD          # col AJ
     ws_l.cell(row=1, column=37, value="PK_PORTFOLIO_ID").font = BOLD  # col AK
     for i, e in enumerate(_ENT_LIST, start=2):
         ws_l.cell(row=i, column=36, value=e)
-        ws_l.cell(row=i, column=37, value=f"ID-{i - 1:02d}")         # placeholder
+        ws_l.cell(row=i, column=37, value=IDS_REALES[(i - 2) % len(IDS_REALES)])
     wb.defined_names.add(DefinedName("MapaEntidades",
                                      attr_text=f"Listas!$AJ$2:$AK${1 + len(_ENT_LIST)}"))
 
