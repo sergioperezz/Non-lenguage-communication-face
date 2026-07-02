@@ -265,6 +265,44 @@ Public Sub VerM()
     MsgBox ConstruirM(), vbInformation, "Power Query (M)"
 End Sub
 
+' =======================  INSTALADOR DE BOTONES  ===========================
+' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
+' las hojas Panel y Tablas con sus macros ya asignadas.
+Public Sub InstalarBotones()
+    Dim ws As Worksheet
+    Set ws = Panel()
+    BorrarBotones ws
+    CrearBoton ws, "A22", "► Actualizar (BigQuery)", "Actualizar"
+    CrearBoton ws, "A24", "Dibujar (ejemplo)", "DibujarGrafico"
+    CrearBoton ws, "A26", "Ver SQL", "VerSQL"
+    CrearBoton ws, "A28", "► A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+
+    On Error Resume Next
+    Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
+    On Error GoTo 0
+    If Not wt Is Nothing Then
+        BorrarBotones wt
+        CrearBoton wt, "D3", "Formatear tabla", "FormatearTablas"
+    End If
+    MsgBox "Botones creados en 'Panel' y 'Tablas'.", vbInformation, "Instalación"
+End Sub
+
+Private Sub BorrarBotones(ws As Worksheet)
+    Dim i As Long
+    For i = ws.Buttons.Count To 1 Step -1
+        If Left(ws.Buttons(i).Name, 4) = "btn_" Then ws.Buttons(i).Delete
+    Next i
+End Sub
+
+Private Sub CrearBoton(ws As Worksheet, ByVal ancla As String, ByVal cap As String, ByVal macro As String)
+    Dim b As Button, r As Range
+    Set r = ws.Range(ancla)
+    Set b = ws.Buttons.Add(r.Left, r.Top, 150, 26)
+    b.Caption = cap
+    b.OnAction = macro
+    b.Name = "btn_" & macro
+End Sub
+
 ' =======================  BOTÓN ÚNICO: HACE TODO  ==========================
 Public Sub Actualizar()
     ActualizarSQL          ' 1) SQL en A41
