@@ -308,6 +308,18 @@ def build() -> Workbook:
     for c, w in {"A": 20, "B": 22, "D": 16, "E": 14, "F": 14, "G": 14, "H": 12}.items():
         ws.column_dimensions[c].width = w
 
+    # Vista previa de la SQL (Fase 2). La macro (PARTE D) la escribe en A41 al
+    # cambiar un parámetro. Zona libre bajo la tabla de resultados.
+    ws["A40"] = "SQL generada (Fase 2 · BigQuery) para los parámetros actuales:"
+    ws["A40"].font = Font(bold=True, size=10, color=AZUL[2:])
+    ws.merge_cells("A41:H49")
+    sqlc = ws["A41"]
+    sqlc.value = ("« Pega la PARTE D de la macro y pulsa el botón 'Ver SQL', "
+                  "o cambia un parámetro para verla aquí. »")
+    sqlc.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
+    sqlc.font = Font(name="Consolas", size=9)
+    sqlc.fill = PatternFill("solid", fgColor="F7F9FC")
+
     build_tablas(wb, n)
     build_sectorial(wb)
     build_comparativa(wb)

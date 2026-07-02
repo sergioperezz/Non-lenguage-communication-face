@@ -6,7 +6,8 @@
 '   1) PARTE A -> clic derecho en la pestaña "Panel" -> "Ver código" y pega ahí.
 '   2) PARTE B -> Insertar -> Módulo, y pega ahí.
 '   3) PARTE C -> clic derecho en la pestaña "Tablas" -> "Ver código" y pega ahí.
-'   4) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
+'   4) PARTE D (Fase 2, opcional) -> Insertar -> Módulo NUEVO y pega ahí.
+'   5) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
 '
 '  Controles: B3 Tipo entidad · B4 Entidad 1 · B5/B6 Entidad 2/3 (opc.)
 '   · B7 Grupo · B8 Métrica · B9 Dimensión · B10 Filtro tipo activo · B11 Periodo
@@ -34,8 +35,14 @@ Private Sub Worksheet_Change(ByVal Target As Range)
 
     If Not Intersect(Target, Me.Range("B3:B14")) Is Nothing Then AplicarGrafico
 
-    ' --- Fase 2 (BigQuery por Power Query/ODBC): descomenta para refrescar datos ---
-    ' If Not Intersect(Target, Me.Range("B3:B11")) Is Nothing Then ThisWorkbook.RefreshAll
+    ' --- Fase 2: refrescar la vista previa de la SQL (si está pegada la PARTE D).
+    '     No conecta a BigQuery; solo construye el texto de la consulta.
+    If Not Intersect(Target, Me.Range("B3:B11")) Is Nothing Then
+        On Error Resume Next
+        Application.Run "ActualizarSQL"
+        On Error GoTo Salir
+    End If
+    ' Para traer datos reales de BigQuery: botón con la macro "RefrescarDatos" (PARTE D).
 
 Salir:
     Application.ScreenUpdating = True
@@ -275,4 +282,147 @@ Private Sub FormatearTablas()
         Case Else
             ' "Sin formato": ya se ha limpiado, no se añade nada.
     End Select
+End Sub
+
+
+' =============  PARTE D: en un MÓDULO ESTÁNDAR NUEVO (Fase 2)  ==============
+' Con los parámetros del Panel construye la SQL de BigQuery, la ejecuta por ODBC
+' (ADODB) y vuelca los datos en la hoja "Datos"; luego redibuja el gráfico.
+'
+' INSTALACIÓN: Insertar -> Módulo (uno NUEVO, distinto al de la PARTE B) y pega
+' todo esto. Rellena el bloque CONFIG con tu entorno.
+'
+' Botones sugeridos (Insertar -> Forma -> Asignar macro):
+'   · "Ver SQL"          -> VerSQL         (solo muestra la consulta)
+'   · "Traer de BigQuery"-> RefrescarDatos (conecta y actualiza los datos)
+'
+' NOTA: se asume una tabla en formato largo con las MISMAS columnas que la hoja
+' "Datos" (entidad, tipo_activo, metrica, eje_tipo, eje_valor, serie, valor) y
+' una columna de fecha para el periodo. Si tu modelo es distinto, ajusta el
+' bloque CONFIG y/o la función ConstruirSQL (por ejemplo, añadiendo un GROUP BY).
+' ---------------------------------------------------------------------------
+
+' ==== CONFIG (rellena con tu entorno de BigQuery) ====
+Private Const BQ_CONN As String = "DSN=BigQuery;"          ' DSN ODBC ya configurado (o cadena Driver={...};...)
+Private Const BQ_TABLA As String = "`proyecto.dataset.hechos_metricas`"
+Private Const COL_ENTIDAD As String = "entidad"
+Private Const COL_TIPOACTIVO As String = "tipo_activo"
+Private Const COL_METRICA As String = "metrica"
+Private Const COL_DIMENSION As String = "eje_tipo"        ' distingue Mensual/Trimestral/.../Geografia...
+Private Const COL_EJEVALOR As String = "eje_valor"        ' etiqueta del eje X (debe casar con las listas Cat_*)
+Private Const COL_SERIE As String = "serie"               ' 'Cartera' / 'Benchmark'
+Private Const COL_VALOR As String = "valor"
+Private Const COL_FECHA As String = "fecha"               ' para acotar el periodo
+' =====================================================
+
+' Duplica comillas simples para evitar romper la cadena SQL.
+Private Function Esc(ByVal s As String) As String
+    Esc = Replace(CStr(s), "'", "''")
+End Function
+
+' Lista de entidades seleccionadas (B4/B5/B6), saltando vacías y "(ninguna)".
+Private Function ListaEntidades(ws As Worksheet) As String
+    Dim celda As Variant, v As String, out As String
+    For Each celda In Array("B4", "B5", "B6")
+        v = Trim(CStr(ws.Range(celda).Value))
+        If v <> "" And v <> "(ninguna)" Then
+            If Len(out) > 0 Then out = out & ", "
+            out = out & "'" & Esc(v) & "'"
+        End If
+    Next celda
+    ListaEntidades = out
+End Function
+
+' Traduce el periodo (B11) a un predicado de fecha para BigQuery.
+Private Function FiltroPeriodo(ByVal p As String) As String
+    Dim n As Long
+    p = Trim(UCase(p))
+    Select Case p
+        Case "MTD": FiltroPeriodo = COL_FECHA & " >= DATE_TRUNC(CURRENT_DATE(), MONTH)"
+        Case "YTD": FiltroPeriodo = COL_FECHA & " >= DATE_TRUNC(CURRENT_DATE(), YEAR)"
+        Case Else
+            If Len(p) >= 2 And IsNumeric(Left(p, Len(p) - 1)) Then
+                n = CLng(Left(p, Len(p) - 1))
+                If Right(p, 1) = "M" Then
+                    FiltroPeriodo = COL_FECHA & " >= DATE_SUB(CURRENT_DATE(), INTERVAL " & n & " MONTH)"
+                ElseIf Right(p, 1) = "A" Then
+                    FiltroPeriodo = COL_FECHA & " >= DATE_SUB(CURRENT_DATE(), INTERVAL " & n & " YEAR)"
+                End If
+            End If
+    End Select
+End Function
+
+' Construye la SQL a partir de los parámetros del Panel.
+Public Function ConstruirSQL() As String
+    Dim ws As Worksheet, sql As String, ents As String, wF As String
+    Dim met As String, dimen As String, filtro As String, periodo As String
+    Set ws = ThisWorkbook.Sheets("Panel")
+    met = Esc(ws.Range("B8").Value)
+    dimen = Esc(ws.Range("B9").Value)
+    filtro = Trim(CStr(ws.Range("B10").Value))
+    periodo = Trim(CStr(ws.Range("B11").Value))
+    ents = ListaEntidades(ws)
+
+    sql = "SELECT " & COL_ENTIDAD & ", " & COL_TIPOACTIVO & ", " & COL_METRICA & ", " & _
+          COL_DIMENSION & ", " & COL_EJEVALOR & ", " & COL_SERIE & ", " & COL_VALOR & vbLf & _
+          "FROM " & BQ_TABLA & vbLf & _
+          "WHERE " & COL_METRICA & " = '" & met & "'" & vbLf & _
+          "  AND " & COL_DIMENSION & " = '" & dimen & "'"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND " & COL_ENTIDAD & " IN (" & ents & ")"
+    If filtro <> "" And filtro <> "Todos" Then
+        sql = sql & vbLf & "  AND " & COL_TIPOACTIVO & " = '" & Esc(filtro) & "'"
+    End If
+    wF = FiltroPeriodo(periodo)
+    If Len(wF) > 0 Then sql = sql & vbLf & "  AND " & wF
+    sql = sql & vbLf & "ORDER BY " & COL_SERIE & ", " & COL_EJEVALOR
+    ConstruirSQL = sql
+End Function
+
+' Escribe la SQL en la vista previa del Panel (A41). La llama Worksheet_Change.
+Public Sub ActualizarSQL()
+    On Error Resume Next
+    ThisWorkbook.Sheets("Panel").Range("A41").Value = ConstruirSQL()
+End Sub
+
+' Muestra la SQL de los parámetros actuales (sin conectar).
+Public Sub VerSQL()
+    ActualizarSQL
+    MsgBox ConstruirSQL(), vbInformation, "SQL para los parámetros actuales"
+End Sub
+
+' Conecta a BigQuery (ODBC), ejecuta la SQL y vuelca los datos en "Datos".
+Public Sub RefrescarDatos()
+    Dim cn As Object, rs As Object, wsD As Worksheet, sql As String
+    sql = ConstruirSQL()
+    On Error GoTo fallo
+
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 120
+    cn.Open BQ_CONN
+    Set rs = CreateObject("ADODB.Recordset")
+    rs.Open sql, cn, 1, 1                       ' adOpenKeyset, adLockReadOnly
+
+    Set wsD = ThisWorkbook.Sheets("Datos")
+    Application.EnableEvents = False
+    wsD.Range("A2:G" & wsD.Rows.Count).ClearContents   ' limpia datos previos (deja cabecera)
+    If Not rs.EOF Then wsD.Range("A2").CopyFromRecordset rs
+    rs.Close: cn.Close
+    Application.EnableEvents = True
+
+    Application.Calculate
+    ' Redibuja el gráfico re-disparando el evento del Panel.
+    With ThisWorkbook.Sheets("Panel")
+        .Activate
+        .Range("B14").Value = .Range("B14").Value
+    End With
+    MsgBox "Datos actualizados desde BigQuery.", vbInformation, "Fase 2"
+    Exit Sub
+
+fallo:
+    Application.EnableEvents = True
+    MsgBox "No se pudo conectar/consultar BigQuery:" & vbLf & Err.Description & _
+           vbLf & vbLf & "SQL:" & vbLf & sql, vbExclamation, "Fase 2"
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
 End Sub

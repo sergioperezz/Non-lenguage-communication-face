@@ -128,10 +128,26 @@ las *categorías*, al revés que en el Panel (donde son *series*). Selectores: B
   seleccionadas** (las entidades). La composición apilada por *componentes*
   (sub-industrias/caps) es la **hoja Sectorial** de arriba.
 
-## Puente a la Fase 2 (BigQuery)
+## Fase 2 (BigQuery por ODBC) — PARTE D de la macro
 
-- Sustituyes **Datos** por una consulta de Power Query (ODBC) con las mismas
-  columnas. Descomentas `ThisWorkbook.RefreshAll` en la macro. El resto no cambia.
+La **PARTE D** (módulo estándar nuevo) convierte los parámetros del Panel en una
+consulta a BigQuery, la ejecuta por **ODBC (ADODB)** y vuelca el resultado en la
+hoja **Datos**; luego redibuja el gráfico. El resto del libro no cambia.
+
+- **`ConstruirSQL`**: arma la `SELECT ... WHERE` desde B8 (métrica), B9 (dimensión),
+  B4/B5/B6 (entidades → `IN (...)`), B10 (filtro tipo activo) y B11 (periodo →
+  rango de fechas con `DATE_SUB`/`DATE_TRUNC`).
+- **Vista previa en vivo**: al cambiar un parámetro, la SQL se escribe en el Panel
+  (celda **A41**); no conecta, solo construye el texto.
+- **`VerSQL`** (botón): muestra la consulta. **`RefrescarDatos`** (botón): conecta,
+  ejecuta y actualiza los datos.
+- **CONFIG** (arriba de la PARTE D): cadena de conexión (`DSN=...` o `Driver={...}`),
+  tabla y **nombres de columna**. Se asume una tabla en **formato largo** con las
+  mismas columnas que la hoja `Datos` (+ una columna de fecha); si tu modelo es
+  distinto, ajustas el mapeo o añades un `GROUP BY` en `ConstruirSQL`.
+
+> Requisito: las etiquetas de `eje_valor` en BigQuery deben coincidir con las
+> listas `Cat_*` del libro (p. ej. `2026-T2`, `Europa`), o adaptas esas listas.
 
 ## Limitaciones del *mock* (se resuelven en la Fase 2)
 
