@@ -27,7 +27,7 @@ from openpyxl.chart.marker import Marker
 from openpyxl.chart.shapes import GraphicalProperties
 from openpyxl.drawing.line import LineProperties
 from openpyxl.formatting.rule import CellIsRule, ColorScaleRule, DataBarRule
-from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.workbook.defined_name import DefinedName
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -416,24 +416,28 @@ def build_comparativa(wb):
 
 
 def build_sectorial(wb):
-    """Hoja 'Sectorial': columnas APILADAS (componentes por sector) + serie de
-    puntos en EJE SECUNDARIO (Contribución al Tracking Error). Combo construido
-    con openpyxl y enlazado a una tabla SUMIFS -> sin macro."""
-    SECTORS = CATEGORIAS["Sector"]
+    """Hoja 'Sectorial': columnas APILADAS (componentes por categoría) + serie de
+    puntos en EJE SECUNDARIO (Contribución al Tracking Error). Ahora se puede
+    AGRUPAR POR varias dimensiones (Sector, Industria, Geografia, Divisa, Rating,
+    Activo). Combo con openpyxl enlazado a una tabla SUMIFS -> sin macro."""
+    GROUP_DIMS = ["Sector", "Industria", "Geografia", "Divisa", "Rating", "Activo"]
     COMPONENTES = ["Large Cap", "Mid Cap", "Small Cap"]
+    MAXCAT = max(len(CATEGORIAS[d]) for d in GROUP_DIMS)  # filas de la tabla/chart
 
-    # Datos de ejemplo (Entidad | Sector | Serie | Valor); Serie = componente o TE.
+    # Datos de ejemplo (Entidad | Dim | Categoria | Serie | Valor).
     ws_d = wb.create_sheet("DatosSector")
-    ws_d.append(["Entidad", "Sector", "Serie", "Valor"])
+    ws_d.append(["Entidad", "Dim", "Categoria", "Serie", "Valor"])
     for c in ws_d[1]:
         c.font = BOLD
     for ei, ent in enumerate(_ENT_LIST):
-        for si, sec in enumerate(SECTORS):
-            for ci, comp in enumerate(COMPONENTES):
-                v = round(0.15 + 0.10 * ((si + ci) % 3) + 0.05 * abs(math.sin(ei + si + ci)), 3)
-                ws_d.append([ent, sec, comp, v])
-            te = round(0.004 + 0.003 * abs(math.sin(si + ei * 0.5)), 4)
-            ws_d.append([ent, sec, "Tracking Error", te])
+        for dim in GROUP_DIMS:
+            for si, cat in enumerate(CATEGORIAS[dim]):
+                for ci, comp in enumerate(COMPONENTES):
+                    v = round(0.15 + 0.10 * ((si + ci) % 3)
+                              + 0.05 * abs(math.sin(ei + si + ci)), 3)
+                    ws_d.append([ent, dim, cat, comp, v])
+                te = round(0.004 + 0.003 * abs(math.sin(si + ei * 0.5)), 4)
+                ws_d.append([ent, dim, cat, "Tracking Error", te])
     n2 = ws_d.max_row
 
     # Lista de todas las entidades para el desplegable.
@@ -446,41 +450,50 @@ def build_sectorial(wb):
 
     ws = wb.create_sheet("Sectorial")
     ws.sheet_view.showGridLines = False
-    ws["A1"] = "Distribución sectorial (apilado) + Tracking Error (eje secundario)"
+    ws["A1"] = "Distribución por componentes (apilado) + Tracking Error (eje secundario)"
     ws["A1"].font = Font(bold=True, size=13)
-    ws["A3"] = "Entidad"
-    ws["A3"].font = BOLD
+    for celda, txt in {"A3": "Entidad", "A4": "Agrupar por"}.items():
+        ws[celda] = txt
+        ws[celda].font = BOLD
     ws["B3"] = _ENT_LIST[0]
-    ws["B3"].fill = PatternFill("solid", fgColor=GRIS)
-    dv = DataValidation(type="list", formula1="=EntidadesAll", allow_blank=False)
-    ws.add_data_validation(dv)
-    dv.add(ws["B3"])
+    ws["B4"] = "Sector"
+    for celda in ("B3", "B4"):
+        ws[celda].fill = PatternFill("solid", fgColor=GRIS)
+    dv1 = DataValidation(type="list", formula1="=EntidadesAll", allow_blank=False)
+    ws.add_data_validation(dv1)
+    dv1.add(ws["B3"])
+    dv2 = DataValidation(type="list", formula1=f'"{",".join(GROUP_DIMS)}"', allow_blank=False)
+    ws.add_data_validation(dv2)
+    dv2.add(ws["B4"])
 
-    HDR = 5
-    ws.cell(HDR, 1, "Sector").font = BOLD_WHITE
-    ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
+    HDR = 6
+    hc = ws.cell(HDR, 1, "Categoría")
+    hc.font = BOLD_WHITE
+    hc.fill = PatternFill("solid", fgColor=AZUL)
     headers = COMPONENTES + ["Tracking Error"]
     for j, h in enumerate(headers):
         c = ws.cell(HDR, 2 + j, h)
         c.font = BOLD_WHITE
         c.fill = PatternFill("solid", fgColor=AZUL)
-    for i, sec in enumerate(SECTORS):
+    for i in range(MAXCAT):
         r = HDR + 1 + i
-        ws.cell(r, 1, sec)
+        # Categoría i-ésima de la dimensión elegida (vacía si la dim tiene menos).
+        ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Cat_"&$B$4),{i + 1}),"")')
         for j, h in enumerate(headers):
             ws.cell(r, 2 + j, (
-                f'=SUMIFS(DatosSector!$D$2:$D${n2},DatosSector!$A$2:$A${n2},$B$3,'
-                f'DatosSector!$B$2:$B${n2},$A{r},DatosSector!$C$2:$C${n2},"{h}")'
+                f'=IF($A{r}="","",SUMIFS(DatosSector!$E$2:$E${n2},'
+                f'DatosSector!$A$2:$A${n2},$B$3,DatosSector!$B$2:$B${n2},$B$4,'
+                f'DatosSector!$C$2:$C${n2},$A{r},DatosSector!$D$2:$D${n2},"{h}"))'
             ))
             ws.cell(r, 2 + j).number_format = "0.000"
-    last = HDR + len(SECTORS)
+    last = HDR + MAXCAT
 
     # Columnas apiladas (los componentes)
     bar = BarChart()
     bar.type = "col"
     bar.grouping = "stacked"
     bar.overlap = 100
-    bar.title = "Distribución sectorial + Tracking Error"
+    bar.title = "Distribución por componentes + Tracking Error"
     bar.height, bar.width = 9, 19
     bar.add_data(Reference(ws, min_col=2, max_col=1 + len(COMPONENTES),
                            min_row=HDR, max_row=last), titles_from_data=True)
@@ -506,21 +519,42 @@ def build_sectorial(wb):
     return ws
 
 
+# Layout de la hoja Tablas (compartido con la macro FormatearTablas de VBA).
+TAB_HDR = 17            # fila de cabecera de categorías
+TAB_NCOL = 12           # nº máx. de columnas de categoría (B..M)
+TAB_ROW0 = TAB_HDR + 1  # primera fila de datos (18)
+
+
 def build_tablas(wb, n):
-    """Hoja 'Tablas': generador de mapa de calor (entidades x categorías) con
-    escala de color, y una columna con barras de datos. Todo con fórmulas
-    (SUMIFS) + formato condicional; sin macro."""
+    """Hoja 'Tablas': generador CONFIGURABLE (con macro). Selectores de tipo de
+    entidad, métrica, dimensión, serie, filtro tipo activo, periodo, estilo y
+    decimales. Los valores salen con SUMIFS; la macro `FormatearTablas` ajusta
+    columnas visibles, decimales y el estilo de formato condicional."""
+    NROW = max(len(e) for e in ENTIDADES.values())
+    HDR, NCOL, ROW0 = TAB_HDR, TAB_NCOL, TAB_ROW0
+    last_row = HDR + NROW
+    last_col = 1 + NCOL
+    last_col_l = get_column_letter(last_col)
+
     ws = wb.create_sheet("Tablas")
     ws.sheet_view.showGridLines = False
-    ws["A1"] = "Generador de tablas — Mapa de calor"
+    ws["A1"] = "Generador de tablas"
     ws["A1"].font = Font(bold=True, size=14)
 
-    for celda, txt in {"A3": "Tipo de entidad", "A4": "Métrica",
-                       "A5": "Dimensión (columnas)", "A6": "Serie"}.items():
+    etiquetas = {
+        "A3": "Tipo de entidad", "A4": "Métrica", "A5": "Dimensión (columnas)",
+        "A6": "Serie", "A7": "Filtro: tipo de activo", "A8": "Periodo",
+        "A9": "Estilo", "A10": "Decimales",
+    }
+    for celda, txt in etiquetas.items():
         ws[celda] = txt
         ws[celda].font = BOLD
-    ws["B3"], ws["B4"], ws["B5"], ws["B6"] = "Cartera", "Rentabilidad", "Anual", "Cartera"
-    for celda in ("B3", "B4", "B5", "B6"):
+    defaults = {
+        "B3": "Cartera", "B4": "Rentabilidad", "B5": "Anual", "B6": "Cartera",
+        "B7": "Todos", "B8": "3A", "B9": "Mapa de calor", "B10": 2,
+    }
+    for celda, val in defaults.items():
+        ws[celda] = val
         ws[celda].fill = PatternFill("solid", fgColor=GRIS)
 
     dvs = [
@@ -528,59 +562,79 @@ def build_tablas(wb, n):
         ("B4", f'"{",".join(ALL_METRICS)}"'),
         ("B5", f'"{",".join(DIMS)}"'),
         ("B6", '"Cartera,Benchmark"'),
+        ("B7", '"Todos,RF,RV"'),
+        ("B8", f'"{",".join(PERIODOS)}"'),
+        ("B9", '"Mapa de calor,Barras de datos,Signos +/-,Sin formato"'),
+        ("B10", '"0,1,2"'),
     ]
     for celda, formula in dvs:
         dv = DataValidation(type="list", formula1=formula, allow_blank=False)
         ws.add_data_validation(dv)
         dv.add(ws[celda])
 
-    # fila cabecera, nº columnas (categorías) y filas (= máx. entidades de un tipo)
-    HDR, NCOL = 8, 8
-    NROW = max(len(e) for e in ENTIDADES.values())
-    ws.cell(HDR, 1, "Entidad \\ Categoría").font = BOLD
+    # Helpers (como en el Panel): buckets visibles y criterio de tipo de activo.
+    ws["A12"] = "Buckets visibles"
+    ws["A12"].font = Font(italic=True, size=9)
+    ws["B12"] = ('=IFERROR(INDEX(TablaN,MATCH($B$8,Periodos,0),MATCH($B$5,DimTiempo,0)),'
+                 'COUNTA(INDIRECT("Cat_"&$B$5)))')
+    ws["A13"] = "Criterio tipo activo"
+    ws["A13"].font = Font(italic=True, size=9)
+    ws["B13"] = '=IF($B$7="Todos","*",$B$7)'
+
+    # Subtítulo dinámico.
+    ws.merge_cells("A15:C15")
+    ws["A15"] = ('=$B$3&": "&$B$4&"  ·  por "&$B$5&IF($B$7<>"Todos"," ("&$B$7&")","")'
+                 '&"  ·  "&$B$8&"  ·  "&$B$6')
+    ws["A15"].font = Font(bold=True, size=12, color=AZUL[2:])
+
+    # Cabecera de categorías (muestra los últimos "buckets visibles" de la dimensión).
+    ws.cell(HDR, 1, "Entidad \\ Categoría").font = BOLD_WHITE
+    ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
     for j in range(NCOL):
-        c = ws.cell(HDR, 2 + j, f'=IFERROR(INDEX(INDIRECT("Cat_"&$B$5),{j + 1}),"")')
+        k = j + 1
+        c = ws.cell(HDR, 1 + k, (
+            f'=IF({k}>$B$12,"",INDEX(INDIRECT("Cat_"&$B$5),'
+            f'COUNTA(INDIRECT("Cat_"&$B$5))-$B$12+{k}))'
+        ))
         c.font = BOLD_WHITE
         c.fill = PatternFill("solid", fgColor=AZUL)
+        c.alignment = Alignment(horizontal="center")
+
+    thin = Side(style="thin", color="D6DEE8")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
     for i in range(NROW):
-        r = HDR + 1 + i
-        ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")').font = BOLD
+        r = ROW0 + i
+        ec = ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")')
+        ec.font = BOLD
+        ec.border = border
         for j in range(NCOL):
             cc = 2 + j
             cl = get_column_letter(cc)
-            ws.cell(r, cc, (
+            cell = ws.cell(r, cc, (
                 f'=IF(OR($A{r}="",{cl}${HDR}=""),"",'
                 f'SUMIFS(Datos!$G$2:$G${n},Datos!$A$2:$A${n},$A{r},'
-                f'Datos!$C$2:$C${n},$B$4,Datos!$D$2:$D${n},$B$5,'
-                f'Datos!$E$2:$E${n},{cl}${HDR},Datos!$F$2:$F${n},$B$6))'
+                f'Datos!$B$2:$B${n},$B$13,Datos!$C$2:$C${n},$B$4,'
+                f'Datos!$D$2:$D${n},$B$5,Datos!$E$2:$E${n},{cl}${HDR},'
+                f'Datos!$F$2:$F${n},$B$6))'
             ))
-            ws.cell(r, cc).number_format = "#,##0.00"
+            cell.number_format = "0.00"
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center")
 
-    body = f"B{HDR + 1}:{get_column_letter(1 + NCOL)}{HDR + NROW}"
+    # Formato condicional por defecto (Mapa de calor). La macro lo cambia según B9.
+    body = f"B{ROW0}:{last_col_l}{last_row}"
     ws.conditional_formatting.add(body, ColorScaleRule(
-        start_type="min", start_color="F8696B",          # rojo (bajo)
-        mid_type="percentile", mid_value=50, mid_color="FFEB84",  # amarillo
-        end_type="max", end_color="63BE7B"))             # verde (alto)
+        start_type="min", start_color="F8696B",
+        mid_type="percentile", mid_value=50, mid_color="FFEB84",
+        end_type="max", end_color="63BE7B"))
 
-    # Segunda tabla: una métrica por entidad con BARRAS DE DATOS (estilo "mercados").
-    r0 = HDR + NROW + 3
-    ws.cell(r0, 1, "Con barras de datos (1ª categoría)").font = BOLD
-    ws.cell(r0 + 1, 1, "Entidad").font = BOLD_WHITE
-    ws.cell(r0 + 1, 1).fill = PatternFill("solid", fgColor=AZUL)
-    ws.cell(r0 + 1, 2, "Valor").font = BOLD_WHITE
-    ws.cell(r0 + 1, 2).fill = PatternFill("solid", fgColor=AZUL)
-    for i in range(NROW):
-        r = r0 + 2 + i
-        ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")')
-        ws.cell(r, 2, f'=IF($A{r}="","",B{HDR + 1 + i})')  # reutiliza la 1ª columna del heatmap
-        ws.cell(r, 2).number_format = "#,##0.00"
-    ws.conditional_formatting.add(
-        f"B{r0 + 2}:B{r0 + 1 + NROW}",
-        DataBarRule(start_type="min", end_type="max", color="0072CE"))
+    ws["A" + str(last_row + 2)] = ("Consejo: al abrir la pestaña o cambiar un desplegable, "
+                                   "la macro ajusta columnas, decimales y estilo.")
+    ws["A" + str(last_row + 2)].font = Font(italic=True, size=9, color="808080")
 
     ws.column_dimensions["A"].width = 24
     for j in range(NCOL):
-        ws.column_dimensions[get_column_letter(2 + j)].width = 12
+        ws.column_dimensions[get_column_letter(2 + j)].width = 11
     return ws
 
 

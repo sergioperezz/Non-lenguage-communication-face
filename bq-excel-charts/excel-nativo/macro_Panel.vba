@@ -5,7 +5,8 @@
 '  INSTALACIÓN (una vez):
 '   1) PARTE A -> clic derecho en la pestaña "Panel" -> "Ver código" y pega ahí.
 '   2) PARTE B -> Insertar -> Módulo, y pega ahí.
-'   3) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
+'   3) PARTE C -> clic derecho en la pestaña "Tablas" -> "Ver código" y pega ahí.
+'   4) Guarda como .xlsm. (Opcional: botón con la macro "CopiarAPowerPoint".)
 '
 '  Controles: B3 Tipo entidad · B4 Entidad 1 · B5/B6 Entidad 2/3 (opc.)
 '   · B7 Grupo · B8 Métrica · B9 Dimensión · B10 Filtro tipo activo · B11 Periodo
@@ -194,4 +195,84 @@ Public Sub CopiarAPowerPoint()
     shp.Left = (pres.PageSetup.SlideWidth - shp.Width) / 2
     shp.Top = (pres.PageSetup.SlideHeight - shp.Height) / 2
     On Error GoTo 0
+End Sub
+
+
+' =====================  PARTE C: en la hoja "Tablas"  =======================
+' Generador de tablas configurable: al cambiar un desplegable (o al abrir la
+' pestaña) ajusta columnas visibles, decimales y el estilo de formato condicional.
+' Pegar clic derecho en la pestaña "Tablas" -> "Ver código".
+
+Private Sub Worksheet_Change(ByVal Target As Range)
+    If Intersect(Target, Me.Range("B3:B10")) Is Nothing Then Exit Sub
+    Application.EnableEvents = False
+    Application.ScreenUpdating = False
+    On Error GoTo Salir
+    FormatearTablas
+Salir:
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+End Sub
+
+Private Sub Worksheet_Activate()
+    Application.ScreenUpdating = False
+    On Error Resume Next
+    FormatearTablas
+    On Error GoTo 0
+    Application.ScreenUpdating = True
+End Sub
+
+' Selectores: B3 tipo entidad · B4 métrica · B5 dimensión (columnas) · B6 serie
+'  · B7 filtro tipo activo · B8 periodo · B9 estilo · B10 decimales.
+Private Sub FormatearTablas()
+    Const HDR As Long = 17, ROW0 As Long = 18, LASTROW As Long = 21
+    Const FIRSTC As Long = 2, LASTC As Long = 13      ' columnas B..M
+    Dim body As Range, c As Long, fmt As String
+
+    Set body = Me.Range(Me.Cells(ROW0, FIRSTC), Me.Cells(LASTROW, LASTC))
+
+    ' 1) Decimales (B10) -> formato de número.
+    Select Case CLng(Me.Range("B10").Value)
+        Case 0: fmt = "0"
+        Case 1: fmt = "0.0"
+        Case Else: fmt = "0.00"
+    End Select
+    body.NumberFormat = fmt
+
+    ' 2) Ocultar columnas de categoría vacías (según dimensión + periodo).
+    '    La columna B nunca se oculta (siempre hay >=1 bucket y ahí no hay selectores).
+    For c = FIRSTC + 1 To LASTC
+        Me.Columns(c).Hidden = (Trim(CStr(Me.Cells(HDR, c).Value)) = "")
+    Next c
+
+    ' 3) Estilo (B9): limpiar y aplicar el elegido.
+    body.FormatConditions.Delete
+    Select Case LCase(Trim(Me.Range("B9").Value))
+        Case "mapa de calor"
+            With body.FormatConditions.AddColorScale(ColorScaleType:=3)
+                .ColorScaleCriteria(1).Type = xlConditionValueLowestValue
+                .ColorScaleCriteria(1).FormatColor.Color = RGB(248, 105, 107)   ' rojo
+                .ColorScaleCriteria(2).Type = xlConditionValuePercentile
+                .ColorScaleCriteria(2).Value = 50
+                .ColorScaleCriteria(2).FormatColor.Color = RGB(255, 235, 132)   ' amarillo
+                .ColorScaleCriteria(3).Type = xlConditionValueHighestValue
+                .ColorScaleCriteria(3).FormatColor.Color = RGB(99, 190, 123)    ' verde
+            End With
+        Case "barras de datos"
+            With body.FormatConditions.AddDatabar
+                .BarColor.Color = RGB(0, 114, 206)
+                On Error Resume Next
+                .BarFillType = xlDataBarFillGradient
+                On Error GoTo 0
+            End With
+        Case "signos +/-"
+            With body.FormatConditions.Add(Type:=xlCellValue, Operator:=xlGreater, Formula1:="0")
+                .Font.Color = RGB(16, 124, 65)       ' verde
+            End With
+            With body.FormatConditions.Add(Type:=xlCellValue, Operator:=xlLess, Formula1:="0")
+                .Font.Color = RGB(192, 0, 0)         ' rojo
+            End With
+        Case Else
+            ' "Sin formato": ya se ha limpiado, no se añade nada.
+    End Select
 End Sub

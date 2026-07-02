@@ -27,8 +27,8 @@ Además del Panel, tres hojas cubren casos que no encajan en "entidades = series
 
 | Hoja | Caso del deck | Cómo |
 |---|---|---|
-| **Tablas** | Mapa de calor RF · Comportamiento de mercados | Rejilla entidades × categorías con escala de color + barras de datos |
-| **Sectorial** | Distribución sectorial | Columnas **apiladas** (Large/Mid/Small Cap) + **Tracking Error en eje secundario** |
+| **Tablas** (con macro) | Mapa de calor RF · Comportamiento de mercados | Rejilla entidades × categorías; selectores de periodo, filtro tipo activo, **estilo** (calor/barras/signos) y decimales; columnas vacías se ocultan solas |
+| **Sectorial** | Distribución sectorial | Columnas **apiladas** (Large/Mid/Small Cap) + **Tracking Error en eje secundario**; se puede **agrupar por** Sector/Industria/Geografia/Divisa/Rating/Activo |
 | **Comparativa** | Comportamiento de las Carteras (DPM Global Managers) | Eje X = **carteras**; columnas agrupadas Gestionada/IMP/Benchmark + columnas **diff** en verde/rojo |
 
 > **Fuera de alcance (por ahora):** dispersión riesgo-retorno (*scatter* X-Y). Es el

@@ -76,27 +76,39 @@ PowerPoint. Un clic: Insertar → una Forma → *Asignar macro* → `CopiarAPowe
 - Edita la hoja **Datos**/**Listas**, o regenera con `generar_panel.py`
   (ENTIDADES, GRUPOS, DIMS, CATEGORIAS, PARAMS). Tras regenerar, repega la macro.
 
-## Hoja "Tablas" (generador de tablas)
+## Hoja "Tablas" (generador configurable — con macro)
 
-Además del panel de gráficos, la hoja **Tablas** genera tablas formateadas desde
-los mismos datos, con **formato condicional**:
-- **Mapa de calor** (escala de color verde-amarillo-rojo): filas = entidades del
-  tipo elegido, columnas = categorías de la dimensión, valor = métrica. Selectores
-  en B3 (tipo entidad), B4 (métrica), B5 (dimensión de columnas), B6 (serie).
-- **Barras de datos** (data bars) en una columna de valores por entidad.
-- Todo con `SUMIFS` + formato condicional; **sin macro**.
+La hoja **Tablas** genera tablas formateadas desde los mismos datos. Es
+**configurable por macro** (`FormatearTablas`, PARTE C): al cambiar un desplegable
+o abrir la pestaña se ajustan columnas, decimales y estilo. Selectores:
 
-Cubre los casos "Mapa de Calor RF" y "Comportamiento de mercados" de los decks.
-Pendiente (siguiente paso): variante **+/- verde/rojo** por celda y tablas de
-**posiciones/holdings**.
+| Celda | Parámetro | Opciones |
+|---|---|---|
+| B3 | Tipo de entidad | Fondo · Cartera · Indice |
+| B4 | Métrica | cualquiera |
+| B5 | Dimensión (columnas) | tiempo o composición |
+| B6 | Serie | Cartera · Benchmark |
+| B7 | Filtro tipo de activo | Todos · RF · RV |
+| B8 | Periodo | MTD · YTD · 1M–6M · 1A–6A |
+| B9 | **Estilo** | Mapa de calor · Barras de datos · Signos +/- · Sin formato |
+| B10 | **Decimales** | 0 · 1 · 2 |
+
+- Filas = entidades del tipo; columnas = categorías de la dimensión (las que
+  entren según el **periodo**; las vacías se **ocultan solas**).
+- El **estilo** cambia el formato condicional (mapa de calor, barras de datos,
+  verde/rojo por signo, o sin formato) y **Decimales** el número de decimales.
+- Valores con `SUMIFS` (incluye filtro de tipo de activo). Cubre "Mapa de Calor
+  RF" y "Comportamiento de mercados" de los decks.
 
 ## Hoja "Sectorial" (apilado + eje secundario)
 
 Reproduce la **"Distribución sectorial"** de los decks: columnas **apiladas** por
-componentes (Large/Mid/Small Cap) por sector, **más** una serie de **puntos** con
-la **Contribución al Tracking Error** en un **eje secundario**. Selector de
-entidad en B3; la tabla se calcula con `SUMIFS` (hoja `DatosSector`) y el gráfico
-combo está construido con openpyxl — **sin macro**.
+componentes (Large/Mid/Small Cap), **más** una serie de **puntos** con la
+**Contribución al Tracking Error** en un **eje secundario**. Se puede **agrupar
+por** varias dimensiones: selector de **Entidad** (B3) y **Agrupar por** (B4:
+Sector · Industria · Geografia · Divisa · Rating · Activo). La tabla se calcula
+con `SUMIFS` (hoja `DatosSector`) y el combo está construido con openpyxl —
+**sin macro**.
 
 ## Hoja "Comparativa" (eje X = carteras + columnas *diff*)
 
