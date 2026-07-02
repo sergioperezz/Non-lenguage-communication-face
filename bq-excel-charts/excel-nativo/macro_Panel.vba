@@ -334,14 +334,33 @@ Private Function Tbl(ByVal t As String) As String
     Tbl = "`" & BQ_DATASET & "." & t & "`"
 End Function
 
-' Lista de entidades seleccionadas (B4/B5/B6), saltando vacías y "(ninguna)".
+' Traduce el nombre de entidad a su PK_PORTFOLIO_ID vía el rango MapaEntidades
+' (Listas!AJ:AK). Devuelve "" si no está mapeado.
+Private Function IdEntidad(ByVal nombre As String) As String
+    Dim rng As Range, c As Range
+    On Error Resume Next
+    Set rng = ThisWorkbook.Names("MapaEntidades").RefersToRange
+    On Error GoTo 0
+    If rng Is Nothing Then Exit Function
+    For Each c In rng.Columns(1).Cells
+        If Trim(CStr(c.Value)) = nombre Then
+            IdEntidad = Trim(CStr(c.Offset(0, 1).Value))
+            Exit Function
+        End If
+    Next c
+End Function
+
+' Lista de PK_PORTFOLIO_ID de las entidades seleccionadas (B4/B5/B6), saltando
+' vacías y "(ninguna)". Si una no está en MapaEntidades, usa el nombre (placeholder).
 Private Function ListaEntidades(ws As Worksheet) As String
-    Dim celda As Variant, v As String, out As String
+    Dim celda As Variant, v As String, idp As String, out As String
     For Each celda In Array("B4", "B5", "B6")
         v = Trim(CStr(ws.Range(celda).Value))
         If v <> "" And v <> "(ninguna)" Then
+            idp = IdEntidad(v)
+            If Len(idp) = 0 Then idp = v
             If Len(out) > 0 Then out = out & ", "
-            out = out & "'" & Esc(v) & "'"
+            out = out & "'" & Esc(idp) & "'"
         End If
     Next celda
     ListaEntidades = out
@@ -401,7 +420,7 @@ Public Function ConstruirSQL() As String
     End If
 
     whereEnt = ""
-    If Len(ents) > 0 Then whereEnt = " AND p." & P_NAME & " IN (" & ents & ")"
+    If Len(ents) > 0 Then whereEnt = " AND p." & P_ID & " IN (" & ents & ")"
 
     sql = "SELECT p." & P_NAME & " AS entidad, p." & P_TYPE & " AS tipo_activo," & vbLf & _
           "       '" & Esc(met) & "' AS metrica, CAST(f." & P_FECHA & " AS STRING) AS eje_valor," & vbLf & _

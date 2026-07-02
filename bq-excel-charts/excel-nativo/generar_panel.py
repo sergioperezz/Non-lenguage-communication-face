@@ -460,6 +460,16 @@ def build_sectorial(wb):
     wb.defined_names.add(DefinedName("EntidadesAll",
                                      attr_text=f"Listas!$AH$2:$AH${1 + len(_ENT_LIST)}"))
 
+    # Fase 2: mapa Nombre -> PK_PORTFOLIO_ID (la macro filtra por ID). Los IDs son
+    # PLACEHOLDER; reemplázalos por los PK_PORTFOLIO_ID reales de BigQuery.
+    ws_l.cell(row=1, column=36, value="Entidad").font = BOLD          # col AJ
+    ws_l.cell(row=1, column=37, value="PK_PORTFOLIO_ID").font = BOLD  # col AK
+    for i, e in enumerate(_ENT_LIST, start=2):
+        ws_l.cell(row=i, column=36, value=e)
+        ws_l.cell(row=i, column=37, value=f"ID-{i - 1:02d}")         # placeholder
+    wb.defined_names.add(DefinedName("MapaEntidades",
+                                     attr_text=f"Listas!$AJ$2:$AK${1 + len(_ENT_LIST)}"))
+
     ws = wb.create_sheet("Sectorial")
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Distribución por componentes (apilado) + Tracking Error (eje secundario)"

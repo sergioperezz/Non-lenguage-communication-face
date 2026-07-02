@@ -146,6 +146,9 @@ consulta al **modelo homologado** (esquema en estrella real), la ejecuta por
 
 - Identidad y tipo de la entidad: `CAM_TM_PORTFOLIOS_PD` (`PORTFOLIO_NAME`,
   `PTF_PORTFOLIO_TYPE`, `PK_PORTFOLIO_ID`, `PK_FECHA_DATOS`).
+- **Selección de entidad por `PK_PORTFOLIO_ID`**: la macro traduce el nombre del
+  desplegable a su ID con el rango **`MapaEntidades`** (hoja `Listas`, cols AJ/AK).
+  Sus IDs son **placeholder** (`ID-01`, …); reemplázalos por los reales.
 - **Periodo → columna** (no es un filtro de fecha): `MTD→MTD`, `YTD→YTD`, `1M→1M`,
   `1A→1Y`, `3A→3Y`, `5A→5Y`. Los periodos `2M/3M/4M/5M/6M` y `2A/4A/6A` **no
   tienen columna directa** en el DWH (habría que calcularlos de una serie).
@@ -157,11 +160,11 @@ consulta al **modelo homologado** (esquema en estrella real), la ejecuta por
 - **CONFIG** (arriba de la PARTE D): `BQ_CONN` (`DSN=...` o `Driver={...}`) y
   `BQ_DATASET` (`proyecto.dataset`).
 
-> **Pendiente de acordar** para cerrar el mapeo: (1) columna de valor de
-> `CAM_TX_RISK_FIG_AGG_PD` y las etiquetas de `PK_CRITERIO_AGREGACION` para las
-> dimensiones (sector/rating/…); (2) si la selección de entidad va por
-> `PORTFOLIO_NAME` o por `PK_PORTFOLIO_ID`; (3) alinear la lista de periodos del
-> Panel a los horizontes reales del DWH.
+> **Pendiente** (acordado): mapear **Riesgo RF** (Duración/TIR/Spread) contra
+> `CAM_TX_RISK_FIG_AGG_PD` cuando definamos su columna de valor y las etiquetas de
+> `PK_CRITERIO_AGREGACION`. La selección de entidad es por **`PK_PORTFOLIO_ID`** y
+> la lista de periodos del Panel se **mantiene** (los no disponibles como columna
+> muestran aviso de "no mapeado").
 
 ## Limitaciones del *mock* (se resuelven en la Fase 2)
 
