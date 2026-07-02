@@ -334,6 +334,11 @@ Private Const T_VALORES As String = "CAM_TM_MSTR_VALORES_PD"       ' maestro de 
 Private Const POS_VALOR As String = "VALUATION_PC"                 ' valor de la posición (peso); PC=divisa base cartera
 Private Const SECTOR_COL As String = "CLASSIFICATION_GICS"         ' estándar sectorial (GICS/BICS/ICB)
 Private Const RATING_COL As String = "COMPOSITERATINGSPCOMPOSITE"  ' rating (S&P; o MOODYS/FITCH/WORST...)
+' TER: look-through usa KEYFIGURESTER del maestro de valores; el del fondo, las
+' comisiones directas del maestro de fondos (unido por PRODUCTO_DATANOW).
+Private Const TER_COL As String = "KEYFIGURESTER"                  ' TER/Ongoing en el maestro de valores
+Private Const T_FONDOS As String = "CAM_TM_MSTR_FONDOS_PD"        ' maestro de fondos (dataset DS_PROD)
+Private Const TER_FONDO_EXPR As String = "f.COMISION_DE_GESTION_DIRECTA + f.COMISION_DEPOSITARIA_DIRECTA"
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
@@ -514,6 +519,31 @@ Private Function SQLSpread(ws As Worksheet, ByVal ents As String) As String
     SQLSpread = sql
 End Function
 
+' TER look-through: media ponderada del TER (KEYFIGURESTER) de los fondos en cartera.
+Private Function SQLTerLookthrough(ws As Worksheet, ByVal ents As String) As String
+    Dim sql As String
+    sql = "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
+          "       SUM(v." & TER_COL & " * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS valor" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID" & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
+    SQLTerLookthrough = sql
+End Function
+
+' TER del fondo: comisiones directas (gestión + depositaría) del maestro de fondos,
+' unido a las posiciones por PRODUCTO_DATANOW. Un valor por portfolio.
+Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
+    Dim sql As String
+    sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, " & TER_FONDO_EXPR & " AS valor" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & _
+          "JOIN " & Tbl(DS_PROD, T_FONDOS) & " f ON f.PK_PRODUCTO_DATANOW = p.FK_PRODUCTO_DATANOW" & vbLf & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
+    SQLTerFondo = sql
+End Function
+
 ' Construye la SQL a partir de los parámetros del Panel.
 ' Rentabilidad/Volatilidad/Beta -> CAM_TX_PERFORMANCE_FIGURES_PD (última fecha por
 ' portfolio). Duración -> CAM_TX_RISK_FIG_AGG_PD (VALOR por etiqueta de agregación).
@@ -548,11 +578,19 @@ Public Function ConstruirSQL() As String
         ConstruirSQL = SQLSpread(ws, ents)
         Exit Function
     End If
+    ' TER: del fondo (comisiones directas) o look-through (TER de los fondos en cartera).
+    If met = "TER" Then
+        ConstruirSQL = SQLTerFondo(ws, ents)
+        Exit Function
+    End If
+    If met = "TER Look-through" Then
+        ConstruirSQL = SQLTerLookthrough(ws, ents)
+        Exit Function
+    End If
 
     If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
         ConstruirSQL = _
             "-- Métrica '" & met & "' / periodo '" & per & "': aún no mapeada a BigQuery." & vbLf & _
-            "-- TER -> CAM_TM_MSTR_VALORES_PD.KEYFIGURESTER (decidir: TER del fondo o look-through)." & vbLf & _
             "-- PER / DividendYield: no aparecen en el diccionario. Liquidez: figura como 'Pte'."
         Exit Function
     End If

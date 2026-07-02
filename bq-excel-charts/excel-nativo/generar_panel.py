@@ -60,7 +60,7 @@ GRUPOS = {
     "Riesgo": ["Duración Modificada", "Duración Efectiva", "TIR", "Spread",
                "Volatilidad", "Beta"],
     "Composicion": ["Peso"],
-    "Costes": ["TER"],
+    "Costes": ["TER", "TER Look-through"],
     "Liquidez": ["Liquidez"],
     "Valoracion": ["PER", "DividendYield"],
 }
@@ -103,7 +103,8 @@ PARAMS = {
     "Duración Modificada": (5.0, 0.30, 0.92), "Duración Efectiva": (5.2, 0.30, 0.92),
     "TIR": (3.5, 0.20, 1.05), "Spread": (120.0, 15.0, 0.85),
     "Volatilidad": (12.0, 0.80, 1.10), "Beta": (1.0, 0.05, 1.00), "Peso": (18.0, 3.0, 1.00),
-    "TER": (0.85, 0.03, 1.00), "Liquidez": (5.0, 0.10, 1.02),
+    "TER": (0.85, 0.03, 1.00), "TER Look-through": (0.95, 0.03, 1.00),
+    "Liquidez": (5.0, 0.10, 1.02),
     "PER": (15.0, 0.80, 1.04), "DividendYield": (2.8, 0.20, 0.95),
 }
 

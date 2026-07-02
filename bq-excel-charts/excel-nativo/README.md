@@ -150,7 +150,8 @@ la hoja **`BQ_Resultado`**.
 | TIR | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (criterio `PK_CRITERIO_AGREGACION='TIR'`, total) |
 | Peso (Sector / Rating) | `CAM_TM_PORTFOLIOS_PD` × `CAM_TM_MSTR_VALORES_PD` | `SUM(VALUATION_PC)` por `CLASSIFICATION_GICS` / `COMPOSITERATINGSPCOMPOSITE` (join `PK_SECURITY_IK`) |
 | Spread (total / Sector / Rating) | `CAM_TM_PORTFOLIOS_PD` | media ponderada `SUM(SPREAD·VALUATION_PC)/SUM(VALUATION_PC)` |
-| TER | `CAM_TM_MSTR_VALORES_PD.KEYFIGURESTER` | *(pendiente: TER del fondo vs look-through)* |
+| TER (fondo) | `CAM_TM_MSTR_FONDOS_PD` | `COMISION_DE_GESTION_DIRECTA + COMISION_DEPOSITARIA_DIRECTA` (join por `PRODUCTO_DATANOW`) |
+| TER Look-through | `CAM_TM_PORTFOLIOS_PD` × `CAM_TM_MSTR_VALORES_PD` | media ponderada de `KEYFIGURESTER` |
 | PER / DividendYield / Liquidez | — | no en el diccionario (Liquidez = "Pte") |
 
 - **Filtros obligatorios** en performance: `PK_NAV_GNAV = 'GNAV'` y
