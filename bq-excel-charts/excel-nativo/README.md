@@ -165,11 +165,11 @@ la hoja **`BQ_Resultado`**.
 - **CONFIG** (arriba de la PARTE D): DSN, proyecto, datasets y filtros.
 
 > **Duración Modificada/Efectiva** ya usan la columna real **`VALOR`** de
-> `CAM_TX_RISK_FIG_AGG_PD` (el nombre de la métrica = `PK_VARIABLE_TARGET`, y la
-> columna FONDO/BENCHMARK es `PK_TIPOGAMAN1`). Falta solo el mapeo de
-> `PK_CRITERIO_AGREGACION` para dimensiones distintas de Activo (`AssetType`), que
-> se saca con `SELECT DISTINCT PK_CRITERIO_AGREGACION, PK_ETIQUETA_AGREGACION ...`.
-> Nota: **fondos y carteras están en tablas distintas**.
+> `CAM_TX_RISK_FIG_AGG_PD` (métrica = `PK_VARIABLE_TARGET`, FONDO/BENCHMARK =
+> `PK_TIPOGAMAN1`). Criterios de desglose disponibles (`PK_CRITERIO_AGREGACION`):
+> **AssetType** (=Activo), **Geo** (=Geografia), **FX** (=Divisa), **Duracion**
+> (total, para dimensiones de tiempo) y **TIR**. **Sector/Rating/Industria NO
+> existen** como desglose en esta tabla. Nota: **fondos y carteras en tablas distintas**.
 
 ## Limitaciones del *mock* (se resuelven en la Fase 2)
 

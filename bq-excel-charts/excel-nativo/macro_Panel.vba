@@ -406,11 +406,15 @@ Private Function MapMetrica(ByVal met As String, ByVal per As String, _
 End Function
 
 ' Dimensión del Panel (B9) -> valor de PK_CRITERIO_AGREGACION en la tabla de riesgo.
-' Solo 'AssetType' está confirmado (=Activo); el resto, pídelo al equipo de datos.
+' Criterios que EXISTEN en CAM_TX_RISK_FIG_AGG_PD (SELECT DISTINCT completo):
+'   AssetType, Duracion, FX, Geo, TIR. No hay Sector/Rating/Industria.
 Private Function DimACriterio(ByVal dimen As String) As String
     Select Case dimen
-        Case "Activo": DimACriterio = "AssetType"
-        Case Else:     DimACriterio = ""
+        Case "Activo":                                      DimACriterio = "AssetType"
+        Case "Geografia":                                   DimACriterio = "Geo"
+        Case "Divisa":                                      DimACriterio = "FX"
+        Case "Mensual", "Trimestral", "Semestral", "Anual": DimACriterio = "Duracion"  ' total
+        Case Else:                                          DimACriterio = ""           ' Industria/Sector/Rating: no existen
     End Select
 End Function
 
@@ -421,8 +425,9 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
     dimen = Trim(CStr(ws.Range("B9").Value))
     crit = DimACriterio(dimen)
     If Len(crit) = 0 Then
-        SQLRiesgo = "-- Dimensión '" & dimen & "': falta el valor de PK_CRITERIO_AGREGACION." & vbLf & _
-                    "-- Confirmado 'AssetType' (=Activo). Pide a datos el criterio para " & dimen & "."
+        SQLRiesgo = "-- Dimensión '" & dimen & "' no existe como desglose en CAM_TX_RISK_FIG_AGG_PD." & vbLf & _
+                    "-- Criterios disponibles: AssetType (Activo), Geo (Geografia), FX (Divisa), Duracion (total)." & vbLf & _
+                    "-- Sector/Rating/Industria no están en la tabla de riesgo."
         Exit Function
     End If
     sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION, VALOR" & vbLf & _
