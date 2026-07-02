@@ -39,6 +39,7 @@ ENTIDADES = {
         "RF Privada A": ["RF"],
         "Bolsa Europa": ["RV"],
         "Mixto Moderado": ["RF", "RV"],
+        "Monetario Euro": ["RF"],
     },
     "Cartera": {
         "Cartera RF Gobierno": ["RF"],
@@ -50,6 +51,7 @@ ENTIDADES = {
         "Euro Stoxx 50": ["RV"],
         "Bloomberg Agg": ["RF"],
         "MSCI World": ["RV"],
+        "S&P 500": ["RV"],
     },
 }
 
@@ -532,7 +534,9 @@ def build_tablas(wb, n):
         ws.add_data_validation(dv)
         dv.add(ws[celda])
 
-    HDR, NCOL, NROW = 8, 8, 8  # fila cabecera, nº columnas y filas de la tabla
+    # fila cabecera, nº columnas (categorías) y filas (= máx. entidades de un tipo)
+    HDR, NCOL = 8, 8
+    NROW = max(len(e) for e in ENTIDADES.values())
     ws.cell(HDR, 1, "Entidad \\ Categoría").font = BOLD
     for j in range(NCOL):
         c = ws.cell(HDR, 2 + j, f'=IFERROR(INDEX(INDIRECT("Cat_"&$B$5),{j + 1}),"")')
