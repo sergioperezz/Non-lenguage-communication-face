@@ -164,8 +164,13 @@ la hoja **`BQ_Resultado`**.
   reconcilia cada nombre visible con su ID real.
 - **Periodo → columna**: `MTD, YTD, 1M, 1A→1Y, 3A→3Y, 5A→5Y`. Los periodos
   `2M/3M/4M/5M/6M` y `2A/4A/6A` no tienen columna directa (muestran "no mapeado").
-- **Botones**: `VerSQL` (SQL), `VerM` (Power Query M), `RefrescarDatos` (ODBC →
-  `BQ_Resultado`). Vista previa de la SQL en vivo en el Panel (celda **A41**).
+- **Flujo completo** con `RefrescarDatos`: lanza la consulta por ODBC, vuelca el
+  resultado **crudo a partir de la columna W** del Panel, lo **pivota** a la tabla
+  del gráfico (D:H) y **redibuja**. Con desglose (`categoria`) → categorías en el
+  eje X y una serie por entidad; sin desglose → un valor por entidad + benchmark.
+  Al refrescar, D:H pasa a tener datos reales (sustituye el mock; regenera para volver).
+- **Botones**: `VerSQL` (SQL), `VerM` (Power Query M), `RefrescarDatos` (flujo
+  completo). Vista previa de la SQL en vivo en el Panel (celda **A41**).
 - **CONFIG** (arriba de la PARTE D): DSN, proyecto, datasets y filtros.
 
 > **Duración Modificada/Efectiva** ya usan la columna real **`VALOR`** de

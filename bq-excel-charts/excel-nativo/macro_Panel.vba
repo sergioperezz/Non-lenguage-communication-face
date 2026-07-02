@@ -83,7 +83,7 @@ End Sub
 ' Reconstruye series (multi-entidad + benchmark), tipo, estilo, título y ejes.
 Private Sub AplicarGrafico()
     Dim ch As Chart, s As Series, conBench As Boolean, tipo As String
-    Dim vis As Long, lastRow As Long, benchIdx As Long
+    Dim lastRow As Long, benchIdx As Long
     On Error Resume Next
     Set ch = Me.ChartObjects(1).Chart
     On Error GoTo 0
@@ -91,9 +91,13 @@ Private Sub AplicarGrafico()
 
     conBench = (Me.Range("B12").Value = "Con benchmark")
     tipo = LCase(Trim(Me.Range("B14").Value))
-    vis = Me.Range("B16").Value
-    If vis < 1 Then vis = 1
-    lastRow = 2 + vis
+    ' Última fila con datos en la columna D (categorías): sirve para el mock y para
+    ' el resultado volcado desde BigQuery.
+    lastRow = 2
+    Do While Trim(CStr(Me.Cells(lastRow + 1, 4).Value)) <> "" And lastRow < 402
+        lastRow = lastRow + 1
+    Loop
+    If lastRow < 3 Then lastRow = 3
 
     Do While ch.SeriesCollection.Count > 0
         ch.SeriesCollection(1).Delete
@@ -287,9 +291,10 @@ End Sub
 
 ' =============  PARTE D: en un MÓDULO ESTÁNDAR NUEVO (Fase 2)  ==============
 ' Con los parámetros del Panel construye la SQL contra el MODELO HOMOLOGADO real
-' (proyecto go-cam-beg-camd9-camcd9p01-pro), como tu Consulta de Power Query.
-' Puedes: (a) copiar la SQL/M a tu Power Query (Odbc.Query), o (b) usar
-' RefrescarDatos para traerla por ODBC (ADODB) a la hoja "BQ_Resultado".
+' (proyecto go-cam-beg-camd9-camcd9p01-pro). RefrescarDatos hace el FLUJO COMPLETO:
+' lanza la consulta por ODBC (ADODB), vuelca el resultado crudo a partir de la
+' COLUMNA W del Panel, lo pivota a la tabla del gráfico (D:H) y redibuja.
+' (También puedes copiar la SQL/M a tu Power Query con VerSQL/VerM.)
 '
 ' INSTALACIÓN: Insertar -> Módulo (uno NUEVO, distinto al de la PARTE B) y pega
 ' todo esto. Revisa el bloque CONFIG (DSN, proyecto, datasets, filtros).
@@ -297,7 +302,9 @@ End Sub
 ' Botones sugeridos (Insertar -> Forma -> Asignar macro):
 '   · "Ver SQL"           -> VerSQL          (muestra la consulta SQL)
 '   · "Ver M"             -> VerM            (muestra el M de Power Query)
-'   · "Traer de BigQuery" -> RefrescarDatos  (conecta por ODBC y trae los datos)
+'   · "Traer de BigQuery" -> RefrescarDatos  (lanza, vuelca en W y dibuja el gráfico)
+' NOTA: al refrescar, la tabla D:H pasa a contener los datos reales (sustituye las
+' fórmulas del mock). Para volver al modo ejemplo, regenera el libro.
 '
 ' MAPEO (diccionario + query de ejemplo):
 '   · Rentabilidad / Rentab. acum. -> CAM_TX_PERFORMANCE_FIGURES_PD: TWR_<per>,
@@ -450,7 +457,7 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
         End If
         wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf
     End If
-    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION, VALOR" & vbLf & _
+    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, VALOR AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
           "WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
           wVar & _
@@ -595,9 +602,9 @@ Public Function ConstruirSQL() As String
         Exit Function
     End If
 
-    cols = "PK_FECHA_DATOS, PK_PORTFOLIO_ID, " & colVal
-    If conBmk And Len(colBmk) > 0 Then cols = cols & ", " & colBmk
-    If conBmk And Len(colDif) > 0 Then cols = cols & ", " & colDif
+    cols = "PK_PORTFOLIO_ID, " & colVal & " AS valor"
+    If conBmk And Len(colBmk) > 0 Then cols = cols & ", " & colBmk & " AS valor_bmk"
+    If conBmk And Len(colDif) > 0 Then cols = cols & ", " & colDif & " AS diferencial"
 
     sql = "SELECT " & cols & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
@@ -638,8 +645,10 @@ Public Sub VerM()
 End Sub
 
 ' Conecta a BigQuery (ODBC), ejecuta la SQL y vuelca el resultado en "BQ_Resultado".
+' FLUJO COMPLETO: lanza la consulta, vuelca el resultado CRUDO a partir de la
+' columna W del Panel, lo pivota a la tabla del gráfico (D:H) y redibuja.
 Public Sub RefrescarDatos()
-    Dim cn As Object, rs As Object, ws As Object, sql As String, j As Long
+    Dim cn As Object, rs As Object, ws As Worksheet, sql As String, j As Long
     sql = ConstruirSQL()
     If Left(sql, 2) = "--" Then
         MsgBox "Esta métrica/periodo aún no está mapeada a BigQuery:" & vbLf & vbLf & sql, _
@@ -647,31 +656,29 @@ Public Sub RefrescarDatos()
         Exit Sub
     End If
     On Error GoTo fallo
+    Set ws = ThisWorkbook.Sheets("Panel")
 
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 120
     cn.Open BQ_CONN
     Set rs = CreateObject("ADODB.Recordset")
-    rs.Open sql, cn, 1, 1                       ' adOpenKeyset, adLockReadOnly
+    rs.Open sql, cn, 1, 1                        ' adOpenKeyset, adLockReadOnly
 
-    ' Hoja de aterrizaje (se crea si no existe).
-    On Error Resume Next
-    Set ws = ThisWorkbook.Sheets(LANDING)
-    On Error GoTo fallo
-    If ws Is Nothing Then
-        Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
-        ws.Name = LANDING
-    End If
     Application.EnableEvents = False
-    ws.Cells.ClearContents
-    For j = 0 To rs.Fields.Count - 1            ' cabeceras
-        ws.Cells(1, j + 1).Value = rs.Fields(j).Name
+    ' 1) Resultado crudo a partir de la columna W (col 23).
+    ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).ClearContents
+    For j = 0 To rs.Fields.Count - 1
+        ws.Cells(1, 23 + j).Value = rs.Fields(j).Name
     Next j
-    If Not rs.EOF Then ws.Range("A2").CopyFromRecordset rs
+    If Not rs.EOF Then ws.Cells(2, 23).CopyFromRecordset rs
     rs.Close: cn.Close
+
+    ' 2) Pivotar a la tabla del gráfico (D:H).
+    VolcarResultado ws
     Application.EnableEvents = True
 
-    MsgBox "Datos traídos de BigQuery a la hoja '" & LANDING & "'.", vbInformation, "Fase 2"
+    ' 3) Redibujar (dispara Worksheet_Change -> AplicarGrafico).
+    ws.Range("B14").Value = ws.Range("B14").Value
     Exit Sub
 
 fallo:
@@ -681,4 +688,82 @@ fallo:
     On Error Resume Next
     If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+End Sub
+
+' Pivota el resultado crudo (a partir de W) a la tabla del gráfico D:H.
+'  - Con columna 'categoria' -> desglose: D=categorías, E/F/G=valor por entidad.
+'  - Sin 'categoria' -> un valor por portfolio: una fila, E/F/G por entidad, H=benchmark.
+Private Sub VolcarResultado(ByVal ws As Worksheet)
+    Dim c As Long, hdr As String
+    Dim colPort As Long, colCat As Long, colVal As Long, colBmk As Long
+    Dim lastData As Long, r As Long, rowOut As Long, rr As Long
+    Dim id1 As String, id2 As String, id3 As String, cat As String, pid As String
+    Dim cats As Object
+
+    ' Localizar columnas del staging (fila 1 desde la col 23 = W).
+    c = 23
+    Do While Trim(CStr(ws.Cells(1, c).Value)) <> "" And c < 60
+        hdr = LCase(Trim(CStr(ws.Cells(1, c).Value)))
+        Select Case hdr
+            Case "pk_portfolio_id": colPort = c
+            Case "categoria":       colCat = c
+            Case "valor":           colVal = c
+            Case "valor_bmk":       colBmk = c
+        End Select
+        c = c + 1
+    Loop
+    If colVal = 0 Then Exit Sub
+
+    ' Última fila de datos.
+    c = colPort: If c = 0 Then c = 23
+    r = 2: lastData = 1
+    Do While Trim(CStr(ws.Cells(r, c).Value)) <> "" And r < 100000
+        lastData = r: r = r + 1
+    Loop
+
+    ' IDs de las entidades seleccionadas (B4/B5/B6).
+    id1 = IdEntidad(Trim(CStr(ws.Range("B4").Value)))
+    id2 = IdEntidad(Trim(CStr(ws.Range("B5").Value)))
+    id3 = IdEntidad(Trim(CStr(ws.Range("B6").Value)))
+    If Trim(CStr(ws.Range("B5").Value)) = "(ninguna)" Then id2 = ""
+    If Trim(CStr(ws.Range("B6").Value)) = "(ninguna)" Then id3 = ""
+
+    ws.Range("D3:H402").ClearContents
+
+    If colCat > 0 Then
+        ' Desglose: categorías únicas en D, valor por entidad en E/F/G.
+        Set cats = CreateObject("Scripting.Dictionary")
+        rowOut = 3
+        For r = 2 To lastData
+            cat = Trim(CStr(ws.Cells(r, colCat).Value))
+            If cat <> "" And Not cats.Exists(cat) Then
+                cats.Add cat, rowOut
+                ws.Cells(rowOut, 4).Value = cat
+                rowOut = rowOut + 1
+                If rowOut > 402 Then Exit For
+            End If
+        Next r
+        For r = 2 To lastData
+            pid = Trim(CStr(ws.Cells(r, colPort).Value))
+            cat = Trim(CStr(ws.Cells(r, colCat).Value))
+            If cats.Exists(cat) Then
+                rr = cats(cat)
+                If pid = id1 Then ws.Cells(rr, 5).Value = ws.Cells(r, colVal).Value
+                If Len(id2) > 0 Then If pid = id2 Then ws.Cells(rr, 6).Value = ws.Cells(r, colVal).Value
+                If Len(id3) > 0 Then If pid = id3 Then ws.Cells(rr, 7).Value = ws.Cells(r, colVal).Value
+            End If
+        Next r
+    Else
+        ' Un valor por portfolio: una fila; cada entidad su valor; H = benchmark de Ent1.
+        ws.Cells(3, 4).Value = Trim(CStr(ws.Range("B8").Value)) & " · " & Trim(CStr(ws.Range("B11").Value))
+        For r = 2 To lastData
+            pid = Trim(CStr(ws.Cells(r, colPort).Value))
+            If pid = id1 Then
+                ws.Cells(3, 5).Value = ws.Cells(r, colVal).Value
+                If colBmk > 0 Then ws.Cells(3, 8).Value = ws.Cells(r, colBmk).Value
+            End If
+            If Len(id2) > 0 Then If pid = id2 Then ws.Cells(3, 6).Value = ws.Cells(r, colVal).Value
+            If Len(id3) > 0 Then If pid = id3 Then ws.Cells(3, 7).Value = ws.Cells(r, colVal).Value
+        Next r
+    End If
 End Sub
