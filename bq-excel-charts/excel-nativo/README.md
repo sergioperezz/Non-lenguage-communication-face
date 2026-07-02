@@ -148,7 +148,9 @@ la hoja **`BQ_Resultado`**.
 | Beta | `CAM_TX_PERFORMANCE_FIGURES_PD` | `BETA` |
 | Duración (Modificada/Efectiva) | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (con `PK_VARIABLE_TARGET`=nombre de la métrica, `PK_TIPOGAMAN1='FONDO'`, desglose por `PK_ETIQUETA_AGREGACION`) |
 | TIR | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (criterio `PK_CRITERIO_AGREGACION='TIR'`, total) |
-| Spread / Peso / Composición | `CAM_TX_RISK_FIG_AGG_PD` / `CAM_TX_*_COMP_PD` | *(pendiente)* |
+| Peso (por Sector) | `CAM_TM_PORTFOLIOS_PD` × `CAM_TM_MSTR_VALORES_PD` | `SUM(VALUATION_PC)` agrupado por `CLASSIFICATION_GICS` (join por `PK_SECURITY_IK`) |
+| Spread | `CAM_TM_PORTFOLIOS_PD` | `SPREAD` (posiciones, media ponderada) *(pendiente)* |
+| TER / PER / DividendYield / Liquidez | — | *(pendiente de fuente)* |
 
 - **Filtros obligatorios** en performance: `PK_NAV_GNAV = 'GNAV'` y
   `BENCHMARK = 'Benchmark 1'` (si no, filas duplicadas). La consulta filtra por

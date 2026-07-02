@@ -328,6 +328,11 @@ Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
 ' Tabla de riesgo (VALOR = número; PK_VARIABLE_TARGET = métrica; criterio/etiqueta = desglose):
 Private Const T_RISK As String = "CAM_TX_RISK_FIG_AGG_PD"
 Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMAN1"         ' columna FONDO/BENCHMARK
+' Composición por sector (posiciones x maestro de valores):
+Private Const T_POS As String = "CAM_TM_PORTFOLIOS_PD"             ' posiciones (dataset DS_PROD)
+Private Const T_VALORES As String = "CAM_TM_MSTR_VALORES_PD"       ' maestro de valores (dataset DS_MERC)
+Private Const POS_VALOR As String = "VALUATION_PC"                 ' valor de la posición (peso); PC=divisa cartera
+Private Const SECTOR_COL As String = "CLASSIFICATION_GICS"         ' estándar sectorial (GICS/BICS/ICB)
 ' =====================================================
 
 ' Duplica comillas simples para evitar romper la cadena SQL.
@@ -452,6 +457,30 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
     SQLRiesgo = sql
 End Function
 
+' SQL de composición (Peso por sector): posiciones (CAM_TM_PORTFOLIOS_PD) cruzadas
+' con el maestro de valores (CAM_TM_MSTR_VALORES_PD) por PK_SECURITY_IK, agregando
+' el valor de mercado por clasificación sectorial. Última fecha por portfolio.
+Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
+    Dim dimen As String, grp As String, sql As String
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    Select Case dimen
+        Case "Sector": grp = "v." & SECTOR_COL
+        Case Else
+            SQLComposicion = "-- Composición por '" & dimen & "': por ahora solo Sector (" & SECTOR_COL & ")." & vbLf & _
+                             "-- Otras dimensiones necesitan su columna de clasificación en el maestro de valores."
+            Exit Function
+    End Select
+    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, SUM(p." & POS_VALOR & ") AS valor" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & _
+          "JOIN " & Tbl(DS_MERC, T_VALORES) & " v" & vbLf & _
+          "  ON v.PK_SECURITY_IK = p.PK_SECURITY_IK AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS" & vbLf & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+    If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID, " & grp & vbLf & _
+          "ORDER BY p.PK_PORTFOLIO_ID, valor DESC"
+    SQLComposicion = sql
+End Function
+
 ' Construye la SQL a partir de los parámetros del Panel.
 ' Rentabilidad/Volatilidad/Beta -> CAM_TX_PERFORMANCE_FIGURES_PD (última fecha por
 ' portfolio). Duración -> CAM_TX_RISK_FIG_AGG_PD (VALOR por etiqueta de agregación).
@@ -476,13 +505,17 @@ Public Function ConstruirSQL() As String
         ConstruirSQL = SQLRiesgo(ws, "", ents, "TIR")
         Exit Function
     End If
+    ' Peso/Composición: posiciones x maestro de valores (por sector).
+    If met = "Peso" Then
+        ConstruirSQL = SQLComposicion(ws, ents)
+        Exit Function
+    End If
 
     If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
         ConstruirSQL = _
             "-- Métrica '" & met & "' / periodo '" & per & "': aún no mapeada a BigQuery." & vbLf & _
-            "-- TIR -> CAM_TM_PORTFOLIOS_PD.TIR_VALORACION (otra tabla)." & vbLf & _
-            "-- Spread y otras de riesgo -> CAM_TX_RISK_FIG_AGG_PD (VALOR, PK_VARIABLE_TARGET)." & vbLf & _
-            "-- Peso/Composición -> CAM_TX_PORTFOLIOS_COMP_PD / CAM_TX_BENCHMARK_COMP_PD (COMPONENT, WEIGHT)."
+            "-- Spread -> CAM_TM_PORTFOLIOS_PD.SPREAD (posiciones, media ponderada)." & vbLf & _
+            "-- TER / PER / DividendYield / Liquidez -> pendiente de identificar fuente."
         Exit Function
     End If
 
