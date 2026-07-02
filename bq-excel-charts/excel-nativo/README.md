@@ -147,7 +147,7 @@ la hoja **`BQ_Resultado`**.
 | Volatilidad | `CAM_TX_PERFORMANCE_FIGURES_PD` | `VOL_1Y_260` |
 | Beta | `CAM_TX_PERFORMANCE_FIGURES_PD` | `BETA` |
 | Duración (Modificada/Efectiva) | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (con `PK_VARIABLE_TARGET`=nombre de la métrica, `PK_TIPOGAMAN1='FONDO'`, desglose por `PK_ETIQUETA_AGREGACION`) |
-| TIR | `CAM_TM_PORTFOLIOS_PD` | `TIR_VALORACION` *(pendiente de enrutar)* |
+| TIR | `CAM_TX_RISK_FIG_AGG_PD` | `VALOR` (criterio `PK_CRITERIO_AGREGACION='TIR'`, total) |
 | Spread / Peso / Composición | `CAM_TX_RISK_FIG_AGG_PD` / `CAM_TX_*_COMP_PD` | *(pendiente)* |
 
 - **Filtros obligatorios** en performance: `PK_NAV_GNAV = 'GNAV'` y

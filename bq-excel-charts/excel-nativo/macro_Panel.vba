@@ -418,22 +418,31 @@ Private Function DimACriterio(ByVal dimen As String) As String
     End Select
 End Function
 
-' SQL de riesgo (Duración) desde CAM_TX_RISK_FIG_AGG_PD: VALOR por etiqueta de
-' agregación (desglose), última fecha por portfolio.
-Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents As String) As String
-    Dim dimen As String, crit As String, sql As String
-    dimen = Trim(CStr(ws.Range("B9").Value))
-    crit = DimACriterio(dimen)
-    If Len(crit) = 0 Then
-        SQLRiesgo = "-- Dimensión '" & dimen & "' no existe como desglose en CAM_TX_RISK_FIG_AGG_PD." & vbLf & _
-                    "-- Criterios disponibles: AssetType (Activo), Geo (Geografia), FX (Divisa), Duracion (total)." & vbLf & _
-                    "-- Sector/Rating/Industria no están en la tabla de riesgo."
-        Exit Function
+' SQL de riesgo desde CAM_TX_RISK_FIG_AGG_PD: VALOR por etiqueta de agregación,
+' última fecha por portfolio.
+'  - Duración: filtra PK_VARIABLE_TARGET=variable y criterio segun la dimensión.
+'  - Métricas-total (TIR): pasa critFijo (p. ej. "TIR") y no filtra por variable.
+Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents As String, _
+        Optional ByVal critFijo As String = "") As String
+    Dim dimen As String, crit As String, sql As String, wVar As String
+    If Len(critFijo) > 0 Then
+        crit = critFijo                 ' criterio propio de la métrica-total
+        wVar = ""
+    Else
+        dimen = Trim(CStr(ws.Range("B9").Value))
+        crit = DimACriterio(dimen)
+        If Len(crit) = 0 Then
+            SQLRiesgo = "-- Dimensión '" & dimen & "' no existe como desglose en CAM_TX_RISK_FIG_AGG_PD." & vbLf & _
+                        "-- Criterios disponibles: AssetType (Activo), Geo (Geografia), FX (Divisa), Duracion (total)." & vbLf & _
+                        "-- Sector/Rating/Industria no están en la tabla de riesgo."
+            Exit Function
+        End If
+        wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf
     End If
     sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION, VALOR" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
-          "WHERE PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf & _
-          "  AND PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
+          "WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
+          wVar & _
           "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & _
@@ -460,6 +469,11 @@ Public Function ConstruirSQL() As String
     ' El nombre de la métrica del Panel coincide con PK_VARIABLE_TARGET del DWH.
     If InStr(met, "Duración") = 1 Then
         ConstruirSQL = SQLRiesgo(ws, met, ents)
+        Exit Function
+    End If
+    ' TIR: métrica-total con criterio propio (PK_CRITERIO_AGREGACION='TIR').
+    If met = "TIR" Then
+        ConstruirSQL = SQLRiesgo(ws, "", ents, "TIR")
         Exit Function
     End If
 
