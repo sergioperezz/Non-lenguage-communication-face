@@ -327,7 +327,35 @@ def build() -> Workbook:
     build_tablas(wb, n)
     build_sectorial(wb)
     build_comparativa(wb)
+    build_activos(wb)
     return wb
+
+
+# IDs de ejemplo (mismos que usa MapaEntidades). En producción, la hoja "activos"
+# se sustituye por el maestro real (id_elemento | nombre_elemento | tipo_elemento).
+IDS_REALES = ["CBNKITER", "DIVERDIN", "FALBUSFI", "GESTIO30", "GESTIO60",
+              "GESTOTAL", "IMP030RV", "IMP060RV", "IMP100RV", "MIXTRF10",
+              "MIXTRF15", "PRO030RV", "PRO060RV", "PRO100RV"]
+
+
+def build_activos(wb):
+    """Hoja 'activos': maestro de entidades con la MISMA forma que el real
+    (id_elemento | nombre_elemento | tipo_elemento). Datos de ejemplo; se
+    sustituye por el maestro real y la macro lo usa para traducir nombre -> id."""
+    ws = wb.create_sheet("activos")
+    ws.append(["id_elemento", "nombre_elemento", "tipo_elemento"])
+    for c in ws[1]:
+        c.font = BOLD
+    tipo_map = {"Fondo": "fondo", "Cartera": "cartera", "Indice": "indice"}
+    i = 0
+    for tipo_ent, entidades in ENTIDADES.items():
+        for entidad in entidades:
+            ws.append([IDS_REALES[i % len(IDS_REALES)], entidad, tipo_map[tipo_ent]])
+            i += 1
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 30
+    ws.column_dimensions["C"].width = 14
+    return ws
 
 
 def build_comparativa(wb):
