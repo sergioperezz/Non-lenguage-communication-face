@@ -26,6 +26,9 @@ Private Const DS_OPER As String = "operativafinanciera_ds01"
 Private Const DS_MERC As String = "informaciondemercado_ds01"
 Private Const F_NAV_GNAV As String = "GNAV"
 Private Const F_BENCHMARK As String = "Benchmark 1"
+' Escala de los TWR: si vienen en % (p.ej. 1.25 = 1,25%) es "100.0"; si vienen
+' como fraccion (0.0125) pon "1.0". Se usa al COMPONER retornos diarios.
+Private Const RET_ESC As String = "100.0"
 Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
 Private Const T_RISK As String = "CAM_TX_RISK_FIG_AGG_PD"
 Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMAN1"
@@ -341,6 +344,50 @@ Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     SQLTerFondo = sql
 End Function
 
+' Intervalo de BigQuery para la ventana rolling de un sufijo de periodo.
+Private Function IntervaloSuf(ByVal suf As String) As String
+    Select Case suf
+        Case "1M": IntervaloSuf = "INTERVAL 1 MONTH"
+        Case "1Y": IntervaloSuf = "INTERVAL 1 YEAR"
+        Case "3Y": IntervaloSuf = "INTERVAL 3 YEAR"
+        Case "5Y": IntervaloSuf = "INTERVAL 5 YEAR"
+        Case Else: IntervaloSuf = ""
+    End Select
+End Function
+
+' Rentabilidad rolling COMPUESTA a partir de los retornos diarios, para los
+' periodos que no tienen columna propia de benchmark (_BMK): 1M/1Y/3Y/5Y.
+' Compone TWR_1D (fondo) y, si se pide, TWR_1D_BMK (benchmark) sobre la ventana
+' de fechas: R = EXP(SUM(LN(1 + r))) - 1. Usa SAFE.LN para ignorar dias con
+' datos invalidos. Devuelve valor (y valor_bmk) por PK_PORTFOLIO_ID.
+Private Function SQLRendimientoDiario(ByVal ents As String, ByVal suf As String, _
+        ByVal conBmk As Boolean) As String
+    Dim intv As String, sql As String, colB As String, whereBmk As String
+    intv = IntervaloSuf(suf)
+    If Len(intv) = 0 Then Exit Function
+    If conBmk Then
+        colB = "," & vbLf & _
+               "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & RET_ESC & ")))) - 1) * " & RET_ESC & " AS valor_bmk"
+        whereBmk = vbLf & "  AND p.TWR_1D_BMK IS NOT NULL"
+    End If
+    sql = "WITH ult AS (" & vbLf & _
+          "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
+          "  FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
+          "  WHERE PK_NAV_GNAV = '" & F_NAV_GNAV & "' AND BENCHMARK = '" & F_BENCHMARK & "'"
+    If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
+          "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
+          "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & RET_ESC & ")))) - 1) * " & RET_ESC & " AS valor" & colB & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_PERF) & " p" & vbLf & _
+          "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
+          "WHERE p.PK_NAV_GNAV = '" & F_NAV_GNAV & "' AND p.BENCHMARK = '" & F_BENCHMARK & "'" & vbLf & _
+          "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
+          "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
+          "  AND p.TWR_1D IS NOT NULL" & whereBmk & vbLf & _
+          "GROUP BY p.PK_PORTFOLIO_ID" & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
+    SQLRendimientoDiario = sql
+End Function
+
 ' ---- Construye la SQL segun la metrica del Panel (B8) ----
 Public Function ConstruirSQL() As String
     Dim ws As Worksheet, met As String, per As String, ents As String
@@ -367,6 +414,13 @@ Public Function ConstruirSQL() As String
     If met = "Spread" Then ConstruirSQL = SQLSpread(ws, ents): Exit Function
     If met = "TER" Then ConstruirSQL = SQLTerFondo(ws, ents): Exit Function
     If met = "TER Look-through" Then ConstruirSQL = SQLTerLookthrough(ws, ents): Exit Function
+
+    ' Rentabilidad rolling (1M/1Y/3Y/5Y): no hay columna de benchmark propia, asi
+    ' que componemos los retornos diarios (fondo TWR_1D y benchmark TWR_1D_BMK).
+    If (met = "Rentabilidad" Or met = "Rentab. acum.") And Len(IntervaloSuf(SufijoPeriodo(per))) > 0 Then
+        ConstruirSQL = SQLRendimientoDiario(ents, SufijoPeriodo(per), conBmk)
+        Exit Function
+    End If
 
     If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
         ConstruirSQL = "-- Metrica '" & met & "' / periodo '" & per & "': no mapeada." & vbLf & _
