@@ -70,6 +70,18 @@ DIM_TIEMPO = ["Mensual", "Trimestral", "Semestral", "Anual"]   # tienen TablaN (
 DIM_GRANU = ["Diario", "Semanal"]                              # granularidades finas
 DIM_COMP = ["Activo", "Geografia", "Industria", "Sector", "Divisa", "Rating"]
 DIMS = DIM_GRANU + DIM_TIEMPO + DIM_COMP
+_DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temporales
+
+# Dimensiones VALIDAS por grupo de metrica (para el desplegable en cascada de B9,
+# asi solo se ofrece lo que la macro sabe consultar y no salen errores "no mapeada").
+DIM_POR_GRUPO = {
+    "Rendimiento": _DIM_T,
+    "Riesgo":      _DIM_T + ["Activo", "Geografia", "Divisa"],
+    "Composicion": ["Sector", "Rating"],
+    "Costes":      _DIM_T,
+    "Liquidez":    _DIM_T,
+    "Valoracion":  _DIM_T,
+}
 
 
 def _meses(n, y0, m0):
@@ -194,6 +206,10 @@ def build() -> Workbook:
 
     name("Periodos", col("V", "Periodos", PERIODOS))
     name("DimTiempo", col("W", "DimTiempo", DIM_TIEMPO))
+    # Dimensiones validas por grupo (para la cascada de B9).
+    dim_cols = ["AN", "AO", "AP", "AQ", "AR", "AS"]
+    for letter, g in zip(dim_cols, DIM_POR_GRUPO):
+        name(f"Dim_{g}", col(letter, f"Dim_{g}", DIM_POR_GRUPO[g]))
     ws_l["Y1"], ws_l["Z1"], ws_l["AA1"], ws_l["AB1"] = ("N_Men", "N_Tri", "N_Sem", "N_Anu")
     for r, p in enumerate(PERIODOS, start=2):
         for cidx, val in enumerate(TABLA_N[p]):
@@ -234,7 +250,7 @@ def build() -> Workbook:
         ("B6", '=EntLista', True),                        # opcional
         ("B7", f'"{grupos_lst}"', False),
         ("B8", '=INDIRECT("Grupo_"&$B$7)', False),
-        ("B9", f'"{dims_lst}"', False),
+        ("B9", '=INDIRECT("Dim_"&$B$7)', False),           # cascada: solo dims validas del grupo
         ("B10", '"Todos,RF,RV"', False),
         ("B11", f'"{periodos_lst}"', False),
         ("B12", '"Con benchmark,Sin benchmark"', False),
