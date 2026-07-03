@@ -368,7 +368,7 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
         ByVal crit As String, ByVal dimen As String, ByVal varTarget As String) As String
     Dim bucket As String, intv As String, sql As String, wVarT As String
     bucket = BucketExpr(dimen)
-    intv = IntervaloSuf(SufijoPeriodo(Trim(CStr(ws.Range("B11").Value))))
+    intv = IntervaloPeriodo(Trim(CStr(ws.Range("B11").Value)))
     If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
     If Len(varTarget) > 0 Then wVarT = " AND PK_VARIABLE_TARGET = '" & Esc(varTarget) & "'"
     wVarT = wVarT & " AND PK_PORTFOLIO = '" & Esc(CfgPortfolio()) & "'"   ' nivel total (no componentes)
@@ -498,6 +498,21 @@ Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     SQLTerFondo = sql
 End Function
 
+' Intervalo de BigQuery para la ventana del periodo del panel (B11). Parsea el
+' numero + unidad: "2A" -> "INTERVAL 2 YEAR", "3M" -> "INTERVAL 3 MONTH". Los
+' periodos "a fecha" (MTD/YTD/QTD/WTD) devuelven "" (van por columna directa).
+Private Function IntervaloPeriodo(ByVal per As String) As String
+    Dim p As String, n As String
+    p = UCase(Trim(per))
+    If Len(p) < 2 Then Exit Function
+    n = Left(p, Len(p) - 1)
+    If Not IsNumeric(n) Then Exit Function
+    Select Case Right(p, 1)
+        Case "M": IntervaloPeriodo = "INTERVAL " & n & " MONTH"
+        Case "A": IntervaloPeriodo = "INTERVAL " & n & " YEAR"
+    End Select
+End Function
+
 ' Intervalo de BigQuery para la ventana rolling de un sufijo de periodo.
 Private Function IntervaloSuf(ByVal suf As String) As String
     Select Case suf
@@ -538,11 +553,11 @@ End Function
 ' Compone TWR_1D (fondo) y, si se pide, TWR_1D_BMK (benchmark) sobre la ventana
 ' de fechas: R = EXP(SUM(LN(1 + r))) - 1. Usa SAFE.LN para ignorar dias con
 ' datos invalidos. Devuelve valor (y valor_bmk) por PK_PORTFOLIO_ID.
-Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByVal suf As String, _
+Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByVal per As String, _
         ByVal conBmk As Boolean) As String
     Dim intv As String, sql As String, colB As String, whereBmk As String
     Dim bucket As String, selCat As String, grpCat As String
-    intv = IntervaloSuf(suf)
+    intv = IntervaloPeriodo(per)
     If Len(intv) = 0 Then Exit Function
     ' Bucket del eje X segun la dimension (B9): un retorno compuesto por trimestre
     ' (o mes/semestre/ano) dentro de la ventana del periodo.
@@ -604,8 +619,8 @@ Public Function ConstruirSQL() As String
 
     ' Rentabilidad rolling (1M/1Y/3Y/5Y): no hay columna de benchmark propia, asi
     ' que componemos los retornos diarios (fondo TWR_1D y benchmark TWR_1D_BMK).
-    If (met = "Rentabilidad" Or met = "Rentab. acum.") And Len(IntervaloSuf(SufijoPeriodo(per))) > 0 Then
-        ConstruirSQL = SQLRendimientoDiario(ws, ents, SufijoPeriodo(per), conBmk)
+    If (met = "Rentabilidad" Or met = "Rentab. acum.") And Len(IntervaloPeriodo(per)) > 0 Then
+        ConstruirSQL = SQLRendimientoDiario(ws, ents, per, conBmk)
         Exit Function
     End If
 
@@ -1047,8 +1062,8 @@ Public Sub DibujarGrafico()
     Dim ws As Worksheet, ch As Chart, s As Series, conBench As Boolean, tipo As String
     Dim lastRow As Long, benchIdx As Long
     Set ws = Panel()
-    AjustarSeleccion ws, "B4", "Ent_" & ws.Range("B3").Value
-    AjustarSeleccion ws, "B8", "Grupo_" & ws.Range("B7").Value
+    ' NO tocar B4: el usuario elige su cartera real (no la lista de ejemplo). Antes
+    ' AjustarSeleccion reseteaba B4 a la demo si no estaba en Ent_<tipo>; eliminado.
 
     On Error Resume Next
     Set ch = ws.ChartObjects(1).Chart
