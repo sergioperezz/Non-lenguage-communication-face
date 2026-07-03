@@ -258,13 +258,53 @@ Private Function DimACriterio(ByVal dimen As String) As String
     End Select
 End Function
 
+' Devuelve True si la dimension del eje X es temporal (serie en el tiempo).
+Private Function DimEsTiempo(ByVal dimen As String) As Boolean
+    Select Case Fold(dimen)
+        Case "mensual", "trimestral", "semestral", "anual": DimEsTiempo = True
+    End Select
+End Function
+
+' Serie temporal de una metrica PUNTUAL (Duracion/TIR): ultimo valor de cada
+' bucket (trimestre/mes/...) dentro de la ventana del periodo. Trae las fotos
+' historicas y se queda con la mas reciente de cada bucket.
+Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
+        ByVal crit As String, ByVal dimen As String) As String
+    Dim bucket As String, intv As String, sql As String
+    bucket = BucketExpr(dimen)
+    intv = IntervaloSuf(SufijoPeriodo(Trim(CStr(ws.Range("B11").Value))))
+    If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
+    sql = "WITH ult AS (" & vbLf & _
+          "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
+          "  FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
+          "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
+    If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
+          "SELECT p.PK_PORTFOLIO_ID, " & bucket & " AS categoria, CAST(p.VALOR AS FLOAT64) AS valor" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_RISK) & " p" & vbLf & _
+          "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
+          "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = 'FONDO'" & vbLf & _
+          "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
+          "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
+          "QUALIFY ROW_NUMBER() OVER (PARTITION BY p.PK_PORTFOLIO_ID, " & bucket & _
+          " ORDER BY p.PK_FECHA_DATOS DESC) = 1" & vbLf & _
+          "ORDER BY p.PK_PORTFOLIO_ID, p.PK_FECHA_DATOS"
+    SQLRiesgoTemporal = sql
+End Function
+
 Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents As String, _
         Optional ByVal critFijo As String = "") As String
     Dim dimen As String, crit As String, sql As String, wVar As String
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    ' Dimension temporal: serie en el tiempo (ultimo valor de cada bucket).
+    If DimEsTiempo(dimen) Then
+        If Len(critFijo) > 0 Then crit = critFijo Else crit = "Duracion"
+        SQLRiesgo = SQLRiesgoTemporal(ws, ents, crit, dimen)
+        Exit Function
+    End If
     If Len(critFijo) > 0 Then
         crit = critFijo: wVar = ""
     Else
-        dimen = Trim(CStr(ws.Range("B9").Value))
         crit = DimACriterio(dimen)
         If Len(crit) = 0 Then
             SQLRiesgo = "-- Dimension '" & dimen & "' no existe como desglose en CAM_TX_RISK_FIG_AGG_PD." & vbLf & _
