@@ -201,7 +201,9 @@ End Function
 Private Function SufijoPeriodo(ByVal p As String) As String
     Select Case UCase(Trim(p))
         Case "MTD": SufijoPeriodo = "MTD"
+        Case "QTD": SufijoPeriodo = "QTD"
         Case "YTD": SufijoPeriodo = "YTD"
+        Case "WTD": SufijoPeriodo = "WTD"
         Case "1M":  SufijoPeriodo = "1M"
         Case "1A":  SufijoPeriodo = "1Y"
         Case "3A":  SufijoPeriodo = "3Y"
@@ -217,7 +219,14 @@ Private Function MapMetrica(ByVal met As String, ByVal per As String, _
     Select Case met
         Case "Rentabilidad", "Rentab. acum."
             If Len(suf) = 0 Then Exit Function
-            colVal = "TWR_" & suf: colBmk = "TWR_" & suf & "_BMK": colDif = "DIFERENCIAL_" & suf
+            colVal = "TWR_" & suf
+            ' Segun el diccionario homologado, SOLO existe columna de benchmark
+            ' (_BMK) para los periodos "hasta la fecha". Para las rentabilidades
+            ' rolling (1M/1Y/3Y/5Y) no hay _BMK -> se consulta solo el fondo.
+            Select Case suf
+                Case "MTD", "QTD", "YTD", "WTD", "1D": colBmk = "TWR_" & suf & "_BMK"
+            End Select
+            colDif = ""          ' el diferencial no es necesario para el grafico
             MapMetrica = True
         Case "Volatilidad": colVal = "VOL_1Y_260": MapMetrica = True
         Case "Beta":        colVal = "BETA": MapMetrica = True
@@ -420,7 +429,13 @@ Public Sub InstalarBotones()
         BorrarBotones wt
         CrearBoton wt, "D3", "Formatear tabla", "FormatearTablas"
     End If
-    MsgBox "Botones creados en 'Panel' y 'Tablas'.", vbInformation, "Instalacion"
+    ' Deja el grafico en modo dinamico (rangos con nombre) desde el principio,
+    ' asi se ajusta solo al cambiar periodo/dimension y no deja huecos.
+    On Error Resume Next
+    DibujarGrafico
+    On Error GoTo 0
+    MsgBox "Botones creados en 'Panel' y 'Tablas'." & vbLf & _
+           "El grafico ya se ajusta solo al cambiar los parametros.", vbInformation, "Instalacion"
 End Sub
 
 Private Sub BorrarBotones(ws As Worksheet)
@@ -711,15 +726,41 @@ Private Sub AjustarSeleccion(ws As Worksheet, ByVal celda As String, ByVal nombr
     If Not valido Then ws.Range(celda).Value = rng.Cells(1, 1).Value
 End Sub
 
+' Referencia a un rango con nombre del propio libro (para las series del grafico).
+Private Function RefNombre(ByVal nm As String) As String
+    RefNombre = "='" & ThisWorkbook.Name & "'!" & nm
+End Function
+
+' Define (o redefine) un rango con nombre dinamico a nivel de libro.
+Private Sub DefNombre(ByVal nm As String, ByVal ref As String)
+    On Error Resume Next
+    ThisWorkbook.Names(nm).Delete
+    On Error GoTo 0
+    ThisWorkbook.Names.Add Name:=nm, RefersTo:=ref
+End Sub
+
+' Crea rangos con nombre que se AJUSTAN SOLOS al numero de categorias visibles
+' (cuenta las celdas no vacias de D3:D402). Asi el grafico no deja huecos al
+' cambiar de periodo/dimension: la altura del rango sigue a los datos.
+Private Sub AsegurarNombresGrafico()
+    Dim cnt As String
+    cnt = "SUMPRODUCT(--(Panel!$D$3:$D$402<>""""))"
+    DefNombre "ChCats", "=OFFSET(Panel!$D$3,0,0,MAX(1," & cnt & "),1)"
+    DefNombre "ChE", "=OFFSET(Panel!$E$3,0,0,MAX(1," & cnt & "),1)"
+    DefNombre "ChF", "=OFFSET(Panel!$F$3,0,0,MAX(1," & cnt & "),1)"
+    DefNombre "ChG", "=OFFSET(Panel!$G$3,0,0,MAX(1," & cnt & "),1)"
+    DefNombre "ChH", "=OFFSET(Panel!$H$3,0,0,MAX(1," & cnt & "),1)"
+End Sub
+
 Private Sub AddEnt(ws As Worksheet, ByVal ch As Chart, ByVal slotCell As String, _
-        ByVal colLetter As String, ByVal lastRow As Long)
+        ByVal colLetter As String, ByVal valName As String)
     Dim s As Series, v As String
     v = Trim(CStr(ws.Range(slotCell).Value))
     If v = "" Or v = "(ninguna)" Then Exit Sub
     Set s = ch.SeriesCollection.NewSeries
     s.Name = "=Panel!$" & colLetter & "$2"
-    s.Values = "=Panel!$" & colLetter & "$3:$" & colLetter & "$" & lastRow
-    s.XValues = "=Panel!$D$3:$D$" & lastRow
+    s.Values = RefNombre(valName)         ' rango dinamico: se ajusta a los datos
+    s.XValues = RefNombre("ChCats")
 End Sub
 
 ' Redibuja el grafico del Panel con la tabla D:H actual (mock o datos reales).
@@ -737,25 +778,21 @@ Public Sub DibujarGrafico()
 
     conBench = (ws.Range("B12").Value = "Con benchmark")
     tipo = Fold(ws.Range("B14").Value)
-    lastRow = 2
-    Do While Trim(CStr(ws.Cells(lastRow + 1, 4).Value)) <> "" And lastRow < 402
-        lastRow = lastRow + 1
-    Loop
-    If lastRow < 3 Then lastRow = 3
+    AsegurarNombresGrafico          ' rangos dinamicos: el grafico se ajusta solo
 
     Do While ch.SeriesCollection.Count > 0
         ch.SeriesCollection(1).Delete
     Loop
-    AddEnt ws, ch, "B4", "E", lastRow
-    AddEnt ws, ch, "B5", "F", lastRow
-    AddEnt ws, ch, "B6", "G", lastRow
+    AddEnt ws, ch, "B4", "E", "ChE"
+    AddEnt ws, ch, "B5", "F", "ChF"
+    AddEnt ws, ch, "B6", "G", "ChG"
 
     benchIdx = 0
     If conBench And Trim(CStr(ws.Range("B4").Value)) <> "" Then
         Set s = ch.SeriesCollection.NewSeries
         s.Name = "=Panel!$H$2"
-        s.Values = "=Panel!$H$3:$H$" & lastRow
-        s.XValues = "=Panel!$D$3:$D$" & lastRow
+        s.Values = RefNombre("ChH")
+        s.XValues = RefNombre("ChCats")
         benchIdx = ch.SeriesCollection.Count
     End If
 
