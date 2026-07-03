@@ -69,6 +69,16 @@ Private Function Esc(ByVal s As String) As String
     Esc = Replace(CStr(s), "'", "''")
 End Function
 
+' Convierte a numero un valor que puede venir como TEXTO. Los valores de las
+' consultas llegan formateados con '.' decimal (FORMAT '%.10f') para evitar el
+' reescalado del driver ODBC con los NUMERIC. Val() usa siempre '.' como decimal,
+' asi que es independiente del idioma. Devuelve "" si esta vacio.
+Private Function NumVal(ByVal v As Variant) As Variant
+    Dim s As String
+    s = Trim(CStr(v))
+    If s = "" Then NumVal = "" Else NumVal = Val(Replace(s, ",", "."))
+End Function
+
 ' Normaliza a minusculas SIN acentos (usa codigos de caracter, asi el propio
 ' codigo no lleva tildes y no depende de la codificacion al importar el .bas).
 Private Function Fold(ByVal s As String) As String
@@ -354,7 +364,7 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
           "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & wVarT
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
-          "SELECT p.PK_PORTFOLIO_ID, " & bucket & " AS categoria, CAST(p.VALOR AS FLOAT64) AS valor" & vbLf & _
+          "SELECT p.PK_PORTFOLIO_ID, " & bucket & " AS categoria, FORMAT('%.10f', CAST(p.VALOR AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
           "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & _
@@ -394,7 +404,7 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
         ' Distingue la variante de la metrica (p.ej. DuracionModificada, no Macaulay).
         wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(VarTarget(variable)) & "'" & vbLf
     End If
-    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, CAST(VALOR AS FLOAT64) AS valor" & vbLf & _
+    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, FORMAT('%.10f', CAST(VALOR AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
           "WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
           wVar & "  AND " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & vbLf & _
@@ -427,7 +437,7 @@ Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
         SQLComposicion = "-- Composicion por '" & dimen & "': disponible por Sector y Rating."
         Exit Function
     End If
-    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, CAST(SUM(p." & POS_VALOR & ") AS FLOAT64) AS valor" & vbLf & _
+    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, FORMAT('%.10f', CAST(SUM(p." & POS_VALOR & ") AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
@@ -443,7 +453,7 @@ Private Function SQLSpread(ws As Worksheet, ByVal ents As String) As String
         selCat = ", " & grp & " AS categoria": grpBy = ", " & grp: joinV = JoinValores
     End If
     sql = "SELECT p.PK_PORTFOLIO_ID" & selCat & "," & vbLf & _
-          "       CAST(SUM(p.SPREAD * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64) AS valor" & vbLf & _
+          "       FORMAT('%.10f', CAST(SUM(p.SPREAD * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & joinV & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
@@ -454,7 +464,7 @@ End Function
 Private Function SQLTerLookthrough(ws As Worksheet, ByVal ents As String) As String
     Dim sql As String
     sql = "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
-          "       CAST(SUM(v." & TER_COL & " * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64) AS valor" & vbLf & _
+          "       FORMAT('%.10f', CAST(SUM(v." & TER_COL & " * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
@@ -464,7 +474,7 @@ End Function
 
 Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     Dim sql As String
-    sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, CAST(" & TER_FONDO_EXPR & " AS FLOAT64) AS valor" & vbLf & _
+    sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(" & TER_FONDO_EXPR & " AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & _
           "JOIN " & Tbl(DS_PROD, T_FONDOS) & " f ON f.PK_PRODUCTO_DATANOW = p.FK_PRODUCTO_DATANOW" & vbLf & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
@@ -528,7 +538,7 @@ Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByV
     End If
     If conBmk Then
         colB = "," & vbLf & _
-               "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & " AS valor_bmk"
+               "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & ") AS valor_bmk"
         whereBmk = vbLf & "  AND p.TWR_1D_BMK IS NOT NULL"
     End If
     sql = "WITH ult AS (" & vbLf & _
@@ -538,7 +548,7 @@ Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByV
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
           "SELECT p.PK_PORTFOLIO_ID," & vbLf & selCat & _
-          "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & " AS valor" & colB & vbLf & _
+          "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & ") AS valor" & colB & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
           "WHERE p.PK_NAV_GNAV = '" & CfgNav() & "' AND p.BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
@@ -590,9 +600,9 @@ Public Function ConstruirSQL() As String
         Exit Function
     End If
 
-    cols = "PK_PORTFOLIO_ID, CAST(" & colVal & " AS FLOAT64) AS valor"
-    If conBmk And Len(colBmk) > 0 Then cols = cols & ", CAST(" & colBmk & " AS FLOAT64) AS valor_bmk"
-    If conBmk And Len(colDif) > 0 Then cols = cols & ", CAST(" & colDif & " AS FLOAT64) AS diferencial"
+    cols = "PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(" & colVal & " AS FLOAT64)) AS valor"
+    If conBmk And Len(colBmk) > 0 Then cols = cols & ", FORMAT('%.10f', CAST(" & colBmk & " AS FLOAT64)) AS valor_bmk"
+    If conBmk And Len(colDif) > 0 Then cols = cols & ", FORMAT('%.10f', CAST(" & colDif & " AS FLOAT64)) AS diferencial"
     sql = "SELECT " & cols & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
           "WHERE PK_NAV_GNAV = '" & CfgNav() & "'" & vbLf & _
@@ -772,6 +782,9 @@ Private Function EjecutarYVolcar(ByVal ws As Worksheet, ByVal sql As String, ByR
 
     Application.EnableEvents = False
     ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).ClearContents   ' columna W en adelante
+    ' Area W como TEXTO: los valores llegan formateados con '.' decimal; asi Excel
+    ' no los auto-convierte (ni reescala) y VolcarResultado los parsea con NumVal.
+    ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).NumberFormat = "@"
     For j = 0 To rs.Fields.Count - 1
         ws.Cells(1, 23 + j).Value = rs.Fields(j).Name
     Next j
@@ -937,8 +950,8 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             cat = Trim(CStr(ws.Cells(r, colCat).Value))
             If cats.Exists(cat) And mapPid.Exists(pid) Then
                 rr = cats(cat): tc = mapPid(pid)
-                ws.Cells(rr, tc).Value = ws.Cells(r, colVal).Value
-                If tc = 5 And colBmk > 0 Then ws.Cells(rr, 8).Value = ws.Cells(r, colBmk).Value
+                ws.Cells(rr, tc).Value = NumVal(ws.Cells(r, colVal).Value)
+                If tc = 5 And colBmk > 0 Then ws.Cells(rr, 8).Value = NumVal(ws.Cells(r, colBmk).Value)
             End If
         Next r
     Else
@@ -947,8 +960,8 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
             If mapPid.Exists(pid) Then
                 tc = mapPid(pid)
-                ws.Cells(3, tc).Value = ws.Cells(r, colVal).Value
-                If tc = 5 And colBmk > 0 Then ws.Cells(3, 8).Value = ws.Cells(r, colBmk).Value
+                ws.Cells(3, tc).Value = NumVal(ws.Cells(r, colVal).Value)
+                If tc = 5 And colBmk > 0 Then ws.Cells(3, 8).Value = NumVal(ws.Cells(r, colBmk).Value)
             End If
         Next r
     End If
