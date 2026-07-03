@@ -311,11 +311,11 @@ def build() -> Workbook:
     for c, w in {"A": 20, "B": 22, "D": 16, "E": 14, "F": 14, "G": 14, "H": 12}.items():
         ws.column_dimensions[c].width = w
 
-    # Vista previa de la SQL (Fase 2). La macro (PARTE D) la escribe en A41 al
-    # cambiar un parámetro. Zona libre bajo la tabla de resultados.
-    ws["A40"] = "SQL generada (Fase 2 · BigQuery) para los parámetros actuales:"
+    # Vista previa de la SQL (Fase 2). La macro la escribe en A41. Ocupa SOLO las
+    # columnas A:C (no D:H) para no chocar con la tabla del gráfico al volcar datos.
+    ws["A40"] = "SQL generada (Fase 2 · BigQuery):"
     ws["A40"].font = Font(bold=True, size=10, color=AZUL[2:])
-    ws.merge_cells("A41:H49")
+    ws.merge_cells("A41:C60")
     sqlc = ws["A41"]
     sqlc.value = ("« Pega la macro (macro_Panel.vba), guarda como .xlsm y añade un "
                   "botón con la macro 'Actualizar'. Al pulsarlo, aquí verás la SQL, "
