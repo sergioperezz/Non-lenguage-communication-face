@@ -43,6 +43,10 @@ Private Const ACTIVOS_COL_NOMBRE As String = "nombre_elemento"
 Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_PORTFOLIO_ID
 ' ===========================================================================
 
+' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
+' Nombres de entidad que no se pudieron traducir a id (para avisar al usuario).
+Private mAvisoEnt As String
+
 Private Function Panel() As Worksheet
     Set Panel = ThisWorkbook.Sheets("Panel")
 End Function
@@ -79,9 +83,6 @@ Private Function NormNom(ByVal s As String) As String
     Loop
     NormNom = Fold(s)                        ' Fold ya hace LCase + Trim + quita tildes
 End Function
-
-' Nombres de entidad que no se pudieron traducir a id (para avisar al usuario).
-Private mAvisoEnt As String
 
 ' Devuelve la hoja de carteras exista con el nombre que exista.
 Private Function HojaMaestro() As Worksheet
