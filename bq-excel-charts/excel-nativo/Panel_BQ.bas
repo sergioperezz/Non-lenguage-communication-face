@@ -26,9 +26,10 @@ Private Const DS_OPER As String = "operativafinanciera_ds01"
 Private Const DS_MERC As String = "informaciondemercado_ds01"
 Private Const F_NAV_GNAV As String = "GNAV"
 Private Const F_BENCHMARK As String = "Benchmark 1"
-' Escala de los TWR: si vienen en % (p.ej. 1.25 = 1,25%) es "100.0"; si vienen
-' como fraccion (0.0125) pon "1.0". Se usa al COMPONER retornos diarios.
-Private Const RET_ESC As String = "100.0"
+' Escala de los TWR al COMPONER retornos diarios: si vienen como fraccion
+' (0.0125 = 1,25%) es "1.0"; si vinieran en % (1.25) pon "100.0". Los datos
+' reales vienen en FRACCION (p.ej. 0.0344 = 3,44%), por eso 1.0.
+Private Const RET_ESC As String = "1.0"
 Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
 Private Const T_RISK As String = "CAM_TX_RISK_FIG_AGG_PD"
 Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMAN1"
@@ -52,6 +53,10 @@ Private mAvisoEnt As String
 ' Si esta a True, la SQL de rendimiento se genera SIN columnas de benchmark
 ' (se activa como reintento cuando el driver dice que la columna _BMK no existe).
 Private mForzarSinBmk As Boolean
+' Ids (pk_portfolio_id) resueltos de B4/B5/B6, EN ORDEN. Los fija ListaEntidades
+' al construir la query y los reutiliza VolcarResultado (asi lo que se consulta y
+' lo que se vuelca usan exactamente el mismo id, sin re-traducir).
+Private mId1 As String, mId2 As String, mId3 As String
 
 Private Function Panel() As Worksheet
     Set Panel = ThisWorkbook.Sheets("Panel")
@@ -184,10 +189,12 @@ End Function
 ' Si un nombre no se encuentra en 'cartera', se ignora y se apunta en mAvisoEnt
 ' (NUNCA se mete el nombre en PK_PORTFOLIO_ID: eso devolveria 0 filas).
 Private Function ListaEntidades(ws As Worksheet) As String
-    Dim celda As Variant, v As String, idp As String, out As String
-    mAvisoEnt = ""
-    For Each celda In Array("B4", "B5", "B6")
-        v = Trim(CStr(ws.Range(celda).Value))
+    Dim celdas As Variant, i As Long, v As String, idp As String, out As String
+    mAvisoEnt = "": mId1 = "": mId2 = "": mId3 = ""
+    celdas = Array("B4", "B5", "B6")
+    For i = 0 To 2
+        v = Trim(CStr(ws.Range(CStr(celdas(i))).Value))
+        idp = ""
         If v <> "" And v <> "(ninguna)" Then
             idp = IdEntidad(v)
             If Len(idp) = 0 Then
@@ -197,7 +204,12 @@ Private Function ListaEntidades(ws As Worksheet) As String
                 out = out & "'" & Esc(idp) & "'"
             End If
         End If
-    Next celda
+        Select Case i
+            Case 0: mId1 = idp
+            Case 1: mId2 = idp
+            Case 2: mId3 = idp
+        End Select
+    Next i
     ListaEntidades = out
 End Function
 
@@ -355,16 +367,44 @@ Private Function IntervaloSuf(ByVal suf As String) As String
     End Select
 End Function
 
+' Expresion SQL que agrupa las fechas en el bucket del eje X (dimension B9):
+' Trimestral -> "2025-T3", Mensual -> "2025-07", Semestral -> "2025-S2",
+' Anual -> "2025". Devuelve "" si la dimension no es temporal.
+Private Function BucketExpr(ByVal dimen As String) As String
+    Select Case Fold(dimen)
+        Case "trimestral"
+            BucketExpr = "CONCAT(CAST(EXTRACT(YEAR FROM p.PK_FECHA_DATOS) AS STRING), '-T', " & _
+                         "CAST(EXTRACT(QUARTER FROM p.PK_FECHA_DATOS) AS STRING))"
+        Case "mensual"
+            BucketExpr = "FORMAT_DATE('%Y-%m', p.PK_FECHA_DATOS)"
+        Case "semestral"
+            BucketExpr = "CONCAT(CAST(EXTRACT(YEAR FROM p.PK_FECHA_DATOS) AS STRING), '-S', " & _
+                         "CAST(IF(EXTRACT(MONTH FROM p.PK_FECHA_DATOS) <= 6, 1, 2) AS STRING))"
+        Case "anual"
+            BucketExpr = "CAST(EXTRACT(YEAR FROM p.PK_FECHA_DATOS) AS STRING)"
+        Case Else
+            BucketExpr = ""
+    End Select
+End Function
+
 ' Rentabilidad rolling COMPUESTA a partir de los retornos diarios, para los
 ' periodos que no tienen columna propia de benchmark (_BMK): 1M/1Y/3Y/5Y.
 ' Compone TWR_1D (fondo) y, si se pide, TWR_1D_BMK (benchmark) sobre la ventana
 ' de fechas: R = EXP(SUM(LN(1 + r))) - 1. Usa SAFE.LN para ignorar dias con
 ' datos invalidos. Devuelve valor (y valor_bmk) por PK_PORTFOLIO_ID.
-Private Function SQLRendimientoDiario(ByVal ents As String, ByVal suf As String, _
+Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByVal suf As String, _
         ByVal conBmk As Boolean) As String
     Dim intv As String, sql As String, colB As String, whereBmk As String
+    Dim bucket As String, selCat As String, grpCat As String
     intv = IntervaloSuf(suf)
     If Len(intv) = 0 Then Exit Function
+    ' Bucket del eje X segun la dimension (B9): un retorno compuesto por trimestre
+    ' (o mes/semestre/ano) dentro de la ventana del periodo.
+    bucket = BucketExpr(Trim(CStr(ws.Range("B9").Value)))
+    If Len(bucket) > 0 Then
+        selCat = "       " & bucket & " AS categoria," & vbLf
+        grpCat = ", categoria"
+    End If
     If conBmk Then
         colB = "," & vbLf & _
                "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & RET_ESC & ")))) - 1) * " & RET_ESC & " AS valor_bmk"
@@ -376,7 +416,7 @@ Private Function SQLRendimientoDiario(ByVal ents As String, ByVal suf As String,
           "  WHERE PK_NAV_GNAV = '" & F_NAV_GNAV & "' AND BENCHMARK = '" & F_BENCHMARK & "'"
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
-          "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
+          "SELECT p.PK_PORTFOLIO_ID," & vbLf & selCat & _
           "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & RET_ESC & ")))) - 1) * " & RET_ESC & " AS valor" & colB & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
@@ -384,7 +424,8 @@ Private Function SQLRendimientoDiario(ByVal ents As String, ByVal suf As String,
           "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
           "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
           "  AND p.TWR_1D IS NOT NULL" & whereBmk & vbLf & _
-          "GROUP BY p.PK_PORTFOLIO_ID" & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
+          "GROUP BY p.PK_PORTFOLIO_ID" & grpCat & vbLf & _
+          "ORDER BY p.PK_PORTFOLIO_ID, MIN(p.PK_FECHA_DATOS)"
     SQLRendimientoDiario = sql
 End Function
 
@@ -418,7 +459,7 @@ Public Function ConstruirSQL() As String
     ' Rentabilidad rolling (1M/1Y/3Y/5Y): no hay columna de benchmark propia, asi
     ' que componemos los retornos diarios (fondo TWR_1D y benchmark TWR_1D_BMK).
     If (met = "Rentabilidad" Or met = "Rentab. acum.") And Len(IntervaloSuf(SufijoPeriodo(per))) > 0 Then
-        ConstruirSQL = SQLRendimientoDiario(ents, SufijoPeriodo(per), conBmk)
+        ConstruirSQL = SQLRendimientoDiario(ws, ents, SufijoPeriodo(per), conBmk)
         Exit Function
     End If
 
@@ -720,11 +761,9 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
         lastData = r: r = r + 1
     Loop
 
-    id1 = IdEntidad(Trim(CStr(ws.Range("B4").Value)))
-    id2 = IdEntidad(Trim(CStr(ws.Range("B5").Value)))
-    id3 = IdEntidad(Trim(CStr(ws.Range("B6").Value)))
-    If Trim(CStr(ws.Range("B5").Value)) = "(ninguna)" Then id2 = ""
-    If Trim(CStr(ws.Range("B6").Value)) = "(ninguna)" Then id3 = ""
+    ' Usa exactamente los ids que ListaEntidades metio en la query (mismo id que
+    ' se consulta = mismo id que se vuelca). Se comparan de forma robusta (IgualId).
+    id1 = mId1: id2 = mId2: id3 = mId3
 
     ' Guarda las formulas dummy la PRIMERA vez, para poder volver a la vista
     ' previa despues (boton "Vista previa"). Luego ya sobrescribimos con lo real.
@@ -748,24 +787,33 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             cat = Trim(CStr(ws.Cells(r, colCat).Value))
             If cats.Exists(cat) Then
                 rr = cats(cat)
-                If pid = id1 Then ws.Cells(rr, 5).Value = ws.Cells(r, colVal).Value
-                If Len(id2) > 0 Then If pid = id2 Then ws.Cells(rr, 6).Value = ws.Cells(r, colVal).Value
-                If Len(id3) > 0 Then If pid = id3 Then ws.Cells(rr, 7).Value = ws.Cells(r, colVal).Value
+                If IgualId(pid, id1) Then
+                    ws.Cells(rr, 5).Value = ws.Cells(r, colVal).Value
+                    If colBmk > 0 Then ws.Cells(rr, 8).Value = ws.Cells(r, colBmk).Value
+                End If
+                If IgualId(pid, id2) Then ws.Cells(rr, 6).Value = ws.Cells(r, colVal).Value
+                If IgualId(pid, id3) Then ws.Cells(rr, 7).Value = ws.Cells(r, colVal).Value
             End If
         Next r
     Else
         ws.Cells(3, 4).Value = Trim(CStr(ws.Range("B8").Value)) & " - " & Trim(CStr(ws.Range("B11").Value))
         For r = 2 To lastData
             pid = Trim(CStr(ws.Cells(r, colPort).Value))
-            If pid = id1 Then
+            If IgualId(pid, id1) Then
                 ws.Cells(3, 5).Value = ws.Cells(r, colVal).Value
                 If colBmk > 0 Then ws.Cells(3, 8).Value = ws.Cells(r, colBmk).Value
             End If
-            If Len(id2) > 0 Then If pid = id2 Then ws.Cells(3, 6).Value = ws.Cells(r, colVal).Value
-            If Len(id3) > 0 Then If pid = id3 Then ws.Cells(3, 7).Value = ws.Cells(r, colVal).Value
+            If IgualId(pid, id2) Then ws.Cells(3, 6).Value = ws.Cells(r, colVal).Value
+            If IgualId(pid, id3) Then ws.Cells(3, 7).Value = ws.Cells(r, colVal).Value
         Next r
     End If
 End Sub
+
+' Compara dos ids de portfolio de forma robusta (sin mayus/espacios). Devuelve
+' False si el id de referencia esta vacio (para no cuadrar slots no usados).
+Private Function IgualId(ByVal a As String, ByVal b As String) As Boolean
+    IgualId = (Len(Trim(b)) > 0) And (UCase(Trim(a)) = UCase(Trim(b)))
+End Function
 
 ' =======================  DIBUJO DEL GRAFICO  ==============================
 Private Sub AjustarSeleccion(ws As Worksheet, ByVal celda As String, ByVal nombreLista As String)
