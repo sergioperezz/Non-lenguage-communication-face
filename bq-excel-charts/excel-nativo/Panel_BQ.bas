@@ -261,7 +261,7 @@ End Function
 ' Devuelve True si la dimension del eje X es temporal (serie en el tiempo).
 Private Function DimEsTiempo(ByVal dimen As String) As Boolean
     Select Case Fold(dimen)
-        Case "mensual", "trimestral", "semestral", "anual": DimEsTiempo = True
+        Case "diario", "semanal", "mensual", "trimestral", "semestral", "anual": DimEsTiempo = True
     End Select
 End Function
 
@@ -412,6 +412,10 @@ End Function
 ' Anual -> "2025". Devuelve "" si la dimension no es temporal.
 Private Function BucketExpr(ByVal dimen As String) As String
     Select Case Fold(dimen)
+        Case "diario"
+            BucketExpr = "FORMAT_DATE('%Y-%m-%d', p.PK_FECHA_DATOS)"
+        Case "semanal"
+            BucketExpr = "FORMAT_DATE('%G-W%V', p.PK_FECHA_DATOS)"
         Case "trimestral"
             BucketExpr = "CONCAT(CAST(EXTRACT(YEAR FROM p.PK_FECHA_DATOS) AS STRING), '-T', " & _
                          "CAST(EXTRACT(QUARTER FROM p.PK_FECHA_DATOS) AS STRING))"

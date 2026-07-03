@@ -66,9 +66,10 @@ GRUPOS = {
 }
 ALL_METRICS = [m for ms in GRUPOS.values() for m in ms]
 
-DIM_TIEMPO = ["Mensual", "Trimestral", "Semestral", "Anual"]
+DIM_TIEMPO = ["Mensual", "Trimestral", "Semestral", "Anual"]   # tienen TablaN (buckets)
+DIM_GRANU = ["Diario", "Semanal"]                              # granularidades finas
 DIM_COMP = ["Activo", "Geografia", "Industria", "Sector", "Divisa", "Rating"]
-DIMS = DIM_TIEMPO + DIM_COMP
+DIMS = DIM_GRANU + DIM_TIEMPO + DIM_COMP
 
 
 def _meses(n, y0, m0):
@@ -95,6 +96,10 @@ CATEGORIAS = {
     "Sector": ["Financiero", "Industrial", "Tecnología", "Consumo", "Energía", "Salud"],
     "Divisa": ["EUR", "USD", "GBP", "JPY", "CHF", "Otras"],
     "Rating": ["AAA", "AA", "A", "BBB", "BB", "B"],
+    # Granularidades finas (etiquetas dummy con el MISMO formato que genera la
+    # query: Diario -> "2026-06-15", Semanal -> "2026-W24").
+    "Diario": [f"2026-06-{d:02d}" for d in range(2, 21)],
+    "Semanal": [f"2026-W{w:02d}" for w in range(12, 24)],
 }
 MAX_CATS = max(len(c) for c in CATEGORIAS.values())
 
@@ -183,7 +188,7 @@ def build() -> Workbook:
     for letter, g in zip(grp_cols, GRUPOS):
         name(f"Grupo_{g}", col(letter, f"Grupo_{g}", GRUPOS[g]))
 
-    cat_cols = ["K", "L", "M", "N", "O", "P", "Q", "R", "S", "T"]
+    cat_cols = ["K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "AL", "AM"]
     for letter, dim in zip(cat_cols, CATEGORIAS):
         name(f"Cat_{dim}", col(letter, f"Cat_{dim}", CATEGORIAS[dim]))
 
