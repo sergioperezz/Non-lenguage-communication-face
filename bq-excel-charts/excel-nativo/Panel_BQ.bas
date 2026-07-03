@@ -265,29 +265,45 @@ Private Function DimEsTiempo(ByVal dimen As String) As Boolean
     End Select
 End Function
 
+' Mapea el nombre de la metrica del panel al valor real de PK_VARIABLE_TARGET
+' (quita acentos y espacios): "Duracion Modificada" -> "DuracionModificada",
+' "Duracion Efectiva" -> "DuracionEfectiva".
+Private Function VarTarget(ByVal met As String) As String
+    Dim s As String
+    s = Trim(CStr(met))
+    s = Replace(s, ChrW(225), "a"): s = Replace(s, ChrW(233), "e"): s = Replace(s, ChrW(237), "i")
+    s = Replace(s, ChrW(243), "o"): s = Replace(s, ChrW(250), "u"): s = Replace(s, ChrW(241), "n")
+    s = Replace(s, ChrW(193), "A"): s = Replace(s, ChrW(201), "E"): s = Replace(s, ChrW(205), "I")
+    s = Replace(s, ChrW(211), "O"): s = Replace(s, ChrW(218), "U"): s = Replace(s, ChrW(209), "N")
+    VarTarget = Replace(s, " ", "")
+End Function
+
 ' Serie temporal de una metrica PUNTUAL (Duracion/TIR): ultimo valor de cada
-' bucket (trimestre/mes/...) dentro de la ventana del periodo. Trae las fotos
-' historicas y se queda con la mas reciente de cada bucket.
+' bucket (trimestre/mes/...) dentro de la ventana del periodo. Filtra por
+' PK_VARIABLE_TARGET (p.ej. DuracionModificada, NO Macaulay) y, si hay varias
+' filas la misma fecha, se queda con el VALOR mayor (la duracion real).
 Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
-        ByVal crit As String, ByVal dimen As String) As String
-    Dim bucket As String, intv As String, sql As String
+        ByVal crit As String, ByVal dimen As String, ByVal varTarget As String) As String
+    Dim bucket As String, intv As String, sql As String, wVarT As String
     bucket = BucketExpr(dimen)
     intv = IntervaloSuf(SufijoPeriodo(Trim(CStr(ws.Range("B11").Value))))
     If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
+    If Len(varTarget) > 0 Then wVarT = " AND PK_VARIABLE_TARGET = '" & Esc(varTarget) & "'"
     sql = "WITH ult AS (" & vbLf & _
           "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
           "  FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
-          "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
+          "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = 'FONDO'" & wVarT
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
           "SELECT p.PK_PORTFOLIO_ID, " & bucket & " AS categoria, CAST(p.VALOR AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
-          "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = 'FONDO'" & vbLf & _
+          "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = 'FONDO'" & _
+          Replace(wVarT, "PK_VARIABLE_TARGET", "p.PK_VARIABLE_TARGET") & vbLf & _
           "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
           "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
           "QUALIFY ROW_NUMBER() OVER (PARTITION BY p.PK_PORTFOLIO_ID, " & bucket & _
-          " ORDER BY p.PK_FECHA_DATOS DESC) = 1" & vbLf & _
+          " ORDER BY p.PK_FECHA_DATOS DESC, p.VALOR DESC) = 1" & vbLf & _
           "ORDER BY p.PK_PORTFOLIO_ID, p.PK_FECHA_DATOS"
     SQLRiesgoTemporal = sql
 End Function
@@ -298,8 +314,13 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
     dimen = Trim(CStr(ws.Range("B9").Value))
     ' Dimension temporal: serie en el tiempo (ultimo valor de cada bucket).
     If DimEsTiempo(dimen) Then
-        If Len(critFijo) > 0 Then crit = critFijo Else crit = "Duracion"
-        SQLRiesgo = SQLRiesgoTemporal(ws, ents, crit, dimen)
+        Dim vtT As String
+        If Len(critFijo) > 0 Then
+            crit = critFijo: vtT = ""
+        Else
+            crit = "Duracion": vtT = VarTarget(variable)   ' DuracionModificada / DuracionEfectiva
+        End If
+        SQLRiesgo = SQLRiesgoTemporal(ws, ents, crit, dimen, vtT)
         Exit Function
     End If
     If Len(critFijo) > 0 Then
@@ -311,13 +332,8 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
                         "-- Criterios: AssetType (Activo), Geo (Geografia), FX (Divisa), Duracion (total)."
             Exit Function
         End If
-        ' 'Duracion' es un criterio-total autocontenido: NO se combina con
-        ' PK_VARIABLE_TARGET (esa combinacion devuelve 0 filas).
-        If crit = "Duracion" Then
-            wVar = ""
-        Else
-            wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf
-        End If
+        ' Distingue la variante de la metrica (p.ej. DuracionModificada, no Macaulay).
+        wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(VarTarget(variable)) & "'" & vbLf
     End If
     sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, CAST(VALOR AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
@@ -325,7 +341,7 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
           wVar & "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "QUALIFY ROW_NUMBER() OVER (PARTITION BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION" & _
-          " ORDER BY PK_FECHA_DATOS DESC) = 1" & vbLf & "ORDER BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION"
+          " ORDER BY PK_FECHA_DATOS DESC, VALOR DESC) = 1" & vbLf & "ORDER BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION"
     SQLRiesgo = sql
 End Function
 
