@@ -46,6 +46,9 @@ Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
 ' Nombres de entidad que no se pudieron traducir a id (para avisar al usuario).
 Private mAvisoEnt As String
+' Si esta a True, la SQL de rendimiento se genera SIN columnas de benchmark
+' (se activa como reintento cuando el driver dice que la columna _BMK no existe).
+Private mForzarSinBmk As Boolean
 
 Private Function Panel() As Worksheet
     Set Panel = ThisWorkbook.Sheets("Panel")
@@ -337,7 +340,7 @@ Public Function ConstruirSQL() As String
     met = Trim(CStr(ws.Range("B8").Value))
     per = Trim(CStr(ws.Range("B11").Value))
     ents = ListaEntidades(ws)
-    conBmk = (ws.Range("B12").Value = "Con benchmark")
+    conBmk = (ws.Range("B12").Value = "Con benchmark") And Not mForzarSinBmk
 
     ' Si se han elegido entidades pero NINGUNA tiene id en 'cartera', no lanzamos
     ' una query sin filtro (traeria toda la tabla). Avisamos que revisen los nombres.
@@ -491,20 +494,50 @@ Public Sub Actualizar()
 End Sub
 
 ' Lanza la consulta, vuelca el resultado crudo desde la columna W y dibuja.
+' Si la primera consulta falla porque el driver no reconoce una columna de
+' benchmark (p.ej. TWR_1Y_BMK no existe), reintenta SIN benchmark para que al
+' menos lleguen los datos de la cartera.
 Public Sub RefrescarDatos()
-    Dim cn As Object, rs As Object, ws As Worksheet, sql As String, j As Long
-    sql = ConstruirSQL()
-    If Left(sql, 2) = "--" Then
-        MsgBox "Metrica/periodo no mapeada:" & vbLf & vbLf & sql, vbExclamation, "Fase 2": Exit Sub
-    End If
-    On Error GoTo fallo
+    Dim ws As Worksheet, sql As String, msg As String, intento As Long
     Set ws = Panel()
+    mForzarSinBmk = False
+    For intento = 1 To 2
+        sql = ConstruirSQL()
+        If Left(sql, 2) = "--" Then
+            MsgBox "Metrica/periodo no mapeada:" & vbLf & vbLf & sql, vbExclamation, "Fase 2": Exit Sub
+        End If
+        If EjecutarYVolcar(ws, sql, msg) Then
+            DibujarGrafico
+            If mForzarSinBmk Then
+                MsgBox "La columna de benchmark de ese periodo no existe en la tabla, " & _
+                       "asi que se ha traido SOLO la serie de la cartera (sin benchmark)." & vbLf & vbLf & _
+                       "Ejecuta la macro 'VerColumnas' (Alt+F8) para ver los nombres reales " & _
+                       "de las columnas de benchmark y ajustarlos.", vbInformation, "Benchmark no disponible"
+            End If
+            Exit Sub
+        End If
+        ' Reintento: si habia benchmark y el error es de columna no reconocida, quitamos benchmark.
+        If intento = 1 And (ws.Range("B12").Value = "Con benchmark") And Not mForzarSinBmk _
+           And InStr(msg, "Unrecognized name") > 0 Then
+            mForzarSinBmk = True
+        Else
+            MsgBox "No se pudo conectar/consultar BigQuery:" & vbLf & msg & _
+                   vbLf & vbLf & "SQL:" & vbLf & sql, vbExclamation, "Fase 2"
+            Exit Sub
+        End If
+    Next intento
+End Sub
+
+' Ejecuta la SQL, vuelca el crudo desde la columna W y pivota a D:H.
+' Devuelve True si fue bien; si no, deja el mensaje de error en msg.
+Private Function EjecutarYVolcar(ByVal ws As Worksheet, ByVal sql As String, ByRef msg As String) As Boolean
+    Dim cn As Object, rs As Object, j As Long
+    On Error GoTo fallo
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 120
     cn.CursorLocation = 3          ' adUseClient: compatible con drivers ODBC de solo lectura (BigQuery)
     cn.Open BQ_CONN
-    ' Execute devuelve un recordset de solo avance que el driver si admite.
-    Set rs = cn.Execute(sql)
+    Set rs = cn.Execute(sql)       ' recordset de solo avance (el driver si lo admite)
 
     Application.EnableEvents = False
     ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).ClearContents   ' columna W en adelante
@@ -515,13 +548,43 @@ Public Sub RefrescarDatos()
     rs.Close: cn.Close
     VolcarResultado ws
     Application.EnableEvents = True
+    EjecutarYVolcar = True
+    Exit Function
+fallo:
+    msg = Err.Description
+    Application.EnableEvents = True
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+    On Error GoTo 0
+    EjecutarYVolcar = False
+End Function
 
-    DibujarGrafico
+' Diagnostico: lista los nombres de columna de la tabla de rendimiento en una
+' hoja visible '_Columnas', para ver como se llaman de verdad las de benchmark.
+Public Sub VerColumnas()
+    Dim cn As Object, rs As Object, j As Long, nf As Long, wc As Worksheet
+    On Error GoTo fallo
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 60
+    cn.CursorLocation = 3
+    cn.Open BQ_CONN
+    Set rs = cn.Execute("SELECT * FROM " & Tbl(DS_PROD, T_PERF) & " LIMIT 1")
+    nf = rs.Fields.Count
+    Set wc = HojaAux("_Columnas")
+    wc.Visible = xlSheetVisible
+    wc.Cells.ClearContents
+    wc.Range("A1").Value = "Columnas de " & T_PERF & " (" & nf & ")"
+    For j = 0 To nf - 1
+        wc.Cells(j + 2, 1).Value = rs.Fields(j).Name
+    Next j
+    rs.Close: cn.Close
+    wc.Activate
+    MsgBox nf & " columnas volcadas en la hoja '_Columnas'." & vbLf & _
+           "Copia/pega aqui las que contengan BMK, BENCH o DIFEREN.", vbInformation, "Columnas"
     Exit Sub
 fallo:
-    Application.EnableEvents = True
-    MsgBox "No se pudo conectar/consultar BigQuery:" & vbLf & Err.Description & _
-           vbLf & vbLf & "SQL:" & vbLf & sql, vbExclamation, "Fase 2"
+    MsgBox "Error listando columnas:" & vbLf & Err.Description, vbExclamation, "VerColumnas"
     On Error Resume Next
     If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
