@@ -41,6 +41,8 @@ Private Const T_VALORES As String = "CAM_TM_MSTR_VALORES_PD"
 Private Const POS_VALOR As String = "VALUATION_PC"
 Private Const SECTOR_COL As String = "CLASSIFICATION_GICS"
 Private Const RATING_COL As String = "COMPOSITERATINGSPCOMPOSITE"
+Private Const GEO_COL As String = "FCCOUNTRYZONE"       ' zona geografica (todos los activos)
+Private Const DIV_COL As String = "CURRENCY"            ' divisa (codigo ISO)
 Private Const TER_COL As String = "KEYFIGURESTER"
 Private Const T_FONDOS As String = "CAM_TM_MSTR_FONDOS_PD"
 Private Const TER_FONDO_EXPR As String = "f.COMISION_DE_GESTION_DIRECTA + f.COMISION_DEPOSITARIA_DIRECTA"
@@ -432,9 +434,11 @@ End Function
 
 Private Function DimAClasificacion(ByVal dimen As String) As String
     Select Case dimen
-        Case "Sector": DimAClasificacion = "v." & SECTOR_COL
-        Case "Rating": DimAClasificacion = "v." & RATING_COL
-        Case Else:     DimAClasificacion = ""
+        Case "Sector":    DimAClasificacion = "v." & Cfg("SECTOR_COL", SECTOR_COL)
+        Case "Rating":    DimAClasificacion = "v." & Cfg("RATING_COL", RATING_COL)
+        Case "Geografia": DimAClasificacion = "v." & Cfg("GEO_COL", GEO_COL)
+        Case "Divisa":    DimAClasificacion = "v." & Cfg("DIV_COL", DIV_COL)
+        Case Else:        DimAClasificacion = ""
     End Select
 End Function
 

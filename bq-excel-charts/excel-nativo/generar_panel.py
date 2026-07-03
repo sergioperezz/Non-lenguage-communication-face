@@ -77,7 +77,7 @@ _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temp
 DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
     "Riesgo":      _DIM_T + ["Activo", "Geografia", "Divisa"],
-    "Composicion": ["Sector", "Rating"],
+    "Composicion": ["Sector", "Geografia", "Divisa", "Rating"],
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,
@@ -382,6 +382,10 @@ def build_config(wb):
         ("PK_PORTFOLIO", "Total", "Nivel de agregación en riesgo (Total, no componentes)"),
         ("PK_LTLEVEL", "2", "Nivel look-through en riesgo (2 = con transparencia; vacío = sin filtro)"),
         ("RET_ESC", "1.0", "Escala de los TWR al componer (1.0 = fracción, 100.0 = porcentaje)"),
+        ("SECTOR_COL", "CLASSIFICATION_GICS", "Composición por Sector (maestro de valores)"),
+        ("GEO_COL", "FCCOUNTRYZONE", "Composición por Geografía (zona, todos los activos)"),
+        ("DIV_COL", "CURRENCY", "Composición por Divisa (código ISO)"),
+        ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD
