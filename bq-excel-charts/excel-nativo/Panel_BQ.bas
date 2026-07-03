@@ -37,6 +37,10 @@ Private Const RATING_COL As String = "COMPOSITERATINGSPCOMPOSITE"
 Private Const TER_COL As String = "KEYFIGURESTER"
 Private Const T_FONDOS As String = "CAM_TM_MSTR_FONDOS_PD"
 Private Const TER_FONDO_EXPR As String = "f.COMISION_DE_GESTION_DIRECTA + f.COMISION_DEPOSITARIA_DIRECTA"
+' Maestro de entidades (hoja "activos" que anadiras): nombre -> id.
+Private Const ACTIVOS_SHEET As String = "activos"
+Private Const ACTIVOS_COL_NOMBRE As String = "nombre_elemento"
+Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_PORTFOLIO_ID (cambiar si es otra)
 ' ===========================================================================
 
 Private Function Panel() As Worksheet
@@ -64,19 +68,39 @@ Private Function Tbl(ByVal ds As String, ByVal t As String) As String
     Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
 End Function
 
-' ---- Traduccion nombre de entidad -> PK_PORTFOLIO_ID (rango MapaEntidades) ----
+' Localiza una columna por el texto de su cabecera (fila 1).
+Private Function ColPorCabecera(ws As Worksheet, ByVal cab As String) As Long
+    Dim c As Long
+    For c = 1 To 50
+        If LCase(Trim(CStr(ws.Cells(1, c).Value))) = LCase(cab) Then ColPorCabecera = c: Exit Function
+    Next c
+End Function
+
+' ---- Traduccion nombre de entidad -> id ----
+' 1) Maestro real: hoja "activos" (nombre_elemento -> id_elemento).
+' 2) Si no esta, cae al rango MapaEntidades (mock de ejemplo).
 Private Function IdEntidad(ByVal nombre As String) As String
+    Dim wa As Worksheet, m As Variant, colN As Long, colI As Long
     Dim rng As Range, c As Range
+    On Error Resume Next
+    Set wa = ThisWorkbook.Sheets(ACTIVOS_SHEET)
+    On Error GoTo 0
+    If Not wa Is Nothing Then
+        colN = ColPorCabecera(wa, ACTIVOS_COL_NOMBRE)
+        colI = ColPorCabecera(wa, ACTIVOS_COL_ID)
+        If colN > 0 And colI > 0 Then
+            m = Application.Match(nombre, wa.Columns(colN), 0)
+            If Not IsError(m) Then IdEntidad = Trim(CStr(wa.Cells(CLng(m), colI).Value)): Exit Function
+        End If
+    End If
     On Error Resume Next
     Set rng = ThisWorkbook.Names("MapaEntidades").RefersToRange
     On Error GoTo 0
-    If rng Is Nothing Then Exit Function
-    For Each c In rng.Columns(1).Cells
-        If Trim(CStr(c.Value)) = nombre Then
-            IdEntidad = Trim(CStr(c.Offset(0, 1).Value))
-            Exit Function
-        End If
-    Next c
+    If Not rng Is Nothing Then
+        For Each c In rng.Columns(1).Cells
+            If Trim(CStr(c.Value)) = nombre Then IdEntidad = Trim(CStr(c.Offset(0, 1).Value)): Exit Function
+        Next c
+    End If
 End Function
 
 Private Function ListaEntidades(ws As Worksheet) As String
