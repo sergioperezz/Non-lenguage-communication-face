@@ -79,6 +79,21 @@ Private Function NumVal(ByVal v As Variant) As Variant
     If s = "" Then NumVal = "" Else NumVal = Val(Replace(s, ",", "."))
 End Function
 
+' Formato de numero segun la metrica del panel (B8). Los rendimientos vienen en
+' FRACCION (0.003 = 0.3%) -> se muestran como %; la duracion es un numero; el
+' resto, numero con 2 decimales. La macro lo aplica sola al volcar/dibujar, asi
+' no hay que formatear celdas a mano (y no se rompe al cambiar de metrica).
+Private Function FormatoMetrica(ByVal met As String) As String
+    Dim m As String: m = Fold(met)
+    If InStr(m, "rentab") = 1 Then
+        FormatoMetrica = "0.00%"
+    ElseIf InStr(m, "duraci") = 1 Then
+        FormatoMetrica = "0.000"
+    Else
+        FormatoMetrica = "0.00"
+    End If
+End Function
+
 ' Normaliza a minusculas SIN acentos (usa codigos de caracter, asi el propio
 ' codigo no lleva tildes y no depende de la codificacion al importar el .bas).
 Private Function Fold(ByVal s As String) As String
@@ -861,6 +876,7 @@ Public Sub VistaPreviaDummy()
     End If
     Application.EnableEvents = False
     ws.Range("D3:H402").ClearContents
+    ws.Range("E3:H402").NumberFormat = "0.00"    ' los datos dummy no vienen en fraccion
     wp.Range("D3:H402").Copy
     ws.Range("D3").PasteSpecial Paste:=xlPasteFormulas
     Application.CutCopyMode = False
@@ -965,6 +981,9 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             End If
         Next r
     End If
+
+    ' Formato adecuado a la metrica (% para rendimientos, numero para el resto).
+    ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
 End Sub
 
 ' Compara dos ids de portfolio de forma robusta (sin mayus/espacios). Devuelve
@@ -1088,6 +1107,7 @@ Public Sub DibujarGrafico()
     If tipo <> "circular" And tipo <> "anillo" And tipo <> "radar" Then
         ch.Axes(xlValue).HasTitle = True
         ch.Axes(xlValue).AxisTitle.Text = ws.Range("B8").Value
+        ch.Axes(xlValue).TickLabels.NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
         ch.Axes(xlCategory).HasTitle = True
         ch.Axes(xlCategory).AxisTitle.Text = ws.Range("B9").Value
     End If
