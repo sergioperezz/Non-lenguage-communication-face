@@ -82,8 +82,62 @@ Private Function Fold(ByVal s As String) As String
     Fold = s
 End Function
 
+' ====================  LECTOR DE LA HOJA "config"  =========================
+' Lee el valor de una clave en la hoja "config" (columna A = clave, B = valor).
+' Si la hoja o la clave no existen (o el valor esta vacio), devuelve el valor por
+' defecto (las constantes de arriba). Asi el libro funciona con o sin la hoja.
+Private Function Cfg(ByVal clave As String, ByVal defecto As String) As String
+    Dim ws As Worksheet, r As Long, lastR As Long, v As String
+    Cfg = defecto
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("config")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+    lastR = ws.Cells(ws.Rows.Count, 1).End(xlUp).Row
+    For r = 1 To lastR
+        If Fold(ws.Cells(r, 1).Value) = Fold(clave) Then
+            v = Trim(CStr(ws.Cells(r, 2).Value))
+            If Len(v) > 0 Then Cfg = v
+            Exit Function
+        End If
+    Next r
+End Function
+
+Private Function CfgProject() As String
+    CfgProject = Cfg("PROJECT", BQ_PROJECT)
+End Function
+Private Function CfgConn() As String
+    CfgConn = "DSN=" & Cfg("DSN", BQ_DSN) & ";"
+End Function
+Private Function CfgNav() As String
+    CfgNav = Cfg("PK_NAV_GNAV", F_NAV_GNAV)
+End Function
+Private Function CfgBmk() As String
+    CfgBmk = Cfg("BENCHMARK", F_BENCHMARK)
+End Function
+Private Function CfgFondo() As String
+    CfgFondo = Cfg("PK_TIPOGAMAN1", "FONDO")
+End Function
+Private Function CfgPortfolio() As String
+    CfgPortfolio = Cfg("PK_PORTFOLIO", RISK_PORTFOLIO)
+End Function
+Private Function CfgLtLevel() As String
+    CfgLtLevel = Cfg("PK_LTLEVEL", "2")
+End Function
+Private Function CfgRetEsc() As String
+    CfgRetEsc = Cfg("RET_ESC", RET_ESC)
+End Function
+Private Function CfgDataset(ByVal ds As String) As String
+    Select Case ds
+        Case DS_PROD: CfgDataset = Cfg("DATASET_PROD", DS_PROD)
+        Case DS_OPER: CfgDataset = Cfg("DATASET_OPER", DS_OPER)
+        Case DS_MERC: CfgDataset = Cfg("DATASET_MERC", DS_MERC)
+        Case Else:    CfgDataset = ds
+    End Select
+End Function
+
 Private Function Tbl(ByVal ds As String, ByVal t As String) As String
-    Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
+    Tbl = "`" & CfgProject() & "." & CfgDataset(ds) & "." & t & "`"
 End Function
 
 ' Normaliza un nombre para comparar (evita fallos tipicos del copy-paste):
@@ -292,18 +346,19 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
     intv = IntervaloSuf(SufijoPeriodo(Trim(CStr(ws.Range("B11").Value))))
     If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
     If Len(varTarget) > 0 Then wVarT = " AND PK_VARIABLE_TARGET = '" & Esc(varTarget) & "'"
-    wVarT = wVarT & " AND PK_PORTFOLIO = '" & Esc(RISK_PORTFOLIO) & "'"   ' nivel total (no componentes)
+    wVarT = wVarT & " AND PK_PORTFOLIO = '" & Esc(CfgPortfolio()) & "'"   ' nivel total (no componentes)
+    If Len(CfgLtLevel()) > 0 Then wVarT = wVarT & " AND PK_LTLEVEL = " & CfgLtLevel()   ' nivel look-through
     sql = "WITH ult AS (" & vbLf & _
           "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
           "  FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
-          "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = 'FONDO'" & wVarT
+          "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & wVarT
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
           "SELECT p.PK_PORTFOLIO_ID, " & bucket & " AS categoria, CAST(p.VALOR AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
-          "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = 'FONDO'" & _
-          Replace(Replace(wVarT, "PK_VARIABLE_TARGET", "p.PK_VARIABLE_TARGET"), "PK_PORTFOLIO =", "p.PK_PORTFOLIO =") & vbLf & _
+          "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & _
+          Replace(Replace(Replace(wVarT, "PK_VARIABLE_TARGET", "p.PK_VARIABLE_TARGET"), "PK_PORTFOLIO =", "p.PK_PORTFOLIO ="), "PK_LTLEVEL", "p.PK_LTLEVEL") & vbLf & _
           "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
           "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
           "QUALIFY ROW_NUMBER() OVER (PARTITION BY p.PK_PORTFOLIO_ID, " & bucket & _
@@ -342,8 +397,9 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
     sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, CAST(VALOR AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
           "WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
-          wVar & "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'" & vbLf & _
-          "  AND PK_PORTFOLIO = '" & Esc(RISK_PORTFOLIO) & "'"
+          wVar & "  AND " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & vbLf & _
+          "  AND PK_PORTFOLIO = '" & Esc(CfgPortfolio()) & "'"
+    If Len(CfgLtLevel()) > 0 Then sql = sql & vbLf & "  AND PK_LTLEVEL = " & CfgLtLevel()
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "QUALIFY ROW_NUMBER() OVER (PARTITION BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION" & _
           " ORDER BY PK_FECHA_DATOS DESC, VALOR DESC) = 1" & vbLf & "ORDER BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION"
@@ -472,20 +528,20 @@ Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByV
     End If
     If conBmk Then
         colB = "," & vbLf & _
-               "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & RET_ESC & ")))) - 1) * " & RET_ESC & " AS valor_bmk"
+               "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & " AS valor_bmk"
         whereBmk = vbLf & "  AND p.TWR_1D_BMK IS NOT NULL"
     End If
     sql = "WITH ult AS (" & vbLf & _
           "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
           "  FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
-          "  WHERE PK_NAV_GNAV = '" & F_NAV_GNAV & "' AND BENCHMARK = '" & F_BENCHMARK & "'"
+          "  WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'"
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
           "SELECT p.PK_PORTFOLIO_ID," & vbLf & selCat & _
-          "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & RET_ESC & ")))) - 1) * " & RET_ESC & " AS valor" & colB & vbLf & _
+          "       (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & " AS valor" & colB & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
-          "WHERE p.PK_NAV_GNAV = '" & F_NAV_GNAV & "' AND p.BENCHMARK = '" & F_BENCHMARK & "'" & vbLf & _
+          "WHERE p.PK_NAV_GNAV = '" & CfgNav() & "' AND p.BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
           "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
           "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
           "  AND p.TWR_1D IS NOT NULL" & whereBmk & vbLf & _
@@ -539,8 +595,8 @@ Public Function ConstruirSQL() As String
     If conBmk And Len(colDif) > 0 Then cols = cols & ", CAST(" & colDif & " AS FLOAT64) AS diferencial"
     sql = "SELECT " & cols & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
-          "WHERE PK_NAV_GNAV = '" & F_NAV_GNAV & "'" & vbLf & _
-          "  AND BENCHMARK = '" & F_BENCHMARK & "'"
+          "WHERE PK_NAV_GNAV = '" & CfgNav() & "'" & vbLf & _
+          "  AND BENCHMARK = '" & CfgBmk() & "'"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "QUALIFY ROW_NUMBER() OVER (PARTITION BY PK_PORTFOLIO_ID ORDER BY PK_FECHA_DATOS DESC) = 1" & _
           vbLf & "ORDER BY PK_PORTFOLIO_ID"
@@ -711,7 +767,7 @@ Private Function EjecutarYVolcar(ByVal ws As Worksheet, ByVal sql As String, ByR
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 120
     cn.CursorLocation = 3          ' adUseClient: compatible con drivers ODBC de solo lectura (BigQuery)
-    cn.Open BQ_CONN
+    cn.Open CfgConn()
     Set rs = cn.Execute(sql)       ' recordset de solo avance (el driver si lo admite)
 
     Application.EnableEvents = False
@@ -743,7 +799,7 @@ Public Sub VerColumnas()
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 60
     cn.CursorLocation = 3
-    cn.Open BQ_CONN
+    cn.Open CfgConn()
     Set rs = cn.Execute("SELECT * FROM " & Tbl(DS_PROD, T_PERF) & " LIMIT 1")
     nf = rs.Fields.Count
     Set wc = HojaAux("_Columnas")

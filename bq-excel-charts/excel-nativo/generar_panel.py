@@ -341,7 +341,39 @@ def build() -> Workbook:
     build_sectorial(wb)
     build_comparativa(wb)
     build_activos(wb)
+    build_config(wb)
     return wb
+
+
+def build_config(wb):
+    """Hoja 'config': parámetros de las consultas a BigQuery (clave | valor). La
+    macro los lee de aquí; si falta la hoja o una clave, usa sus valores por
+    defecto (las constantes del módulo). Normalmente no hay que tocar nada."""
+    ws = wb.create_sheet("config")
+    ws["A1"], ws["B1"], ws["C1"] = "clave", "valor", "descripción"
+    for c in ("A1", "B1", "C1"):
+        ws[c].font = BOLD_WHITE
+        ws[c].fill = PatternFill("solid", fgColor=AZUL)
+    filas = [
+        ("DSN", "Conexion_BQ", "Nombre del DSN ODBC de BigQuery"),
+        ("PROJECT", "go-cam-beg-camd9-camcd9p01-pro", "Proyecto de BigQuery"),
+        ("DATASET_PROD", "productosdatosdecontratos_ds01", "Dataset performance/riesgo/posiciones/fondos"),
+        ("DATASET_OPER", "operativafinanciera_ds01", "Dataset benchmark/índices/look-through"),
+        ("DATASET_MERC", "informaciondemercado_ds01", "Dataset maestro de valores"),
+        ("PK_NAV_GNAV", "GNAV", "Filtro NAV/GNAV en performance"),
+        ("BENCHMARK", "Benchmark 1", "Tipo de reporte (columna BENCHMARK) en performance"),
+        ("PK_TIPOGAMAN1", "FONDO", "Fondo vs Benchmark en la tabla de riesgo"),
+        ("PK_PORTFOLIO", "Total", "Nivel de agregación en riesgo (Total, no componentes)"),
+        ("PK_LTLEVEL", "2", "Nivel look-through en riesgo (2 = con transparencia; vacío = sin filtro)"),
+        ("RET_ESC", "1.0", "Escala de los TWR al componer (1.0 = fracción, 100.0 = porcentaje)"),
+    ]
+    for i, (k, v, d) in enumerate(filas, start=2):
+        ws.cell(i, 1, k).font = BOLD
+        ws.cell(i, 2, v)
+        ws.cell(i, 3, d).font = Font(italic=True, size=9, color="808080")
+    for col, w in {"A": 16, "B": 34, "C": 54}.items():
+        ws.column_dimensions[col].width = w
+    return ws
 
 
 # IDs de ejemplo (mismos que usa MapaEntidades). En producción, la hoja "activos"
