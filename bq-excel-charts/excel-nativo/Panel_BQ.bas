@@ -1,25 +1,25 @@
 Attribute VB_Name = "PanelBQ"
 ' ============================================================================
-'  Panel de gráficos + Fase 2 (BigQuery) — MÓDULO ÚNICO IMPORTABLE (.bas)
+'  Panel de graficos + Fase 2 (BigQuery) - MODULO UNICO IMPORTABLE (.bas)
 '
-'  INSTALACIÓN (una vez):
+'  INSTALACION (una vez):
 '   1) Abre el .xlsx y guarda como .xlsm (Libro habilitado para macros).
 '   2) Alt+F11 -> File -> Import File... -> elige "Panel_BQ.bas".
 '   3) Revisa el bloque CONFIG (DSN, proyecto, datasets).
-'   4) En la hoja Panel: Insertar -> Formas -> un rectángulo -> clic derecho ->
-'      Asignar macro -> "Actualizar"  (el botón que lo hace TODO en Fase 2).
-'      Otro botón opcional -> "DibujarGrafico" (redibuja con los datos actuales).
-'      En la hoja Tablas: un botón -> "FormatearTablas".
+'   4) En la hoja Panel: Insertar -> Formas -> un rectangulo -> clic derecho ->
+'      Asignar macro -> "Actualizar"  (el boton que lo hace TODO en Fase 2).
+'      Otro boton opcional -> "DibujarGrafico" (redibuja con los datos actuales).
+'      En la hoja Tablas: un boton -> "FormatearTablas".
 '
-'  Todo va en este único módulo: no hay que pegar nada en las hojas.
-'  El comportamiento es por BOTÓN (no automático al cambiar un desplegable).
+'  Todo va en este unico modulo: no hay que pegar nada en las hojas.
+'  El comportamiento es por BOTON (no automatico al cambiar un desplegable).
 ' ============================================================================
 
 Option Explicit
 
 ' ====================  CONFIG (entorno BigQuery)  ===========================
-Private Const BQ_DSN As String = "Conexión_BQ"
-Private Const BQ_CONN As String = "DSN=Conexión_BQ;"
+Private Const BQ_DSN As String = "Conexion_BQ"
+Private Const BQ_CONN As String = "DSN=Conexion_BQ;"
 Private Const BQ_PROJECT As String = "go-cam-beg-camd9-camcd9p01-pro"
 Private Const DS_PROD As String = "productosdatosdecontratos_ds01"
 Private Const DS_OPER As String = "operativafinanciera_ds01"
@@ -47,8 +47,8 @@ Private Function Esc(ByVal s As String) As String
     Esc = Replace(CStr(s), "'", "''")
 End Function
 
-' Normaliza a minúsculas SIN acentos (usa códigos de carácter, así el propio
-' código no lleva tildes y no depende de la codificación al importar el .bas).
+' Normaliza a minusculas SIN acentos (usa codigos de caracter, asi el propio
+' codigo no lleva tildes y no depende de la codificacion al importar el .bas).
 Private Function Fold(ByVal s As String) As String
     s = LCase(Trim(CStr(s)))
     s = Replace(s, ChrW(225), "a")   ' a con tilde
@@ -64,7 +64,7 @@ Private Function Tbl(ByVal ds As String, ByVal t As String) As String
     Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
 End Function
 
-' ---- Traducción nombre de entidad -> PK_PORTFOLIO_ID (rango MapaEntidades) ----
+' ---- Traduccion nombre de entidad -> PK_PORTFOLIO_ID (rango MapaEntidades) ----
 Private Function IdEntidad(ByVal nombre As String) As String
     Dim rng As Range, c As Range
     On Error Resume Next
@@ -138,7 +138,7 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
         dimen = Trim(CStr(ws.Range("B9").Value))
         crit = DimACriterio(dimen)
         If Len(crit) = 0 Then
-            SQLRiesgo = "-- Dimensión '" & dimen & "' no existe como desglose en CAM_TX_RISK_FIG_AGG_PD." & vbLf & _
+            SQLRiesgo = "-- Dimension '" & dimen & "' no existe como desglose en CAM_TX_RISK_FIG_AGG_PD." & vbLf & _
                         "-- Criterios: AssetType (Activo), Geo (Geografia), FX (Divisa), Duracion (total)."
             Exit Function
         End If
@@ -172,7 +172,7 @@ Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
     dimen = Trim(CStr(ws.Range("B9").Value))
     grp = DimAClasificacion(dimen)
     If Len(grp) = 0 Then
-        SQLComposicion = "-- Composición por '" & dimen & "': disponible por Sector y Rating."
+        SQLComposicion = "-- Composicion por '" & dimen & "': disponible por Sector y Rating."
         Exit Function
     End If
     sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, SUM(p." & POS_VALOR & ") AS valor" & vbLf & _
@@ -221,7 +221,7 @@ Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     SQLTerFondo = sql
 End Function
 
-' ---- Construye la SQL según la métrica del Panel (B8) ----
+' ---- Construye la SQL segun la metrica del Panel (B8) ----
 Public Function ConstruirSQL() As String
     Dim ws As Worksheet, met As String, per As String, ents As String
     Dim colVal As String, colBmk As String, colDif As String, cols As String, sql As String, conBmk As Boolean
@@ -239,7 +239,7 @@ Public Function ConstruirSQL() As String
     If met = "TER Look-through" Then ConstruirSQL = SQLTerLookthrough(ws, ents): Exit Function
 
     If Not MapMetrica(met, per, colVal, colBmk, colDif) Then
-        ConstruirSQL = "-- Métrica '" & met & "' / periodo '" & per & "': no mapeada." & vbLf & _
+        ConstruirSQL = "-- Metrica '" & met & "' / periodo '" & per & "': no mapeada." & vbLf & _
                        "-- PER / DividendYield / Liquidez: sin fuente en el diccionario."
         Exit Function
     End If
@@ -271,7 +271,7 @@ End Sub
 
 Public Sub VerSQL()
     ActualizarSQL
-    MsgBox ConstruirSQL(), vbInformation, "SQL para los parámetros actuales"
+    MsgBox ConstruirSQL(), vbInformation, "SQL para los parametros actuales"
 End Sub
 
 Public Sub VerM()
@@ -285,10 +285,10 @@ Public Sub InstalarBotones()
     Dim ws As Worksheet
     Set ws = Panel()
     BorrarBotones ws
-    CrearBoton ws, "A22", "► Actualizar (BigQuery)", "Actualizar"
+    CrearBoton ws, "A22", "> Actualizar (BigQuery)", "Actualizar"
     CrearBoton ws, "A24", "Dibujar (ejemplo)", "DibujarGrafico"
     CrearBoton ws, "A26", "Ver SQL", "VerSQL"
-    CrearBoton ws, "A28", "► A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A28", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -297,7 +297,7 @@ Public Sub InstalarBotones()
         BorrarBotones wt
         CrearBoton wt, "D3", "Formatear tabla", "FormatearTablas"
     End If
-    MsgBox "Botones creados en 'Panel' y 'Tablas'.", vbInformation, "Instalación"
+    MsgBox "Botones creados en 'Panel' y 'Tablas'.", vbInformation, "Instalacion"
 End Sub
 
 Private Sub BorrarBotones(ws As Worksheet)
@@ -316,7 +316,7 @@ Private Sub CrearBoton(ws As Worksheet, ByVal ancla As String, ByVal cap As Stri
     b.Name = "btn_" & macro
 End Sub
 
-' =======================  BOTÓN ÚNICO: HACE TODO  ==========================
+' =======================  BOTON UNICO: HACE TODO  ==========================
 Public Sub Actualizar()
     ActualizarSQL          ' 1) SQL en A41
     RefrescarDatos         ' 2) lanzar + volcar en W + pivotar + dibujar
@@ -327,7 +327,7 @@ Public Sub RefrescarDatos()
     Dim cn As Object, rs As Object, ws As Worksheet, sql As String, j As Long
     sql = ConstruirSQL()
     If Left(sql, 2) = "--" Then
-        MsgBox "Métrica/periodo no mapeada:" & vbLf & vbLf & sql, vbExclamation, "Fase 2": Exit Sub
+        MsgBox "Metrica/periodo no mapeada:" & vbLf & vbLf & sql, vbExclamation, "Fase 2": Exit Sub
     End If
     On Error GoTo fallo
     Set ws = Panel()
@@ -358,7 +358,7 @@ fallo:
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
 End Sub
 
-' Pivota el resultado crudo (desde W) a la tabla del gráfico D:H.
+' Pivota el resultado crudo (desde W) a la tabla del grafico D:H.
 Private Sub VolcarResultado(ByVal ws As Worksheet)
     Dim c As Long, hdr As String
     Dim colPort As Long, colCat As Long, colVal As Long, colBmk As Long
@@ -416,7 +416,7 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             End If
         Next r
     Else
-        ws.Cells(3, 4).Value = Trim(CStr(ws.Range("B8").Value)) & " · " & Trim(CStr(ws.Range("B11").Value))
+        ws.Cells(3, 4).Value = Trim(CStr(ws.Range("B8").Value)) & " - " & Trim(CStr(ws.Range("B11").Value))
         For r = 2 To lastData
             pid = Trim(CStr(ws.Cells(r, colPort).Value))
             If pid = id1 Then
@@ -429,7 +429,7 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
     End If
 End Sub
 
-' =======================  DIBUJO DEL GRÁFICO  ==============================
+' =======================  DIBUJO DEL GRAFICO  ==============================
 Private Sub AjustarSeleccion(ws As Worksheet, ByVal celda As String, ByVal nombreLista As String)
     Dim rng As Range, c As Range, valido As Boolean
     On Error Resume Next
@@ -453,7 +453,7 @@ Private Sub AddEnt(ws As Worksheet, ByVal ch As Chart, ByVal slotCell As String,
     s.XValues = "=Panel!$D$3:$D$" & lastRow
 End Sub
 
-' Redibuja el gráfico del Panel con la tabla D:H actual (mock o datos reales).
+' Redibuja el grafico del Panel con la tabla D:H actual (mock o datos reales).
 Public Sub DibujarGrafico()
     Dim ws As Worksheet, ch As Chart, s As Series, conBench As Boolean, tipo As String
     Dim lastRow As Long, benchIdx As Long
@@ -586,7 +586,7 @@ Public Sub CopiarAPowerPoint()
     On Error Resume Next
     Set ch = ThisWorkbook.Sheets("Panel").ChartObjects(1)
     On Error GoTo 0
-    If ch Is Nothing Then MsgBox "No encuentro el gráfico en 'Panel'.", vbExclamation: Exit Sub
+    If ch Is Nothing Then MsgBox "No encuentro el grafico en 'Panel'.", vbExclamation: Exit Sub
 
     ch.Chart.CopyPicture Appearance:=xlScreen, Format:=xlPicture
 
