@@ -207,7 +207,7 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
             wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf
         End If
     End If
-    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, VALOR AS valor" & vbLf & _
+    sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, CAST(VALOR AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
           "WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
           wVar & "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
@@ -238,7 +238,7 @@ Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
         SQLComposicion = "-- Composicion por '" & dimen & "': disponible por Sector y Rating."
         Exit Function
     End If
-    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, SUM(p." & POS_VALOR & ") AS valor" & vbLf & _
+    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, CAST(SUM(p." & POS_VALOR & ") AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
@@ -254,7 +254,7 @@ Private Function SQLSpread(ws As Worksheet, ByVal ents As String) As String
         selCat = ", " & grp & " AS categoria": grpBy = ", " & grp: joinV = JoinValores
     End If
     sql = "SELECT p.PK_PORTFOLIO_ID" & selCat & "," & vbLf & _
-          "       SUM(p.SPREAD * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS valor" & vbLf & _
+          "       CAST(SUM(p.SPREAD * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & joinV & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
@@ -265,7 +265,7 @@ End Function
 Private Function SQLTerLookthrough(ws As Worksheet, ByVal ents As String) As String
     Dim sql As String
     sql = "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
-          "       SUM(v." & TER_COL & " * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS valor" & vbLf & _
+          "       CAST(SUM(v." & TER_COL & " * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
@@ -275,7 +275,7 @@ End Function
 
 Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     Dim sql As String
-    sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, " & TER_FONDO_EXPR & " AS valor" & vbLf & _
+    sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, CAST(" & TER_FONDO_EXPR & " AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & _
           "JOIN " & Tbl(DS_PROD, T_FONDOS) & " f ON f.PK_PRODUCTO_DATANOW = p.FK_PRODUCTO_DATANOW" & vbLf & _
           "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
@@ -307,9 +307,9 @@ Public Function ConstruirSQL() As String
         Exit Function
     End If
 
-    cols = "PK_PORTFOLIO_ID, " & colVal & " AS valor"
-    If conBmk And Len(colBmk) > 0 Then cols = cols & ", " & colBmk & " AS valor_bmk"
-    If conBmk And Len(colDif) > 0 Then cols = cols & ", " & colDif & " AS diferencial"
+    cols = "PK_PORTFOLIO_ID, CAST(" & colVal & " AS FLOAT64) AS valor"
+    If conBmk And Len(colBmk) > 0 Then cols = cols & ", CAST(" & colBmk & " AS FLOAT64) AS valor_bmk"
+    If conBmk And Len(colDif) > 0 Then cols = cols & ", CAST(" & colDif & " AS FLOAT64) AS diferencial"
     sql = "SELECT " & cols & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
           "WHERE PK_NAV_GNAV = '" & F_NAV_GNAV & "'" & vbLf & _
