@@ -33,6 +33,9 @@ Private Const RET_ESC As String = "1.0"
 Private Const T_PERF As String = "CAM_TX_PERFORMANCE_FIGURES_PD"
 Private Const T_RISK As String = "CAM_TX_RISK_FIG_AGG_PD"
 Private Const RISK_COL_FONDOBMK As String = "PK_TIPOGAMAN1"
+' Nivel de agregacion a nivel total de la cartera (columna PK_PORTFOLIO). Las
+' sub-carteras/componentes dan valores parciales (~-0.12); queremos el 'Total'.
+Private Const RISK_PORTFOLIO As String = "Total"
 Private Const T_POS As String = "CAM_TM_PORTFOLIOS_PD"
 Private Const T_VALORES As String = "CAM_TM_MSTR_VALORES_PD"
 Private Const POS_VALOR As String = "VALUATION_PC"
@@ -289,6 +292,7 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
     intv = IntervaloSuf(SufijoPeriodo(Trim(CStr(ws.Range("B11").Value))))
     If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
     If Len(varTarget) > 0 Then wVarT = " AND PK_VARIABLE_TARGET = '" & Esc(varTarget) & "'"
+    wVarT = wVarT & " AND PK_PORTFOLIO = '" & Esc(RISK_PORTFOLIO) & "'"   ' nivel total (no componentes)
     sql = "WITH ult AS (" & vbLf & _
           "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
           "  FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
@@ -299,7 +303,7 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
           "FROM " & Tbl(DS_PROD, T_RISK) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
           "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = 'FONDO'" & _
-          Replace(wVarT, "PK_VARIABLE_TARGET", "p.PK_VARIABLE_TARGET") & vbLf & _
+          Replace(Replace(wVarT, "PK_VARIABLE_TARGET", "p.PK_VARIABLE_TARGET"), "PK_PORTFOLIO =", "p.PK_PORTFOLIO =") & vbLf & _
           "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
           "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
           "QUALIFY ROW_NUMBER() OVER (PARTITION BY p.PK_PORTFOLIO_ID, " & bucket & _
@@ -338,7 +342,8 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
     sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, CAST(VALOR AS FLOAT64) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
           "WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "'" & vbLf & _
-          wVar & "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'"
+          wVar & "  AND " & RISK_COL_FONDOBMK & " = 'FONDO'" & vbLf & _
+          "  AND PK_PORTFOLIO = '" & Esc(RISK_PORTFOLIO) & "'"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "QUALIFY ROW_NUMBER() OVER (PARTITION BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION" & _
           " ORDER BY PK_FECHA_DATOS DESC, VALOR DESC) = 1" & vbLf & "ORDER BY PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION"
