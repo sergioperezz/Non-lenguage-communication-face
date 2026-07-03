@@ -273,6 +273,12 @@ def build() -> Workbook:
                 f'Datos!$D$2:$D${n},$B$9,Datos!$E$2:$E${n},$D{{r}},'
                 f'Datos!$F$2:$F${n},"{serie}")')
 
+    # Los VALORES de la previsualizacion NO dependen del nombre de la cartera:
+    # salen de una entidad de ejemplo fija que SIEMPRE tiene datos (RF+RV), para
+    # que el grafico nunca salga vacio al elegir una cartera real. La cabecera
+    # (E2/F2/G2 = B4/B5/B6) si muestra el nombre real elegido. Al pulsar
+    # "Actualizar", VolcarResultado sobrescribe estas celdas con los datos reales.
+    DUMMY = '"Mixto Moderado"'          # entidad de ejemplo con datos en todos los cortes
     for i in range(MAX_CATS):
         r = 3 + i
         ws.cell(row=r, column=4, value=(
@@ -280,14 +286,16 @@ def build() -> Workbook:
             f'COUNTA(INDIRECT("Cat_"&$B$9))-$B$16+(ROW()-2)))'
         ))
         ws.cell(row=r, column=5, value=(
-            f'=IF(OR($B$4="",$D{r}=""),"",{sumifs("$B$4", "Cartera").format(r=r)})'))
+            f'=IF(OR($B$4="",$D{r}=""),"",{sumifs(DUMMY, "Cartera").format(r=r)})'))
         ws.cell(row=r, column=6, value=(
-            f'=IF(OR($B$5="",$B$5="(ninguna)",$D{r}=""),"",{sumifs("$B$5", "Cartera").format(r=r)})'))
+            f'=IF(OR($B$5="",$B$5="(ninguna)",$D{r}=""),"",'
+            f'({sumifs(DUMMY, "Cartera").format(r=r)})*1.06)'))
         ws.cell(row=r, column=7, value=(
-            f'=IF(OR($B$6="",$B$6="(ninguna)",$D{r}=""),"",{sumifs("$B$6", "Cartera").format(r=r)})'))
+            f'=IF(OR($B$6="",$B$6="(ninguna)",$D{r}=""),"",'
+            f'({sumifs(DUMMY, "Cartera").format(r=r)})*0.93)'))
         ws.cell(row=r, column=8, value=(
             f'=IF(OR($B$12="Sin benchmark",$B$4="",$D{r}=""),"",'
-            f'{sumifs("$B$4", "Benchmark").format(r=r)})'))
+            f'{sumifs(DUMMY, "Benchmark").format(r=r)})'))
         for cc in (5, 6, 7, 8):
             ws.cell(row=r, column=cc).number_format = "#,##0.00"
 

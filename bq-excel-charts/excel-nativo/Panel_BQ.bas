@@ -405,9 +405,10 @@ Public Sub InstalarBotones()
     BorrarBotones ws
     CrearBoton ws, "A20", "Cargar carteras (segun B3)", "CargarCarteras"
     CrearBoton ws, "A22", "> Actualizar (BigQuery)", "Actualizar"
-    CrearBoton ws, "A24", "Dibujar (ejemplo)", "DibujarGrafico"
-    CrearBoton ws, "A26", "Ver SQL", "VerSQL"
-    CrearBoton ws, "A28", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A24", "Dibujar (aplica tipo)", "DibujarGrafico"
+    CrearBoton ws, "A26", "Vista previa (dummy)", "VistaPreviaDummy"
+    CrearBoton ws, "A28", "Ver SQL", "VerSQL"
+    CrearBoton ws, "A30", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -526,6 +527,40 @@ fallo:
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
 End Sub
 
+' Guarda una copia de las formulas dummy (D3:H402) en la hoja oculta _Prev,
+' pero SOLO la primera vez (cuando aun estan las formulas de previsualizacion).
+Private Sub GuardarPreviewSiNoExiste(ByVal ws As Worksheet)
+    Dim wp As Worksheet
+    Set wp = HojaAux("_Prev")
+    If Trim(CStr(wp.Range("A1").Value)) = "GUARDADO" Then Exit Sub
+    wp.Cells.Clear
+    wp.Range("A1").Value = "GUARDADO"
+    ws.Range("D3:H402").Copy
+    wp.Range("D3").PasteSpecial Paste:=xlPasteFormulas
+    Application.CutCopyMode = False
+End Sub
+
+' Restaura la vista previa (datos dummy) sobre la tabla del grafico y redibuja.
+' Util para volver a jugar con parametros/tipo de grafico tras un Actualizar.
+Public Sub VistaPreviaDummy()
+    Dim ws As Worksheet, wp As Worksheet
+    Set ws = Panel()
+    Set wp = HojaAux("_Prev")
+    If Trim(CStr(wp.Range("A1").Value)) <> "GUARDADO" Then
+        MsgBox "Todavia no hay vista previa guardada." & vbLf & _
+               "Se guarda automaticamente la primera vez que pulsas Actualizar.", _
+               vbInformation, "Vista previa"
+        Exit Sub
+    End If
+    Application.EnableEvents = False
+    ws.Range("D3:H402").ClearContents
+    wp.Range("D3:H402").Copy
+    ws.Range("D3").PasteSpecial Paste:=xlPasteFormulas
+    Application.CutCopyMode = False
+    Application.EnableEvents = True
+    DibujarGrafico
+End Sub
+
 ' Pivota el resultado crudo (desde W) a la tabla del grafico D:H.
 Private Sub VolcarResultado(ByVal ws As Worksheet)
     Dim c As Long, hdr As String
@@ -559,6 +594,9 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
     If Trim(CStr(ws.Range("B5").Value)) = "(ninguna)" Then id2 = ""
     If Trim(CStr(ws.Range("B6").Value)) = "(ninguna)" Then id3 = ""
 
+    ' Guarda las formulas dummy la PRIMERA vez, para poder volver a la vista
+    ' previa despues (boton "Vista previa"). Luego ya sobrescribimos con lo real.
+    GuardarPreviewSiNoExiste ws
     ws.Range("D3:H402").ClearContents
 
     If colCat > 0 Then
