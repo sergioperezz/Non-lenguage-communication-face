@@ -384,8 +384,7 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
           "WHERE p.PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND p." & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & _
           Replace(Replace(Replace(wVarT, "PK_VARIABLE_TARGET", "p.PK_VARIABLE_TARGET"), "PK_PORTFOLIO =", "p.PK_PORTFOLIO ="), "PK_LTLEVEL", "p.PK_LTLEVEL") & vbLf & _
-          "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
-          "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
+          VentanaFechas(Trim(CStr(ws.Range("B11").Value)), dimen) & vbLf & _
           "QUALIFY ROW_NUMBER() OVER (PARTITION BY p.PK_PORTFOLIO_ID, " & bucket & _
           " ORDER BY p.PK_FECHA_DATOS DESC, p.VALOR DESC) = 1" & vbLf & _
           "ORDER BY p.PK_PORTFOLIO_ID, p.PK_FECHA_DATOS"
@@ -513,6 +512,33 @@ Private Function IntervaloPeriodo(ByVal per As String) As String
     End Select
 End Function
 
+' Numero de anos de un periodo tipo "NA" (2A -> 2). 1 por defecto.
+Private Function AnyosPeriodo(ByVal per As String) As Long
+    Dim p As String, n As String
+    p = UCase(Trim(per)): AnyosPeriodo = 1
+    If Len(p) >= 2 And Right(p, 1) = "A" Then
+        n = Left(p, Len(p) - 1)
+        If IsNumeric(n) Then AnyosPeriodo = CLng(n)
+    End If
+End Function
+
+' Filtro de fechas de la ventana (usa ult.dmax y p.PK_FECHA_DATOS). Para la
+' dimension ANUAL se alinea a anos NATURALES (N anos terminando en el actual, YTD),
+' asi "3A" da 2024/2025/2026-YTD y no medio 2023. El resto: ventana movil normal.
+Private Function VentanaFechas(ByVal per As String, ByVal dimen As String) As String
+    Dim intv As String
+    If Fold(dimen) = "anual" Then
+        VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_TRUNC(DATE_SUB(ult.dmax, INTERVAL " & _
+            (AnyosPeriodo(per) - 1) & " YEAR), YEAR)" & vbLf & _
+            "  AND p.PK_FECHA_DATOS <= ult.dmax"
+    Else
+        intv = IntervaloPeriodo(per)
+        If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
+        VentanaFechas = "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
+            "  AND p.PK_FECHA_DATOS <= ult.dmax"
+    End If
+End Function
+
 ' Intervalo de BigQuery para la ventana rolling de un sufijo de periodo.
 Private Function IntervaloSuf(ByVal suf As String) As String
     Select Case suf
@@ -582,8 +608,7 @@ Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByV
           "FROM " & Tbl(DS_PROD, T_PERF) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
           "WHERE p.PK_NAV_GNAV = '" & CfgNav() & "' AND p.BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
-          "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
-          "  AND p.PK_FECHA_DATOS <= ult.dmax" & vbLf & _
+          VentanaFechas(per, Trim(CStr(ws.Range("B9").Value))) & vbLf & _
           "  AND p.TWR_1D IS NOT NULL" & whereBmk & vbLf & _
           "GROUP BY p.PK_PORTFOLIO_ID" & grpCat & vbLf & _
           "ORDER BY p.PK_PORTFOLIO_ID, MIN(p.PK_FECHA_DATOS)"
