@@ -68,6 +68,21 @@ Private Function Tbl(ByVal ds As String, ByVal t As String) As String
     Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
 End Function
 
+' Normaliza un nombre para comparar (evita fallos tipicos del copy-paste):
+' minusculas, sin acentos, sin espacios duros (nbsp) ni espacios dobles.
+Private Function NormNom(ByVal s As String) As String
+    s = CStr(s)
+    s = Replace(s, ChrW(160), " ")          ' espacio duro (nbsp) -> espacio normal
+    s = Replace(s, Chr(9), " ")             ' tabulador -> espacio
+    Do While InStr(s, "  ") > 0             ' colapsa espacios dobles
+        s = Replace(s, "  ", " ")
+    Loop
+    NormNom = Fold(s)                        ' Fold ya hace LCase + Trim + quita tildes
+End Function
+
+' Nombres de entidad que no se pudieron traducir a id (para avisar al usuario).
+Private mAvisoEnt As String
+
 ' Devuelve la hoja de carteras exista con el nombre que exista.
 Private Function HojaMaestro() As Worksheet
     Dim nombres As Variant, nm As Variant, ws As Worksheet
@@ -111,40 +126,69 @@ Private Sub PonerDV(celda As Range, ByVal f As String)
     End With
 End Sub
 
-' ---- Traduccion nombre de entidad -> id ----
-' 1) Maestro real: hoja "activos" (nombre_elemento -> id_elemento).
-' 2) Si no esta, cae al rango MapaEntidades (mock de ejemplo).
+' ---- Traduccion nombre de entidad -> id (id_elemento = pk_portfolio_id) ----
+' 1) Hoja "cartera": busca en nombre_elemento y devuelve id_elemento.
+'    La comparacion es robusta (NormNom): ignora mayus/acentos/espacios/nbsp.
+' 2) Si le pasas ya un id_elemento, lo acepta tal cual.
+' 3) Si no esta, cae al rango MapaEntidades (mock de ejemplo).
+' Devuelve "" si no lo encuentra (NUNCA el nombre: el nombre no vale como id).
 Private Function IdEntidad(ByVal nombre As String) As String
-    Dim wa As Worksheet, m As Variant, colN As Long, colI As Long
-    Dim rng As Range, c As Range
+    Dim wa As Worksheet, colN As Long, colI As Long, lastR As Long, r As Long
+    Dim clave As String, rng As Range, c As Range
+    IdEntidad = ""
+    clave = NormNom(nombre)
+    If clave = "" Or clave = NormNom("(ninguna)") Then Exit Function
+
     Set wa = HojaMaestro()
     If Not wa Is Nothing Then
         colN = ColPorCabecera(wa, ACTIVOS_COL_NOMBRE)
         colI = ColPorCabecera(wa, ACTIVOS_COL_ID)
-        If colN > 0 And colI > 0 Then
-            m = Application.Match(nombre, wa.Columns(colN), 0)
-            If Not IsError(m) Then IdEntidad = Trim(CStr(wa.Cells(CLng(m), colI).Value)): Exit Function
+        If colI > 0 Then
+            lastR = wa.Cells(wa.Rows.Count, colI).End(xlUp).Row
+            ' 1) por nombre_elemento -> devuelve id_elemento
+            If colN > 0 Then
+                For r = 2 To lastR
+                    If NormNom(wa.Cells(r, colN).Value) = clave Then
+                        IdEntidad = Trim(CStr(wa.Cells(r, colI).Value)): Exit Function
+                    End If
+                Next r
+            End If
+            ' 2) por si ya te pasan directamente el id_elemento
+            For r = 2 To lastR
+                If NormNom(wa.Cells(r, colI).Value) = clave Then
+                    IdEntidad = Trim(CStr(wa.Cells(r, colI).Value)): Exit Function
+                End If
+            Next r
         End If
     End If
+
+    ' 3) fallback: mapa de ejemplo (solo para los datos ficticios)
     On Error Resume Next
     Set rng = ThisWorkbook.Names("MapaEntidades").RefersToRange
     On Error GoTo 0
     If Not rng Is Nothing Then
         For Each c In rng.Columns(1).Cells
-            If Trim(CStr(c.Value)) = nombre Then IdEntidad = Trim(CStr(c.Offset(0, 1).Value)): Exit Function
+            If NormNom(c.Value) = clave Then IdEntidad = Trim(CStr(c.Offset(0, 1).Value)): Exit Function
         Next c
     End If
 End Function
 
+' Construye la lista de ids para el IN(...) SOLO con ids reales (id_elemento).
+' Si un nombre no se encuentra en 'cartera', se ignora y se apunta en mAvisoEnt
+' (NUNCA se mete el nombre en PK_PORTFOLIO_ID: eso devolveria 0 filas).
 Private Function ListaEntidades(ws As Worksheet) As String
     Dim celda As Variant, v As String, idp As String, out As String
+    mAvisoEnt = ""
     For Each celda In Array("B4", "B5", "B6")
         v = Trim(CStr(ws.Range(celda).Value))
         If v <> "" And v <> "(ninguna)" Then
             idp = IdEntidad(v)
-            If Len(idp) = 0 Then idp = v
-            If Len(out) > 0 Then out = out & ", "
-            out = out & "'" & Esc(idp) & "'"
+            If Len(idp) = 0 Then
+                mAvisoEnt = mAvisoEnt & vbLf & "   - " & v
+            Else
+                If Len(out) > 0 Then out = out & ", "
+                out = out & "'" & Esc(idp) & "'"
+            End If
         End If
     Next celda
     ListaEntidades = out
@@ -294,6 +338,16 @@ Public Function ConstruirSQL() As String
     ents = ListaEntidades(ws)
     conBmk = (ws.Range("B12").Value = "Con benchmark")
 
+    ' Si se han elegido entidades pero NINGUNA tiene id en 'cartera', no lanzamos
+    ' una query sin filtro (traeria toda la tabla). Avisamos que revisen los nombres.
+    If Len(ents) = 0 And Len(mAvisoEnt) > 0 Then
+        ConstruirSQL = "-- No encuentro el id (pk_portfolio_id) de estas entidades en la hoja 'cartera':" & _
+            mAvisoEnt & vbLf & _
+            "-- Revisa que B4/B5/B6 coincidan con la columna 'nombre_elemento'." & vbLf & _
+            "-- Recuerda: id_elemento = pk_portfolio_id."
+        Exit Function
+    End If
+
     If InStr(Fold(met), "duraci") = 1 Then ConstruirSQL = SQLRiesgo(ws, met, ents): Exit Function
     If met = "TIR" Then ConstruirSQL = SQLRiesgo(ws, "", ents, "TIR"): Exit Function
     If met = "Peso" Then ConstruirSQL = SQLComposicion(ws, ents): Exit Function
@@ -423,7 +477,14 @@ End Sub
 
 ' =======================  BOTON UNICO: HACE TODO  ==========================
 Public Sub Actualizar()
-    ActualizarSQL          ' 1) SQL en A41
+    ActualizarSQL          ' 1) SQL en A41 (y calcula mAvisoEnt)
+    ' Aviso si alguna entidad no se encontro en 'cartera' (pero otras si).
+    If Len(mAvisoEnt) > 0 Then
+        MsgBox "No encontre estas entidades en la hoja 'cartera' (columna nombre_elemento):" & _
+               mAvisoEnt & vbLf & vbLf & _
+               "Se han ignorado. Recuerda: id_elemento = pk_portfolio_id.", _
+               vbExclamation, "Entidades sin id"
+    End If
     RefrescarDatos         ' 2) lanzar + volcar en W + pivotar + dibujar
 End Sub
 
