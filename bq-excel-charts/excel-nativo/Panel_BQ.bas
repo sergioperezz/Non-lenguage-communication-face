@@ -882,15 +882,44 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
         lastData = r: r = r + 1
     Loop
 
-    ' Usa exactamente los ids que ListaEntidades metio en la query (mismo id que
-    ' se consulta = mismo id que se vuelca). Se comparan de forma robusta (IgualId).
-    id1 = mId1: id2 = mId2: id3 = mId3
+    ' Mapa robusto pid -> columna destino (5=E/6=F/7=G). Primero empareja cada
+    ' id del resultado con el slot cuyo id resuelto coincide (IgualId); los ids
+    ' del resultado que no casen se asignan POSICIONALMENTE a los slots activos
+    ' libres (la query ya filtro exactamente esas carteras, asi que no dependemos
+    ' de que la traduccion nombre->id sea identica byte a byte).
+    Dim mapPid As Object, dist As Object, ky As Variant, kk As Long
+    Dim idsv(1 To 3) As String, colv(1 To 3) As Long, usado(1 To 3) As Boolean
+    idsv(1) = mId1: idsv(2) = mId2: idsv(3) = mId3
+    colv(1) = 5: colv(2) = 6: colv(3) = 7
+    Set mapPid = CreateObject("Scripting.Dictionary")
+    Set dist = CreateObject("Scripting.Dictionary")
+    For r = 2 To lastData
+        pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
+        If pid <> "" And Not dist.Exists(pid) Then dist.Add pid, 0
+    Next r
+    For Each ky In dist.Keys                       ' 1) match por id
+        For kk = 1 To 3
+            If Not usado(kk) And Not mapPid.Exists(ky) And IgualId(CStr(ky), idsv(kk)) Then
+                mapPid(ky) = colv(kk): usado(kk) = True
+            End If
+        Next kk
+    Next ky
+    For Each ky In dist.Keys                       ' 2) fallback posicional
+        If Not mapPid.Exists(ky) Then
+            For kk = 1 To 3
+                If Not usado(kk) And Len(Trim(idsv(kk))) > 0 Then
+                    mapPid(ky) = colv(kk): usado(kk) = True: Exit For
+                End If
+            Next kk
+        End If
+    Next ky
 
     ' Guarda las formulas dummy la PRIMERA vez, para poder volver a la vista
     ' previa despues (boton "Vista previa"). Luego ya sobrescribimos con lo real.
     GuardarPreviewSiNoExiste ws
     ws.Range("D3:H402").ClearContents
 
+    Dim tc As Long
     If colCat > 0 Then
         Set cats = CreateObject("Scripting.Dictionary")
         rowOut = 3
@@ -904,28 +933,23 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             End If
         Next r
         For r = 2 To lastData
-            pid = Trim(CStr(ws.Cells(r, colPort).Value))
+            pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
             cat = Trim(CStr(ws.Cells(r, colCat).Value))
-            If cats.Exists(cat) Then
-                rr = cats(cat)
-                If IgualId(pid, id1) Then
-                    ws.Cells(rr, 5).Value = ws.Cells(r, colVal).Value
-                    If colBmk > 0 Then ws.Cells(rr, 8).Value = ws.Cells(r, colBmk).Value
-                End If
-                If IgualId(pid, id2) Then ws.Cells(rr, 6).Value = ws.Cells(r, colVal).Value
-                If IgualId(pid, id3) Then ws.Cells(rr, 7).Value = ws.Cells(r, colVal).Value
+            If cats.Exists(cat) And mapPid.Exists(pid) Then
+                rr = cats(cat): tc = mapPid(pid)
+                ws.Cells(rr, tc).Value = ws.Cells(r, colVal).Value
+                If tc = 5 And colBmk > 0 Then ws.Cells(rr, 8).Value = ws.Cells(r, colBmk).Value
             End If
         Next r
     Else
         ws.Cells(3, 4).Value = Trim(CStr(ws.Range("B8").Value)) & " - " & Trim(CStr(ws.Range("B11").Value))
         For r = 2 To lastData
-            pid = Trim(CStr(ws.Cells(r, colPort).Value))
-            If IgualId(pid, id1) Then
-                ws.Cells(3, 5).Value = ws.Cells(r, colVal).Value
-                If colBmk > 0 Then ws.Cells(3, 8).Value = ws.Cells(r, colBmk).Value
+            pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
+            If mapPid.Exists(pid) Then
+                tc = mapPid(pid)
+                ws.Cells(3, tc).Value = ws.Cells(r, colVal).Value
+                If tc = 5 And colBmk > 0 Then ws.Cells(3, 8).Value = ws.Cells(r, colBmk).Value
             End If
-            If IgualId(pid, id2) Then ws.Cells(3, 6).Value = ws.Cells(r, colVal).Value
-            If IgualId(pid, id3) Then ws.Cells(3, 7).Value = ws.Cells(r, colVal).Value
         Next r
     End If
 End Sub
