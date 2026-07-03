@@ -199,7 +199,13 @@ Private Function SQLRiesgo(ws As Worksheet, ByVal variable As String, ByVal ents
                         "-- Criterios: AssetType (Activo), Geo (Geografia), FX (Divisa), Duracion (total)."
             Exit Function
         End If
-        wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf
+        ' 'Duracion' es un criterio-total autocontenido: NO se combina con
+        ' PK_VARIABLE_TARGET (esa combinacion devuelve 0 filas).
+        If crit = "Duracion" Then
+            wVar = ""
+        Else
+            wVar = "  AND PK_VARIABLE_TARGET = '" & Esc(variable) & "'" & vbLf
+        End If
     End If
     sql = "SELECT PK_PORTFOLIO_ID, PK_ETIQUETA_AGREGACION AS categoria, VALOR AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
@@ -432,9 +438,10 @@ Public Sub RefrescarDatos()
     Set ws = Panel()
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 120
+    cn.CursorLocation = 3          ' adUseClient: compatible con drivers ODBC de solo lectura (BigQuery)
     cn.Open BQ_CONN
-    Set rs = CreateObject("ADODB.Recordset")
-    rs.Open sql, cn, 1, 1
+    ' Execute devuelve un recordset de solo avance que el driver sí admite.
+    Set rs = cn.Execute(sql)
 
     Application.EnableEvents = False
     ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).ClearContents   ' columna W en adelante
