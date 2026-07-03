@@ -440,7 +440,7 @@ Public Sub RefrescarDatos()
     cn.CommandTimeout = 120
     cn.CursorLocation = 3          ' adUseClient: compatible con drivers ODBC de solo lectura (BigQuery)
     cn.Open BQ_CONN
-    ' Execute devuelve un recordset de solo avance que el driver sí admite.
+    ' Execute devuelve un recordset de solo avance que el driver si admite.
     Set rs = cn.Execute(sql)
 
     Application.EnableEvents = False
