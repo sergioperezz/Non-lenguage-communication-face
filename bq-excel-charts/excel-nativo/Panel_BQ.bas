@@ -89,6 +89,28 @@ Private Function ColPorCabecera(ws As Worksheet, ByVal cab As String) As Long
     Next c
 End Function
 
+' Hoja auxiliar oculta (se crea si no existe).
+Private Function HojaAux(ByVal nm As String) As Worksheet
+    On Error Resume Next
+    Set HojaAux = ThisWorkbook.Sheets(nm)
+    On Error GoTo 0
+    If HojaAux Is Nothing Then
+        Set HojaAux = ThisWorkbook.Sheets.Add
+        HojaAux.Name = nm
+    End If
+    HojaAux.Visible = xlSheetHidden
+End Function
+
+' Pone (o reemplaza) la validacion de lista de una celda apuntando a un rango.
+Private Sub PonerDV(celda As Range, ByVal f As String)
+    With celda.Validation
+        .Delete
+        .Add Type:=xlValidateList, AlertStyle:=xlValidAlertStop, Formula1:=f
+        .IgnoreBlank = True
+        .InCellDropdown = True
+    End With
+End Sub
+
 ' ---- Traduccion nombre de entidad -> id ----
 ' 1) Maestro real: hoja "activos" (nombre_elemento -> id_elemento).
 ' 2) Si no esta, cae al rango MapaEntidades (mock de ejemplo).
@@ -320,6 +342,7 @@ Public Sub InstalarBotones()
     Dim ws As Worksheet
     Set ws = Panel()
     BorrarBotones ws
+    CrearBoton ws, "A20", "Cargar carteras (segun B3)", "CargarCarteras"
     CrearBoton ws, "A22", "> Actualizar (BigQuery)", "Actualizar"
     CrearBoton ws, "A24", "Dibujar (ejemplo)", "DibujarGrafico"
     CrearBoton ws, "A26", "Ver SQL", "VerSQL"
@@ -349,6 +372,47 @@ Private Sub CrearBoton(ws As Worksheet, ByVal ancla As String, ByVal cap As Stri
     b.Caption = cap
     b.OnAction = macro
     b.Name = "btn_" & macro
+End Sub
+
+' =======================  CARGAR CARTERAS EN LOS DESPLEGABLES  =============
+' Lee la hoja de carteras, filtra por el tipo elegido (B3) y rellena los
+' desplegables de Entidad (B4/B5/B6) con esos nombres.
+Public Sub CargarCarteras()
+    Dim ws As Worksheet, wm As Worksheet, we As Worksheet
+    Dim colN As Long, colT As Long, tipoSel As String
+    Dim r As Long, n As Long, lastR As Long
+    Set ws = Panel()
+    Set wm = HojaMaestro()
+    If wm Is Nothing Then MsgBox "No encuentro la hoja de carteras (cartera/carteras/activos).", vbExclamation: Exit Sub
+    colN = ColPorCabecera(wm, ACTIVOS_COL_NOMBRE)
+    colT = ColPorCabecera(wm, "tipo_elemento")
+    If colN = 0 Then MsgBox "La hoja de carteras no tiene la columna 'nombre_elemento'.", vbExclamation: Exit Sub
+
+    tipoSel = LCase(Trim(CStr(ws.Range("B3").Value)))   ' Fondo/Cartera/Indice -> minusculas
+    Set we = HojaAux("_Ent")
+    we.Cells.ClearContents
+    we.Cells(1, 1).Value = "(ninguna)"
+    n = 1
+    lastR = wm.Cells(wm.Rows.Count, colN).End(xlUp).Row
+    Application.ScreenUpdating = False
+    For r = 2 To lastR
+        If colT = 0 Or LCase(Trim(CStr(wm.Cells(r, colT).Value))) = tipoSel Then
+            n = n + 1
+            we.Cells(n, 1).Value = wm.Cells(r, colN).Value
+        End If
+    Next r
+    Application.ScreenUpdating = True
+
+    If n < 2 Then MsgBox "No hay carteras de tipo '" & ws.Range("B3").Value & "' en la hoja.", vbExclamation: Exit Sub
+    Application.EnableEvents = False
+    PonerDV ws.Range("B4"), "=_Ent!$A$2:$A$" & n           ' Entidad 1: solo nombres
+    PonerDV ws.Range("B5"), "=_Ent!$A$1:$A$" & n           ' Entidad 2/3: incluye "(ninguna)"
+    PonerDV ws.Range("B6"), "=_Ent!$A$1:$A$" & n
+    ws.Range("B4").Value = we.Cells(2, 1).Value
+    ws.Range("B5").Value = "(ninguna)"
+    ws.Range("B6").Value = "(ninguna)"
+    Application.EnableEvents = True
+    MsgBox (n - 1) & " carteras cargadas para tipo '" & ws.Range("B3").Value & "'.", vbInformation, "Carteras"
 End Sub
 
 ' =======================  BOTON UNICO: HACE TODO  ==========================
