@@ -47,6 +47,19 @@ Private Function Esc(ByVal s As String) As String
     Esc = Replace(CStr(s), "'", "''")
 End Function
 
+' Normaliza a minúsculas SIN acentos (usa códigos de carácter, así el propio
+' código no lleva tildes y no depende de la codificación al importar el .bas).
+Private Function Fold(ByVal s As String) As String
+    s = LCase(Trim(CStr(s)))
+    s = Replace(s, ChrW(225), "a")   ' a con tilde
+    s = Replace(s, ChrW(233), "e")   ' e con tilde
+    s = Replace(s, ChrW(237), "i")   ' i con tilde
+    s = Replace(s, ChrW(243), "o")   ' o con tilde
+    s = Replace(s, ChrW(250), "u")   ' u con tilde
+    s = Replace(s, ChrW(241), "n")   ' ene
+    Fold = s
+End Function
+
 Private Function Tbl(ByVal ds As String, ByVal t As String) As String
     Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
 End Function
@@ -218,7 +231,7 @@ Public Function ConstruirSQL() As String
     ents = ListaEntidades(ws)
     conBmk = (ws.Range("B12").Value = "Con benchmark")
 
-    If InStr(met, "Duración") = 1 Then ConstruirSQL = SQLRiesgo(ws, met, ents): Exit Function
+    If InStr(Fold(met), "duraci") = 1 Then ConstruirSQL = SQLRiesgo(ws, met, ents): Exit Function
     If met = "TIR" Then ConstruirSQL = SQLRiesgo(ws, "", ents, "TIR"): Exit Function
     If met = "Peso" Then ConstruirSQL = SQLComposicion(ws, ents): Exit Function
     If met = "Spread" Then ConstruirSQL = SQLSpread(ws, ents): Exit Function
@@ -454,7 +467,7 @@ Public Sub DibujarGrafico()
     If ch Is Nothing Then Exit Sub
 
     conBench = (ws.Range("B12").Value = "Con benchmark")
-    tipo = LCase(Trim(ws.Range("B14").Value))
+    tipo = Fold(ws.Range("B14").Value)
     lastRow = 2
     Do While Trim(CStr(ws.Cells(lastRow + 1, 4).Value)) <> "" And lastRow < 402
         lastRow = lastRow + 1
@@ -479,8 +492,8 @@ Public Sub DibujarGrafico()
 
     Select Case tipo
         Case "barras":            ch.ChartType = xlBarClustered
-        Case "líneas", "lineas":  ch.ChartType = xlLineMarkers
-        Case "área", "area":      ch.ChartType = xlArea
+        Case "lineas":            ch.ChartType = xlLineMarkers
+        Case "area":              ch.ChartType = xlArea
         Case "circular":          ch.ChartType = xlPie
         Case "anillo":            ch.ChartType = xlDoughnut
         Case "radar":             ch.ChartType = xlRadarMarkers
@@ -491,8 +504,8 @@ Public Sub DibujarGrafico()
 
     If benchIdx > 0 Then
         On Error Resume Next
-        Select Case LCase(Trim(ws.Range("B13").Value))
-            Case "líneas", "lineas"
+        Select Case Fold(ws.Range("B13").Value)
+            Case "lineas"
                 ch.FullSeriesCollection(benchIdx).ChartType = xlLineMarkers
             Case "puntos"
                 ch.FullSeriesCollection(benchIdx).ChartType = xlLineMarkers
