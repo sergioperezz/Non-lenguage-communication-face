@@ -37,10 +37,10 @@ Private Const RATING_COL As String = "COMPOSITERATINGSPCOMPOSITE"
 Private Const TER_COL As String = "KEYFIGURESTER"
 Private Const T_FONDOS As String = "CAM_TM_MSTR_FONDOS_PD"
 Private Const TER_FONDO_EXPR As String = "f.COMISION_DE_GESTION_DIRECTA + f.COMISION_DEPOSITARIA_DIRECTA"
-' Maestro de entidades (hoja "activos" que anadiras): nombre -> id.
-Private Const ACTIVOS_SHEET As String = "activos"
+' Hoja de carteras (la que copiaras): nombre -> id. Se busca por varios nombres.
+Private Const ACTIVOS_SHEET As String = "cartera"          ' nombre principal a buscar
 Private Const ACTIVOS_COL_NOMBRE As String = "nombre_elemento"
-Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_PORTFOLIO_ID (cambiar si es otra)
+Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_PORTFOLIO_ID
 ' ===========================================================================
 
 Private Function Panel() As Worksheet
@@ -68,6 +68,19 @@ Private Function Tbl(ByVal ds As String, ByVal t As String) As String
     Tbl = "`" & BQ_PROJECT & "." & ds & "." & t & "`"
 End Function
 
+' Devuelve la hoja de carteras exista con el nombre que exista.
+Private Function HojaMaestro() As Worksheet
+    Dim nombres As Variant, nm As Variant, ws As Worksheet
+    nombres = Array(ACTIVOS_SHEET, "cartera", "carteras", "activos")
+    For Each nm In nombres
+        Set ws = Nothing
+        On Error Resume Next
+        Set ws = ThisWorkbook.Sheets(CStr(nm))
+        On Error GoTo 0
+        If Not ws Is Nothing Then Set HojaMaestro = ws: Exit Function
+    Next nm
+End Function
+
 ' Localiza una columna por el texto de su cabecera (fila 1).
 Private Function ColPorCabecera(ws As Worksheet, ByVal cab As String) As Long
     Dim c As Long
@@ -82,9 +95,7 @@ End Function
 Private Function IdEntidad(ByVal nombre As String) As String
     Dim wa As Worksheet, m As Variant, colN As Long, colI As Long
     Dim rng As Range, c As Range
-    On Error Resume Next
-    Set wa = ThisWorkbook.Sheets(ACTIVOS_SHEET)
-    On Error GoTo 0
+    Set wa = HojaMaestro()
     If Not wa Is Nothing Then
         colN = ColPorCabecera(wa, ACTIVOS_COL_NOMBRE)
         colI = ColPorCabecera(wa, ACTIVOS_COL_ID)
