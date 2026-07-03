@@ -211,7 +211,7 @@ def build() -> Workbook:
         ws[celda] = txt
         ws[celda].font = BOLD
     defaults = {
-        "B3": "Fondo", "B4": "RF Privada A", "B5": "(ninguna)", "B6": "(ninguna)", "B7": "Riesgo",
+        "B3": "Fondo", "B4": "RF Privada A", "B5": "", "B6": "", "B7": "Riesgo",
         "B8": "Duración Modificada", "B9": "Trimestral", "B10": "Todos", "B11": "3A",
         "B12": "Con benchmark", "B13": "Líneas", "B14": "Columnas",
     }
@@ -224,9 +224,9 @@ def build() -> Workbook:
     periodos_lst = ",".join(PERIODOS)
     dvs = [
         ("B3", '"Fondo,Cartera,Indice"', False),
-        ("B4", '=INDIRECT("Ent_"&$B$3)', False),
-        ("B5", '=INDIRECT("Ent_"&$B$3&"_opt")', True),   # opcional: incluye "(ninguna)"
-        ("B6", '=INDIRECT("Ent_"&$B$3&"_opt")', True),   # opcional
+        ("B4", '=EntLista', False),                       # lee de la hoja "cartera" (rango dinámico)
+        ("B5", '=EntLista', True),                        # opcional: deja la celda vacía para no comparar
+        ("B6", '=EntLista', True),                        # opcional
         ("B7", f'"{grupos_lst}"', False),
         ("B8", '=INDIRECT("Grupo_"&$B$7)', False),
         ("B9", f'"{dims_lst}"', False),
@@ -339,10 +339,11 @@ IDS_REALES = ["CBNKITER", "DIVERDIN", "FALBUSFI", "GESTIO30", "GESTIO60",
 
 
 def build_activos(wb):
-    """Hoja 'activos': maestro de entidades con la MISMA forma que el real
-    (id_elemento | nombre_elemento | tipo_elemento). Datos de ejemplo; se
-    sustituye por el maestro real y la macro lo usa para traducir nombre -> id."""
-    ws = wb.create_sheet("activos")
+    """Hoja 'cartera': maestro de entidades con la MISMA forma que el real
+    (id_elemento | nombre_elemento | tipo_elemento). PEGA TUS CARTERAS AQUÍ
+    (respetando A=id, B=nombre, C=tipo) y el desplegable de Entidad las cogerá
+    solo: el rango con nombre 'EntLista' se ajusta al número de filas."""
+    ws = wb.create_sheet("cartera")
     ws.append(["id_elemento", "nombre_elemento", "tipo_elemento"])
     for c in ws[1]:
         c.font = BOLD
@@ -355,6 +356,10 @@ def build_activos(wb):
     ws.column_dimensions["A"].width = 16
     ws.column_dimensions["B"].width = 30
     ws.column_dimensions["C"].width = 14
+    # Rango dinamico con los nombres (columna B): crece solo al pegar mas filas.
+    wb.defined_names.add(DefinedName(
+        "EntLista",
+        attr_text="OFFSET(cartera!$B$2,0,0,MAX(1,COUNTA(cartera!$B:$B)-1),1)"))
     return ws
 
 
