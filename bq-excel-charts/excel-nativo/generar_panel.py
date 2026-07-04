@@ -274,7 +274,11 @@ def build() -> Workbook:
         ws[celda] = val
         ws[celda].fill = PatternFill("solid", fgColor=GRIS)
 
-    grupos_lst = ",".join(GRUPOS)
+    # El grupo interno "Apiladas" se MUESTRA como "Composición apilada" (los
+    # rangos con nombre no admiten espacios, por eso la clave sigue siendo
+    # "Apiladas" y B8/B9 la reconstruyen con SUBSTITUTE).
+    GRUPO_ALIAS = {"Apiladas": "Composición apilada"}
+    grupos_lst = ",".join(GRUPO_ALIAS.get(g, g) for g in GRUPOS)
     dims_lst = ",".join(DIMS)
     periodos_lst = ",".join(PERIODOS)
     dvs = [
@@ -283,8 +287,8 @@ def build() -> Workbook:
         ("B5", '=EntLista', True),                        # opcional: deja la celda vacía para no comparar
         ("B6", '=EntLista', True),                        # opcional
         ("B7", f'"{grupos_lst}"', False),
-        ("B8", '=INDIRECT("Grupo_"&$B$7)', False),
-        ("B9", '=INDIRECT("Dim_"&$B$7)', False),           # cascada: solo dims validas del grupo
+        ("B8", '=INDIRECT("Grupo_"&SUBSTITUTE($B$7,"Composición apilada","Apiladas"))', False),
+        ("B9", '=INDIRECT("Dim_"&SUBSTITUTE($B$7,"Composición apilada","Apiladas"))', False),  # cascada
         ("B10", '"Todos,RF,RV"', False),
         ("B11", f'"{periodos_lst}"', False),
         ("B12", '"Con benchmark,Sin benchmark"', False),

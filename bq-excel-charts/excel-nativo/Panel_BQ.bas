@@ -65,8 +65,8 @@ Private Const BLK_RISK_COL As Long = 29    ' AC (ancho 6)
 Private Const BLK_POS_COL As Long = 37     ' AK (ancho 9)
 Private Const BLK_MARK_COL As Long = 47    ' AU  (marca "ENTS:'A','B'")
 Private Const BLK_ULTFILA As Long = 200000 ' fila maxima para limpiar los bloques
-Private Const TCMP_COL As Long = 53        ' BA: matriz de composicion temporal (apiladas)
-Private Const MAXSER As Long = 20          ' maximo de series en la vista apilada
+Private Const TCMP_COL As Long = 4         ' D: matriz de composicion apilada (junto al grafico)
+Private Const MAXSER As Long = 18          ' max series (D..V; los bloques empiezan en W=23)
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -872,9 +872,15 @@ End Sub
 ' Reinicia Metrica (B8) y Dimension (B9) al primer valor valido del Grupo (B7),
 ' leyendo los rangos con nombre DIRECTAMENTE (sin Evaluate/INDIRECT, que con
 ' nombres definidos puede devolver #REF). Se puede llamar desde el evento de hoja.
+' Clave interna del grupo (los rangos con nombre no admiten espacios): el grupo
+' que se MUESTRA como "Composicion apilada" se guarda como "Apiladas".
+Private Function GrupoKey(ByVal g As String) As String
+    If Fold(g) = "composicion apilada" Then GrupoKey = "Apiladas" Else GrupoKey = Trim(g)
+End Function
+
 Public Sub ReiniciarMetricaDim()
     Dim ws As Worksheet, g As String, r As Range
-    Set ws = Panel(): g = Trim(CStr(ws.Range("B7").Value))
+    Set ws = Panel(): g = GrupoKey(Trim(CStr(ws.Range("B7").Value)))
     On Error Resume Next
     Set r = Nothing: Set r = ThisWorkbook.Names("Grupo_" & g).RefersToRange
     If Not r Is Nothing Then ws.Range("B8").Value = r.Cells(1, 1).Value
@@ -902,7 +908,7 @@ Public Sub Actualizar()
                vbExclamation, "Entidades sin id"
     End If
     ents = ListaEntidades(ws)                 ' fija mId1/2/3
-    grupo = Trim(CStr(ws.Range("B7").Value))
+    grupo = GrupoKey(Trim(CStr(ws.Range("B7").Value)))   ' "Composicion apilada" -> "Apiladas"
     dimen = Trim(CStr(ws.Range("B9").Value))
     blkId = BloqueDe(grupo, dimen)
 
@@ -1082,7 +1088,7 @@ Public Sub AutoLocal()
             ' limpia la tabla para NO mostrar datos de la metrica anterior.
             GuardarPreviewSiNoExiste ws
             Application.EnableEvents = False
-            ws.Range("D3:H402").ClearContents
+            LimpiarTablaNormal ws
             ws.Cells(3, 4).Value = "(sin datos locales para esta metrica: pulsa 'Actualizar')"
             Application.EnableEvents = True
         End If
@@ -1311,7 +1317,7 @@ seguir:
 
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
-    ws.Range("D3:H402").ClearContents
+    LimpiarTablaNormal ws
     Dim vb As Variant
     For Each vb In bkts.Keys
         Dim rr As Long: rr = bkts(vb)
@@ -1338,12 +1344,24 @@ seguir:
     LocalRentabilidad = (bkts.Count > 0)
 End Function
 
+' Restaura la tabla del grafico (D:H) y borra los restos de la vista apilada
+' (columnas E..V y sus cabeceras). Se llama antes de cada volcado "normal".
+Private Sub LimpiarTablaNormal(ByVal ws As Worksheet)
+    ws.Range(ws.Cells(3, 4), ws.Cells(402, TCMP_COL + MAXSER)).ClearContents   ' D3:V402
+    ws.Range(ws.Cells(2, 9), ws.Cells(2, TCMP_COL + MAXSER)).ClearContents      ' I2:V2
+    ws.Range("D2").Value = "Categoria"
+    ws.Range("E2").Formula = "=B4"
+    ws.Range("F2").Formula = "=IF(B5=""(ninguna)"","""",B5)"
+    ws.Range("G2").Formula = "=IF(B6=""(ninguna)"","""",B6)"
+    ws.Range("H2").Value = "Benchmark"
+End Sub
+
 ' Escribe en la tabla del grafico (D:H) una serie categoria -> valores por slot.
 ' 'cats' es el diccionario categoria->fila; 'vals' tiene claves "slot|cat".
 Private Sub VolcarLocal(ByVal ws As Worksheet, ByVal cats As Object, ByVal vals As Object)
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
-    ws.Range("D3:H402").ClearContents
+    LimpiarTablaNormal ws
     Dim vc As Variant, rr As Long
     For Each vc In cats.Keys
         rr = cats(vc)
@@ -1660,11 +1678,12 @@ seguir:
     Next r
     If bkts.Count = 0 Or sers.Count = 0 Then Exit Function
 
-    ' La matriz temporal va a un area propia (columna BA=53 en adelante) para NO
-    ' pisar la tabla del grafico D:H ni las cabeceras E2/F2/G2 (nombres de cartera).
+    ' La matriz va a la MISMA tabla del grafico (D en adelante) para que se vea al
+    ' lado de la grafica: D = fechas, E.. = una columna por serie (max hasta V; los
+    ' bloques amplios empiezan en W). D:H se restaura al volver a un grupo normal.
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
-    ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER + 1)).ClearContents
+    ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER)).ClearContents
     Dim vb As Variant, vs As Variant, rr As Long, cc As Long
     ws.Cells(2, TCMP_COL).Value = "Fecha"
     For Each vs In sers.Keys: ws.Cells(2, sers(vs)).Value = vs: Next vs
@@ -1932,7 +1951,7 @@ Public Sub VistaPreviaDummy()
         Exit Sub
     End If
     Application.EnableEvents = False
-    ws.Range("D3:H402").ClearContents
+    LimpiarTablaNormal ws
     ws.Range("E3:H402").NumberFormat = "0.00"    ' los datos dummy no vienen en fraccion
     wp.Range("D3:H402").Copy
     ws.Range("D3").PasteSpecial Paste:=xlPasteFormulas
@@ -2004,7 +2023,7 @@ Private Sub VolcarResultado(ByVal ws As Worksheet, ByVal src As Worksheet)
     ' Guarda las formulas dummy la PRIMERA vez, para poder volver a la vista
     ' previa despues (boton "Vista previa"). Luego ya sobrescribimos con lo real.
     GuardarPreviewSiNoExiste ws
-    ws.Range("D3:H402").ClearContents
+    LimpiarTablaNormal ws
 
     Dim tc As Long
     If colCat > 0 Then
