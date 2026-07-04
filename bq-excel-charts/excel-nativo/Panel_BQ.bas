@@ -116,6 +116,8 @@ Private Function FormatoMetrica(ByVal met As String) As String
         FormatoMetrica = "0.00%"
     ElseIf InStr(m, "duraci") = 1 Then
         FormatoMetrica = "0.000"
+    ElseIf m = "importe" Then
+        FormatoMetrica = "#,##0"            ' valor absoluto (euros, con separador de miles)
     Else
         FormatoMetrica = "0.00"
     End If
@@ -698,7 +700,7 @@ Public Function ConstruirSQL() As String
 
     If InStr(Fold(met), "duraci") = 1 Then ConstruirSQL = SQLRiesgo(ws, met, ents): Exit Function
     If met = "TIR" Then ConstruirSQL = SQLRiesgo(ws, "", ents, "TIR"): Exit Function
-    If met = "Peso" Then ConstruirSQL = SQLComposicion(ws, ents): Exit Function
+    If met = "Peso" Or met = "Importe" Then ConstruirSQL = SQLComposicion(ws, ents): Exit Function
     If met = "Spread" Then ConstruirSQL = SQLSpread(ws, ents): Exit Function
     If met = "TER" Then ConstruirSQL = SQLTerFondo(ws, ents): Exit Function
     If met = "TER Look-through" Then ConstruirSQL = SQLTerLookthrough(ws, ents): Exit Function
@@ -1661,11 +1663,15 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
 seguir:
     Next r
     If cats.Count = 0 Then Exit Function
-    Dim kk As Variant, s As Long
-    For Each kk In vals.Keys
-        s = CLng(Split(CStr(kk), "|")(0))
-        If tot(s) <> 0 Then vals(kk) = vals(kk) / tot(s)
-    Next kk
+    ' Metrica "Peso" -> normaliza a % del total; "Importe" -> deja el valor
+    ' absoluto (euros). FormatoMetrica aplica el formato adecuado (% o #,##0).
+    If Fold(Trim(CStr(ws.Range("B8").Value))) <> "importe" Then
+        Dim kk As Variant, s As Long
+        For Each kk In vals.Keys
+            s = CLng(Split(CStr(kk), "|")(0))
+            If tot(s) <> 0 Then vals(kk) = vals(kk) / tot(s)
+        Next kk
+    End If
     VolcarLocal ws, cats, vals
     LocalComposicion = True
 End Function
@@ -2015,8 +2021,8 @@ Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
         ResolverLocal = LocalRentabilidad(ws)
     ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" Then
         ResolverLocal = LocalRiesgo(ws)
-    ElseIf met = "Peso" Then
-        ResolverLocal = LocalComposicion(ws)      ' composicion siempre desde posiciones (POS)
+    ElseIf met = "Peso" Or met = "Importe" Then
+        ResolverLocal = LocalComposicion(ws)      ' composicion (% o valor absoluto)
     ' Spread / Volatilidad: no salen de estos bloques; van por consulta directa
     ' (ResolverLocal = False).
     End If

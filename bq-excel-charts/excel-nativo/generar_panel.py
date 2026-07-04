@@ -59,7 +59,7 @@ GRUPOS = {
     "Rendimiento": ["Rentabilidad", "Rentab. acum."],
     "Riesgo": ["Duración Modificada", "Duración Macaulay", "TIR", "Spread",
                "Volatilidad"],
-    "Composicion": ["Peso"],
+    "Composicion": ["Peso", "Importe"],   # Peso = % sobre el total; Importe = valor absoluto (€)
     # Composicion APILADA en el tiempo: la "metrica" (B8) es la clasificacion y
     # la "dimension" (B9) es temporal (Semanal/Mensual/...), como en Rendimiento.
     "Apiladas": ["Sector", "Industria", "Continente", "Pais", "Divisa", "Activo"],
@@ -150,6 +150,7 @@ PARAMS = {
     "Duración Modificada": (5.0, 0.30, 0.92), "Duración Macaulay": (5.2, 0.30, 0.92),
     "TIR": (3.5, 0.20, 1.05), "Spread": (120.0, 15.0, 0.85),
     "Volatilidad": (12.0, 0.80, 1.10), "Beta": (1.0, 0.05, 1.00), "Peso": (18.0, 3.0, 1.00),
+    "Importe": (5000000.0, 800000.0, 1.00),
     "TER": (0.85, 0.03, 1.00), "TER Look-through": (0.95, 0.03, 1.00),
     "Liquidez": (5.0, 0.10, 1.02),
     "PER": (15.0, 0.80, 1.04), "DividendYield": (2.8, 0.20, 0.95),
