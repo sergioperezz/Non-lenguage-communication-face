@@ -734,7 +734,7 @@ Public Sub InstalarBotones()
     Set ws = Panel()
     BorrarBotones ws
     CrearBoton ws, "A20", "Cargar carteras (segun B3)", "CargarCarteras"
-    CrearBoton ws, "A22", ">> EJECUTAR QUERY Y ACTUALIZAR GRAFICO", "Actualizar"
+    CrearBoton ws, "A22", ">> ACTUALIZAR QUERY Y GRAFICO", "Actualizar"
     CrearBoton ws, "A24", "Dibujar (aplica tipo)", "DibujarGrafico"
     CrearBoton ws, "A26", "Vista previa (dummy)", "VistaPreviaDummy"
     CrearBoton ws, "A28", "Ver SQL", "VerSQL"
@@ -754,8 +754,10 @@ Public Sub InstalarBotones()
     DibujarGrafico
     On Error GoTo 0
     MsgBox "Botones creados en 'Panel' y 'Tablas'." & vbLf & vbLf & _
-           "Flujo: elige los desplegables y pulsa 'EJECUTAR QUERY Y ACTUALIZAR GRAFICO'." & vbLf & _
-           "Consulta a BigQuery SOLO los datos de esa seleccion y dibuja el grafico.", _
+           "Flujo: elige los desplegables y pulsa 'ACTUALIZAR QUERY Y GRAFICO'." & vbLf & _
+           "La 1a vez de cada GRUPO (Rendimiento/Riesgo/Composicion) y cartera descarga " & _
+           "todos sus datos (todos los periodos); despues cambiar metrica/dimension/" & _
+           "periodo del mismo grupo es instantaneo (usa lo ya descargado).", _
            vbInformation, "Instalacion"
 End Sub
 
@@ -858,19 +860,122 @@ Public Sub ReiniciarMetricaDim()
     On Error GoTo 0
 End Sub
 
+' BOTON UNICO "Actualizar query y grafico":
+'  - Descarga (una vez) TODOS los datos del GRUPO de metrica elegido (B7) para
+'    las carteras elegidas, con TODOS los periodos, y los guarda en la hoja Panel.
+'  - Si ya estan descargados (misma cartera y grupo), NO vuelve a consultar: usa
+'    los datos que hay y solo recalcula/dibuja en local.
+' Asi la primera vez de cada grupo/cartera consulta; el resto es instantaneo.
 Public Sub Actualizar()
+    Dim ws As Worksheet, ents As String, grupo As String, blkId As String, msg As String
+    Set ws = Panel()
     ' Repara B8/B9 si quedaron en #REF (p.ej. por un evento mal pegado).
-    If IsError(Panel().Range("B8").Value) Or IsError(Panel().Range("B9").Value) Then ReiniciarMetricaDim
-    ActualizarSQL          ' 1) SQL en A41 (y calcula mAvisoEnt)
-    ' Aviso si alguna entidad no se encontro en 'cartera' (pero otras si).
+    If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) Then ReiniciarMetricaDim
+    ActualizarSQL          ' deja la SQL en A41 (para 'Ver SQL') y calcula mAvisoEnt
     If Len(mAvisoEnt) > 0 Then
         MsgBox "No encontre estas entidades en la hoja 'cartera' (columna nombre_elemento):" & _
                mAvisoEnt & vbLf & vbLf & _
                "Se han ignorado. Recuerda: id_elemento = pk_portfolio_id.", _
                vbExclamation, "Entidades sin id"
     End If
-    RefrescarDatos         ' 2) lanzar + volcar en W + pivotar + dibujar
+    ents = ListaEntidades(ws)                 ' fija mId1/2/3
+    grupo = Trim(CStr(ws.Range("B7").Value))
+    blkId = GrupoABlk(grupo)
+
+    ' Grupos con bloque amplio (Rendimiento/Riesgo/Composicion): cache por grupo.
+    If Len(ents) > 0 And Len(blkId) > 0 Then
+        If AsegurarBloque(ws, blkId, ents, msg) Then
+            If ResolverLocal(ws) Then DibujarGrafico: Exit Sub
+            ' El bloque esta pero esta dimension/metrica no sale de el -> directa.
+        ElseIf InStr(msg, "not found inside p") > 0 Then
+            MsgBox "La composicion/spread/TER necesita unir posiciones con el maestro, " & _
+                   "pero la columna de union no existe con ese nombre en posiciones." & vbLf & vbLf & _
+                   "1) Pulsa 'Ver columnas' para ver los nombres reales." & vbLf & _
+                   "2) En la hoja 'config' ajusta JOIN_KEY_POS y JOIN_KEY_VAL." & vbLf & vbLf & _
+                   "Detalle: " & msg, vbExclamation, "Composicion: falta la clave de union": Exit Sub
+        ElseIf Len(msg) > 0 Then
+            MsgBox "No se pudo descargar el grupo de datos:" & vbLf & msg, vbExclamation, "Actualizar": Exit Sub
+        End If
+    End If
+
+    ' Grupos sin bloque (Costes/Liquidez/Valoracion) o casos sueltos: consulta directa.
+    RefrescarDatos
 End Sub
+
+' Grupo de metrica (B7) -> bloque amplio que lo cubre ("" si no tiene bloque).
+Private Function GrupoABlk(ByVal grupo As String) As String
+    Select Case Fold(grupo)
+        Case "rendimiento": GrupoABlk = "RET"
+        Case "riesgo":      GrupoABlk = "RISK"
+        Case "composicion": GrupoABlk = "POS"
+        Case Else:          GrupoABlk = ""
+    End Select
+End Function
+
+Private Function BlkBaseCol(ByVal blkId As String) As Long
+    Select Case blkId
+        Case "RET":  BlkBaseCol = BLK_RET_COL
+        Case "RISK": BlkBaseCol = BLK_RISK_COL
+        Case "POS":  BlkBaseCol = BLK_POS_COL
+    End Select
+End Function
+
+Private Function BlkAncho(ByVal blkId As String) As Long
+    Select Case blkId
+        Case "RET":  BlkAncho = 4
+        Case "RISK": BlkAncho = 6
+        Case "POS":  BlkAncho = 9
+    End Select
+End Function
+
+Private Function BlkMarcaFila(ByVal blkId As String) As Long
+    Select Case blkId
+        Case "RET":  BlkMarcaFila = 1
+        Case "RISK": BlkMarcaFila = 2
+        Case "POS":  BlkMarcaFila = 3
+    End Select
+End Function
+
+Private Function BlkSQL(ByVal blkId As String, ByVal ents As String) As String
+    Select Case blkId
+        Case "RET":  BlkSQL = SQLBloqueRet(ents)
+        Case "RISK": BlkSQL = SQLBloqueRisk(ents)
+        Case "POS":  BlkSQL = SQLBloquePos(ents)
+    End Select
+End Function
+
+' True si el bloque 'blkId' ya esta descargado y cubre las carteras elegidas.
+Private Function BloqueCubreId(ByVal ws As Worksheet, ByVal blkId As String) As Boolean
+    Dim marca As String
+    marca = CStr(ws.Cells(BlkMarcaFila(blkId), BLK_MARK_COL).Value)
+    If Len(marca) = 0 Then Exit Function
+    Dim ok As Boolean: ok = True
+    If Len(Trim(mId1)) > 0 Then If InStr(marca, "'" & UCase(mId1) & "'") = 0 Then ok = False
+    If Len(Trim(mId2)) > 0 Then If InStr(marca, "'" & UCase(mId2) & "'") = 0 Then ok = False
+    If Len(Trim(mId3)) > 0 Then If InStr(marca, "'" & UCase(mId3) & "'") = 0 Then ok = False
+    BloqueCubreId = ok
+End Function
+
+' Garantiza que el bloque del grupo esta descargado para estas carteras. Si ya
+' esta (cache), no consulta. Si no, ejecuta la query y lo guarda. False + msg si
+' la descarga fallo.
+Private Function AsegurarBloque(ByVal ws As Worksheet, ByVal blkId As String, _
+        ByVal ents As String, ByRef msg As String) As Boolean
+    If BloqueCubreId(ws, blkId) Then AsegurarBloque = True: Exit Function
+    Dim base As Long, anch As Long
+    base = BlkBaseCol(blkId): anch = BlkAncho(blkId)
+    Application.EnableEvents = False
+    Application.Cursor = xlWait
+    ws.Range(ws.Cells(1, base), ws.Cells(BLK_ULTFILA, base + anch - 1)).ClearContents
+    Dim ok As Boolean: ok = DescargarBloque(ws, BlkSQL(blkId, ents), base, anch, msg)
+    If ok Then
+        ws.Cells(BlkMarcaFila(blkId), BLK_MARK_COL).NumberFormat = "@"
+        ws.Cells(BlkMarcaFila(blkId), BLK_MARK_COL).Value = "ENTS:" & UCase(ents)
+    End If
+    Application.Cursor = xlDefault
+    Application.EnableEvents = True
+    AsegurarBloque = ok
+End Function
 
 ' Lanza la consulta, vuelca el resultado crudo desde la columna W y dibuja.
 ' Si la primera consulta falla porque el driver no reconoce una columna de
@@ -947,54 +1052,9 @@ Public Sub AutoLocal()
 End Sub
 
 ' =====================  BLOQUE AMPLIO + TROCEO LOCAL  ======================
-' Baja de UNA vez TODOS los datos de las carteras elegidas y los deja en la
-' hoja Panel a partir de la columna W (tres bloques: retornos diarios, riesgo
-' diario y posiciones de hoy). Luego CUALQUIER metrica/dimension/periodo se
-' calcula EN LOCAL, sin volver a BigQuery. Solo hay que re-pulsar al cambiar
-' de cartera (o si quieres datos mas frescos).
-Public Sub CargarDatosCartera()
-    Dim ws As Worksheet, ents As String, msg As String, n As Long
-    Set ws = Panel()
-    ents = ListaEntidades(ws)                 ' fija mId1/2/3
-    If Len(ents) = 0 Then
-        MsgBox "Elige una cartera valida en B4 (y pulsa 'Cargar carteras' si hace falta).", _
-               vbExclamation, "Cargar datos": Exit Sub
-    End If
-
-    Application.EnableEvents = False
-    Application.Cursor = xlWait
-    LimpiarBloques ws
-
-    ' 1) Retornos diarios (fondo + benchmark).
-    If Not DescargarBloque(ws, SQLBloqueRet(ents), BLK_RET_COL, 4, msg) Then GoTo fin
-
-    ' 2) Riesgo diario (todas las variantes: duracion, TIR, por criterio...).
-    '    Best-effort: si falla, seguimos (riesgo se resolvera por consulta directa).
-    DescargarBloque ws, SQLBloqueRisk(ents), BLK_RISK_COL, 6, msg
-
-    ' 3) Posiciones de hoy con el maestro (para composicion / spread / TER).
-    '    Best-effort igual que riesgo.
-    DescargarBloque ws, SQLBloquePos(ents), BLK_POS_COL, 9, msg
-
-    ws.Cells(1, BLK_MARK_COL).NumberFormat = "@"
-    ws.Cells(1, BLK_MARK_COL).Value = "ENTS:" & UCase(ents)   ' marca de que hay en los bloques
-
-fin:
-    Application.Cursor = xlDefault
-    Application.EnableEvents = True
-    If Len(Trim(CStr(ws.Cells(1, BLK_MARK_COL).Value))) = 0 Then
-        MsgBox "No se pudieron cargar los datos:" & vbLf & msg, vbExclamation, "Cargar datos": Exit Sub
-    End If
-    MsgBox "Datos cargados en la hoja Panel (columna W en adelante)." & vbLf & _
-           "Ahora cambiar de metrica/dimension/periodo es instantaneo (sin re-consultar)." & vbLf & _
-           "Vuelve a pulsar 'Cargar datos' solo al cambiar de cartera.", vbInformation, "Cargar datos"
-    RefrescarDatos
-End Sub
-
-' Borra las tres areas de bloque en la hoja Panel (columna W en adelante).
-Private Sub LimpiarBloques(ByVal ws As Worksheet)
-    ws.Range(ws.Cells(1, BLK_RET_COL), ws.Cells(BLK_ULTFILA, BLK_MARK_COL)).ClearContents
-End Sub
+' Los bloques (retornos diarios, riesgo diario, posiciones de hoy) los descarga
+' 'AsegurarBloque' bajo demanda desde el boton unico, por GRUPO de metrica, con
+' TODOS los periodos. Luego el troceo (periodo/dimension) se hace en local.
 
 ' --- SQL de los tres bloques amplios -------------------------------------
 Private Function SQLBloqueRet(ByVal ents As String) As String
