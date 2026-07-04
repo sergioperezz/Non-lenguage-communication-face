@@ -740,6 +740,7 @@ Public Sub InstalarBotones()
     CrearBoton ws, "A28", "Vista previa (dummy)", "VistaPreviaDummy"
     CrearBoton ws, "A30", "Ver SQL", "VerSQL"
     CrearBoton ws, "A32", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A34", "Activar auto-refresco", "ActivarAutoRefresco"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -763,12 +764,47 @@ Public Sub InstalarBotones()
         m = m & vbLf & vbLf & "AUTO-REFRESCO ACTIVADO: al cambiar cualquier desplegable, " & _
             "el grafico se recalcula solo desde los datos descargados (sin re-consultar)."
     Else
-        m = m & vbLf & vbLf & "Para que se actualice SOLO al cambiar un desplegable, activa " & _
-            "'Trust access to the VBA project object model' (Opciones > Centro de confianza > " & _
-            "Configuracion de macros) y vuelve a ejecutar InstalarBotones; o pega a mano el " & _
-            "evento de 'evento_autorefresco.txt' en el modulo de la hoja Panel."
+        m = m & vbLf & vbLf & "PARA QUE SE ACTUALICE SOLO al cambiar un desplegable, pulsa el " & _
+            "boton 'Activar auto-refresco' (te dira exactamente que hacer)."
     End If
     MsgBox m, vbInformation, "Instalacion"
+End Sub
+
+' Boton dedicado: activa el auto-refresco. Si puede, inyecta el evento en la
+' hoja Panel; si no (acceso al proyecto VBA bloqueado), deja el codigo listo en
+' una hoja para copiar/pegar en 2 pasos.
+Public Sub ActivarAutoRefresco()
+    If InstalarAutoRefresco() Then
+        MsgBox "AUTO-REFRESCO ACTIVADO." & vbLf & vbLf & _
+               "Descarga los datos ('Cargar datos') y a partir de ahi el grafico se " & _
+               "actualiza SOLO al cambiar cualquier desplegable (metrica, dimension, " & _
+               "periodo...), sin volver a consultar BigQuery.", vbInformation, "Auto-refresco"
+        Exit Sub
+    End If
+    ' No hay acceso al proyecto VBA: dejamos el snippet listo para pegar.
+    Dim wa As Worksheet
+    Set wa = HojaAux("_AutoRefresco")
+    wa.Visible = xlSheetVisible
+    wa.Cells.ClearContents
+    wa.Range("A1").Value = "PEGA ESTO EN EL CODIGO DE LA HOJA 'Panel' (clic derecho en la pestana Panel > Ver codigo):"
+    wa.Range("A3").Value = "Private Sub Worksheet_Change(ByVal Target As Range)"
+    wa.Range("A4").Value = "    If Application.EnableEvents = False Then Exit Sub"
+    wa.Range("A5").Value = "    Application.EnableEvents = False"
+    wa.Range("A6").Value = "    On Error Resume Next"
+    wa.Range("A7").Value = "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim"
+    wa.Range("A8").Value = "    If Not Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then AutoLocal"
+    wa.Range("A9").Value = "    On Error GoTo 0"
+    wa.Range("A10").Value = "    Application.EnableEvents = True"
+    wa.Range("A11").Value = "End Sub"
+    wa.Activate
+    MsgBox "No tengo acceso para instalarlo solo. Dos opciones:" & vbLf & vbLf & _
+           "OPCION RAPIDA (2 pasos, siempre funciona):" & vbLf & _
+           "  1) Clic derecho en la pestana 'Panel' > Ver codigo." & vbLf & _
+           "  2) Copia las lineas de la hoja '_AutoRefresco' (ya abierta) y pegalas ahi. Guarda." & vbLf & vbLf & _
+           "OPCION AUTOMATICA (para no volver a pegar nunca):" & vbLf & _
+           "  Archivo > Opciones > Centro de confianza > Configuracion de macros >" & vbLf & _
+           "  marca 'Confiar en el acceso al modelo de objetos de proyectos de VBA'," & vbLf & _
+           "  y pulsa otra vez 'Activar auto-refresco'.", vbInformation, "Activar auto-refresco"
 End Sub
 
 ' Inserta (una vez) el evento Worksheet_Change en el modulo de la hoja Panel,
@@ -922,6 +958,18 @@ Public Sub RefrescarDatos()
         If intento = 1 And (ws.Range("B12").Value = "Con benchmark") And Not mForzarSinBmk _
            And InStr(msg, "Unrecognized name") > 0 Then
             mForzarSinBmk = True
+        ElseIf InStr(msg, "not found inside p") > 0 Then
+            ' La clave del JOIN posiciones->maestro no existe con ese nombre en la
+            ' tabla de posiciones. Aviso claro (sin volcar toda la SQL).
+            MsgBox "La composicion/spread/TER necesita unir posiciones con el maestro de " & _
+                   "valores, pero la columna de union no existe con ese nombre en la tabla " & _
+                   "de posiciones." & vbLf & vbLf & _
+                   "1) Ejecuta 'VerColumnas' (Alt+F8) para ver los nombres reales de las " & _
+                   "columnas de posiciones y del maestro." & vbLf & _
+                   "2) En la hoja 'config' pon JOIN_KEY_POS (columna en posiciones) y " & _
+                   "JOIN_KEY_VAL (columna en el maestro) con la clave correcta." & vbLf & vbLf & _
+                   "Detalle: " & msg, vbExclamation, "Composicion: falta la clave de union"
+            Exit Sub
         Else
             MsgBox "No se pudo conectar/consultar BigQuery:" & vbLf & msg & _
                    vbLf & vbLf & "SQL:" & vbLf & sql, vbExclamation, "Fase 2"
@@ -939,7 +987,17 @@ Public Sub AutoLocal()
     On Error Resume Next
     If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) Then Exit Sub
     ListaEntidades ws                 ' fija mId1/2/3 para B4/B5/B6
-    If BloqueCubre(ws) Then ResolverLocal ws   ' recalcula la tabla si la metrica esta en los bloques
+    If BloqueCubre(ws) Then
+        If Not ResolverLocal(ws) Then
+            ' La metrica no esta en los datos descargados (o falta esa cartera):
+            ' limpia la tabla para NO mostrar datos de la metrica anterior.
+            GuardarPreviewSiNoExiste ws
+            Application.EnableEvents = False
+            ws.Range("D3:H402").ClearContents
+            ws.Cells(3, 4).Value = "(sin datos locales para esta metrica: pulsa 'Actualizar')"
+            Application.EnableEvents = True
+        End If
+    End If
     DibujarGrafico                    ' redibuja siempre (cubre cambio de tipo/estilo de grafico)
 End Sub
 
@@ -1494,35 +1552,58 @@ fallo:
     EjecutarYVolcar = False
 End Function
 
-' Diagnostico: lista los nombres de columna de la tabla de rendimiento en una
-' hoja visible '_Columnas', para ver como se llaman de verdad las de benchmark.
+' Diagnostico: lista los nombres de columna de las tablas clave (rendimiento,
+' POSICIONES y MAESTRO de valores) en la hoja visible '_Columnas', una tabla por
+' columna. Sirve para ver los nombres reales (p.ej. la clave de union
+' posiciones->maestro para la composicion, o las columnas de benchmark).
 Public Sub VerColumnas()
-    Dim cn As Object, rs As Object, j As Long, nf As Long, wc As Worksheet
+    Dim wc As Worksheet
+    Set wc = HojaAux("_Columnas")
+    wc.Visible = xlSheetVisible
+    wc.Cells.ClearContents
+    Dim col As Long, nf As Long
+    col = 1
+    nf = nf + VolcarColumnasTabla(wc, col, T_PERF, Tbl(DS_PROD, T_PERF))
+    col = col + 1
+    nf = nf + VolcarColumnasTabla(wc, col, T_POS, Tbl(DS_PROD, T_POS))
+    col = col + 1
+    nf = nf + VolcarColumnasTabla(wc, col, T_VALORES, Tbl(DS_MERC, T_VALORES))
+    wc.Activate
+    MsgBox "Columnas volcadas en la hoja '_Columnas' (una tabla por columna):" & vbLf & _
+           "  A = " & T_PERF & " (rendimiento/benchmark)" & vbLf & _
+           "  B = " & T_POS & " (posiciones)" & vbLf & _
+           "  C = " & T_VALORES & " (maestro de valores)" & vbLf & vbLf & _
+           "Para la COMPOSICION: busca en A y B una columna comun para unir " & _
+           "posiciones y maestro (p.ej. algun *SECURITY* o *ACTIVO*), y ponla en " & _
+           "la hoja 'config' (JOIN_KEY_POS y JOIN_KEY_VAL).", vbInformation, "Columnas"
+End Sub
+
+' Vuelca en la columna 'col' de wc los nombres de campo de una tabla. Devuelve
+' el numero de campos (0 si fallo). No corta el resto del diagnostico si una
+' tabla concreta falla.
+Private Function VolcarColumnasTabla(ByVal wc As Worksheet, ByVal col As Long, _
+        ByVal titulo As String, ByVal tblRef As String) As Long
+    Dim cn As Object, rs As Object, j As Long
     On Error GoTo fallo
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 60
     cn.CursorLocation = 3
     cn.Open CfgConn()
-    Set rs = cn.Execute("SELECT * FROM " & Tbl(DS_PROD, T_PERF) & " LIMIT 1")
-    nf = rs.Fields.Count
-    Set wc = HojaAux("_Columnas")
-    wc.Visible = xlSheetVisible
-    wc.Cells.ClearContents
-    wc.Range("A1").Value = "Columnas de " & T_PERF & " (" & nf & ")"
-    For j = 0 To nf - 1
-        wc.Cells(j + 2, 1).Value = rs.Fields(j).Name
+    Set rs = cn.Execute("SELECT * FROM " & tblRef & " LIMIT 1")
+    wc.Cells(1, col).Value = titulo & " (" & rs.Fields.Count & ")"
+    For j = 0 To rs.Fields.Count - 1
+        wc.Cells(j + 2, col).Value = rs.Fields(j).Name
     Next j
+    VolcarColumnasTabla = rs.Fields.Count
     rs.Close: cn.Close
-    wc.Activate
-    MsgBox nf & " columnas volcadas en la hoja '_Columnas'." & vbLf & _
-           "Copia/pega aqui las que contengan BMK, BENCH o DIFEREN.", vbInformation, "Columnas"
-    Exit Sub
+    Exit Function
 fallo:
-    MsgBox "Error listando columnas:" & vbLf & Err.Description, vbExclamation, "VerColumnas"
+    wc.Cells(1, col).Value = titulo & " (ERROR)"
+    wc.Cells(2, col).Value = Err.Description
     On Error Resume Next
     If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
-End Sub
+End Function
 
 ' Guarda una copia de las formulas dummy (D3:H402) en la hoja oculta _Prev,
 ' pero SOLO la primera vez (cuando aun estan las formulas de previsualizacion).
