@@ -63,7 +63,8 @@ Private Const CACHE_ANOS As Long = 6              ' anos de historia diaria que 
 Private Const BLK_RET_COL As Long = 23     ' W  (ancho 4)
 Private Const BLK_RISK_COL As Long = 29    ' AC (ancho 6)
 Private Const BLK_POS_COL As Long = 37     ' AK (ancho 9)
-Private Const BLK_MARK_COL As Long = 47    ' AU  (marca "ENTS:'A','B'")
+Private Const BLK_MARK_COL As Long = 47    ' AU  (marca "ENTS:'A','B'"; filas 1/2/3/4)
+Private Const BLK_APIL_COL As Long = 49    ' AW: bloque de composicion apilada (snapshot mensual)
 Private Const BLK_ULTFILA As Long = 200000 ' fila maxima para limpiar los bloques
 Private Const TCMP_COL As Long = 4         ' D: matriz de composicion apilada (junto al grafico)
 Private Const MAXSER As Long = 18          ' max series (D..V; los bloques empiezan en W=23)
@@ -912,12 +913,20 @@ Public Sub Actualizar()
     dimen = Trim(CStr(ws.Range("B9").Value))
     blkId = BloqueDe(grupo, dimen)
 
-    ' Grupo "Apiladas" = composicion apilada EN EL TIEMPO para la Entidad 1:
-    ' B8 (metrica) = la clasificacion (Sector/Industria/...); B9 (dimension) = la
-    ' granularidad temporal (Semanal/Mensual/...), como en Rendimiento.
+    ' Grupo "Composicion apilada" = evolucion en el tiempo para la Entidad 1.
+    ' Igual que las demas: descarga (una vez) su bloque amplio despues del resto de
+    ' columnas y de ahi construye la tabla D2 que alimenta el grafico.
     If Fold(grupo) = "apiladas" Then
-        If Len(ents) = 0 Then MsgBox "Elige una cartera en B4.", vbExclamation, "Apiladas": Exit Sub
-        ComposicionTemporal ws
+        If Len(ents) = 0 Then MsgBox "Elige una cartera en B4.", vbExclamation, "Composicion apilada": Exit Sub
+        If AsegurarBloque(ws, "APIL", ents, msg) Then
+            LocalApiladas ws
+        ElseIf InStr(msg, "not found") > 0 Or InStr(msg, "Unrecognized name") > 0 Then
+            MsgBox "La composicion apilada usa la tabla de posiciones (config POS_TABLE) unida al " & _
+                   "maestro. Revisa POS_TABLE/JOIN_KEY en 'config'." & vbLf & vbLf & msg, _
+                   vbExclamation, "Composicion apilada"
+        ElseIf Len(msg) > 0 Then
+            MsgBox "No se pudo descargar la composicion apilada:" & vbLf & msg, vbExclamation, "Composicion apilada"
+        End If
         Exit Sub
     End If
 
@@ -953,6 +962,7 @@ Private Function BloqueDe(ByVal grupo As String, ByVal dimen As String) As Strin
         Case "rendimiento": BloqueDe = "RET"
         Case "riesgo":      BloqueDe = "RISK"
         Case "composicion": BloqueDe = "POS"
+        Case "apiladas":    BloqueDe = "APIL"
         Case Else:          BloqueDe = ""
     End Select
 End Function
@@ -962,6 +972,7 @@ Private Function BlkBaseCol(ByVal blkId As String) As Long
         Case "RET":  BlkBaseCol = BLK_RET_COL
         Case "RISK": BlkBaseCol = BLK_RISK_COL
         Case "POS":  BlkBaseCol = BLK_POS_COL
+        Case "APIL": BlkBaseCol = BLK_APIL_COL
     End Select
 End Function
 
@@ -970,6 +981,7 @@ Private Function BlkAncho(ByVal blkId As String) As Long
         Case "RET":  BlkAncho = 4
         Case "RISK": BlkAncho = 6
         Case "POS":  BlkAncho = 9   ' PID + gics/bics/geo/pais/divisa/rating/activo + valor
+        Case "APIL": BlkAncho = 9   ' PID + mes + gics/bics/geo/pais/divisa/activo + valor
     End Select
 End Function
 
@@ -978,6 +990,7 @@ Private Function BlkMarcaFila(ByVal blkId As String) As Long
         Case "RET":  BlkMarcaFila = 1
         Case "RISK": BlkMarcaFila = 2
         Case "POS":  BlkMarcaFila = 3
+        Case "APIL": BlkMarcaFila = 4
     End Select
 End Function
 
@@ -986,6 +999,7 @@ Private Function BlkSQL(ByVal blkId As String, ByVal ents As String) As String
         Case "RET":  BlkSQL = SQLBloqueRet(ents)
         Case "RISK": BlkSQL = SQLBloqueRisk(ents)
         Case "POS":  BlkSQL = SQLBloquePos(ents)
+        Case "APIL": BlkSQL = SQLBloqueApil(ents)
     End Select
 End Function
 
@@ -1551,125 +1565,120 @@ Private Function EtiquetaClasif(ByVal clas As String, ByVal raw As String) As St
     EtiquetaClasif = s
 End Function
 
-' Expresion SQL de bucket para una columna de fecha concreta.
-Private Function BucketSQL(ByVal gran As String, ByVal col As String) As String
-    Select Case Fold(gran)
-        Case "mensual":    BucketSQL = "FORMAT_DATE('%Y-%m', " & col & ")"
-        Case "trimestral": BucketSQL = "CONCAT(CAST(EXTRACT(YEAR FROM " & col & ") AS STRING),'-T'," & _
-                                       "CAST(EXTRACT(QUARTER FROM " & col & ") AS STRING))"
-        Case "semestral":  BucketSQL = "CONCAT(CAST(EXTRACT(YEAR FROM " & col & ") AS STRING),'-S'," & _
-                                       "CAST(IF(EXTRACT(MONTH FROM " & col & ")<=6,1,2) AS STRING))"
-        Case Else:         BucketSQL = "CAST(EXTRACT(YEAR FROM " & col & ") AS STRING)"   ' anual
+' SQL del BLOQUE de composicion apilada: snapshot MENSUAL (ultima foto de cada
+' mes) por cartera, con todas las clasificaciones + valoracion, para los ultimos
+' CACHE_ANOS anos. Se descarga UNA vez (como RET/RISK/POS) y luego se trocea en
+' local por periodo/granularidad y clasificacion, sin volver a consultar.
+' Columnas: PID | mes | gics | bics | geo | pais | divisa | activo | valor
+Private Function SQLBloqueApil(ByVal ents As String) As String
+    Dim gics As String, bics As String, geo As String, pais As String
+    Dim divc As String, act As String, kPos As String, kVal As String
+    gics = Cfg("SECTOR_COL", SECTOR_COL): bics = "CLASSIFICATION_BICS"
+    geo = Cfg("GEO_COL", GEO_COL): pais = Cfg("PAIS_COL", "FCCOUNTRY")
+    divc = Cfg("DIV_COL", DIV_COL): act = Cfg("ACTIVO_COL", "INSTRUMENT_TYPE")
+    kPos = Cfg("JOIN_KEY_POS", "PK_SECURITY_IK"): kVal = Cfg("JOIN_KEY_VAL", "PK_SECURITY_IK")
+    SQLBloqueApil = _
+        "WITH base AS (" & vbLf & _
+        "  SELECT p.PK_PORTFOLIO_ID, p.PK_FECHA_DATOS, FORMAT_DATE('%Y-%m', p.PK_FECHA_DATOS) AS mes," & vbLf & _
+        "         p." & kPos & " AS seckey, p." & PosValor() & " AS valor" & vbLf & _
+        "  FROM " & TblPos() & " p" & vbLf & _
+        "  WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "    AND p.PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & "), INTERVAL " & CACHE_ANOS & " YEAR))," & vbLf & _
+        " ult AS (SELECT PK_PORTFOLIO_ID, mes, MAX(PK_FECHA_DATOS) AS f FROM base GROUP BY PK_PORTFOLIO_ID, mes)" & vbLf & _
+        "SELECT b.PK_PORTFOLIO_ID, b.mes," & vbLf & _
+        "       v." & gics & " AS gics, v." & bics & " AS bics, v." & geo & " AS geo," & vbLf & _
+        "       v." & pais & " AS pais, v." & divc & " AS divisa, v." & act & " AS activo," & vbLf & _
+        "       FORMAT('%.10f', CAST(SUM(b.valor) AS FLOAT64)) AS valor" & vbLf & _
+        "FROM base b" & vbLf & _
+        "JOIN ult ON ult.PK_PORTFOLIO_ID = b.PK_PORTFOLIO_ID AND ult.mes = b.mes AND b.PK_FECHA_DATOS = ult.f" & vbLf & _
+        "JOIN " & TblValores() & " v ON v." & kVal & " = b.seckey" & vbLf & _
+        "GROUP BY b.PK_PORTFOLIO_ID, b.mes, gics, bics, geo, pais, divisa, activo" & vbLf & _
+        "ORDER BY b.PK_PORTFOLIO_ID, b.mes"
+End Function
+
+' Columna del bloque APIL para la clasificacion elegida (B8).
+Private Function ColClasifApil(ByVal clas As String) As Long
+    ' APIL: PID(+0) mes(+1) gics(+2) bics(+3) geo(+4) pais(+5) divisa(+6) activo(+7) valor(+8)
+    Select Case clas
+        Case "Sector":     ColClasifApil = BLK_APIL_COL + IIf(InStr(UCase(Cfg("SECTOR_COL", SECTOR_COL)), "BICS") > 0, 3, 2)
+        Case "Industria":  ColClasifApil = BLK_APIL_COL + IIf(InStr(UCase(Cfg("IND_COL", IND_COL)), "BICS") > 0, 3, 2)
+        Case "Continente": ColClasifApil = BLK_APIL_COL + 4
+        Case "Pais":       ColClasifApil = BLK_APIL_COL + 5
+        Case "Divisa":     ColClasifApil = BLK_APIL_COL + 6
+        Case "Activo":     ColClasifApil = BLK_APIL_COL + 7
+        Case Else:         ColClasifApil = 0
     End Select
 End Function
 
-' SQL: peso por (bucket temporal, categoria de clasificacion) para UNA cartera,
-' tomando la ultima foto de posiciones disponible dentro de cada bucket.
-Private Function SQLCompTemporal(ByVal id As String, ByVal clasCol As String, _
-        ByVal gran As String, ByVal per As String) As String
-    Dim intv As String, kPos As String, kVal As String, bexpr As String
-    intv = IntervaloPeriodo(per): If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
-    kPos = Cfg("JOIN_KEY_POS", "PK_SECURITY_IK")
-    kVal = Cfg("JOIN_KEY_VAL", "PK_SECURITY_IK")
-    bexpr = BucketSQL(gran, "b.PK_FECHA_DATOS")
-    SQLCompTemporal = _
-        "WITH base AS (" & vbLf & _
-        "  SELECT p.PK_FECHA_DATOS, p." & kPos & " AS seckey, p." & PosValor() & " AS valor" & vbLf & _
-        "  FROM " & TblPos() & " p" & vbLf & _
-        "  WHERE p.PK_PORTFOLIO_ID = '" & Esc(id) & "')," & vbLf & _
-        " mx AS (SELECT MAX(PK_FECHA_DATOS) AS dmax FROM base)," & vbLf & _
-        " win AS (SELECT b.PK_FECHA_DATOS, b.seckey, b.valor, " & bexpr & " AS bucket" & vbLf & _
-        "   FROM base b, mx" & vbLf & _
-        "   WHERE b.PK_FECHA_DATOS > DATE_SUB(mx.dmax, " & intv & ") AND b.PK_FECHA_DATOS <= mx.dmax)," & vbLf & _
-        " ult AS (SELECT bucket, MAX(PK_FECHA_DATOS) AS f FROM win GROUP BY bucket)" & vbLf & _
-        "SELECT w.bucket AS categoria, " & clasCol & " AS serie," & vbLf & _
-        "       FORMAT('%.10f', CAST(SUM(w.valor) AS FLOAT64)) AS valor" & vbLf & _
-        "FROM win w" & vbLf & _
-        "JOIN ult ON ult.bucket = w.bucket AND w.PK_FECHA_DATOS = ult.f" & vbLf & _
-        "JOIN " & TblValores() & " v ON v." & kVal & " = w.seckey" & vbLf & _
-        "GROUP BY categoria, serie" & vbLf & _
-        "ORDER BY categoria"
+' Bucket temporal de un mes "YYYY-MM" segun la granularidad (Mensual/Trimestral/
+' Semestral/Anual). El bloque es mensual; granularidades finas caen a Mensual.
+Private Function BucketMes(ByVal mes As String, ByVal gran As String) As String
+    Dim y As String, m As Long
+    y = Left(mes, 4): m = CLng(Val(Mid(mes, 6, 2)))
+    Select Case Fold(gran)
+        Case "trimestral": BucketMes = y & "-T" & (Int((m - 1) / 3) + 1)
+        Case "semestral":  BucketMes = y & "-S" & IIf(m <= 6, 1, 2)
+        Case "anual":      BucketMes = y
+        Case Else:         BucketMes = mes   ' mensual (y granularidades finas)
+    End Select
 End Function
 
-' Vista de composicion APILADA EN EL TIEMPO para la Entidad 1 (B4): eje X =
-' buckets del periodo; series apiladas = categorias de la clasificacion (B9).
-' Consulta directa (no usa los bloques). Devuelve False si no hay datos.
-Public Function ComposicionTemporal(ByVal ws As Worksheet) As Boolean
-    Dim clas As String, clasCol As String, per As String, gran As String
-    Dim sql As String, msg As String, wv As Worksheet
-    ListaEntidades ws                         ' fija mId1
-    If Len(Trim(mId1)) = 0 Then Exit Function
-    clas = Trim(CStr(ws.Range("B8").Value))   ' clasificacion (metrica del grupo Apiladas)
-    clasCol = DimAClasificacion(clas)
-    If Len(clasCol) = 0 Then Exit Function
-    gran = Trim(CStr(ws.Range("B9").Value))   ' granularidad temporal (dimension)
-    If Not DimEsTiempo(gran) Then gran = "Mensual"
-    per = Trim(CStr(ws.Range("B11").Value))
-    sql = SQLCompTemporal(mId1, clasCol, gran, per)
-
-    Set wv = HojaAux("_Volcado")
-    If Not EjecutarASheet(sql, wv, msg) Then
-        MsgBox "No se pudo consultar la composicion apilada:" & vbLf & msg, vbExclamation, "Apiladas": Exit Function
-    End If
-    ComposicionTemporal = PivotarYDibujarApiladas(ws, wv, clas)
+Private Function FechaDeMes(ByVal mes As String) As Date
+    If Len(Trim(mes)) < 7 Then Exit Function
+    FechaDeMes = DateSerial(CLng(Val(Left(mes, 4))), CLng(Val(Mid(mes, 6, 2))), 1)
 End Function
 
-' Ejecuta una SQL y vuelca cabeceras (fila 1) + datos (fila 2+) en 'wd' como texto.
-Private Function EjecutarASheet(ByVal sql As String, ByVal wd As Worksheet, ByRef msg As String) As Boolean
-    Dim cn As Object, rs As Object, j As Long
-    On Error GoTo fallo
-    Set cn = CreateObject("ADODB.Connection")
-    cn.CommandTimeout = 180
-    cn.CursorLocation = 3
-    cn.Open CfgConn()
-    Set rs = cn.Execute(sql)
-    wd.Cells.Clear
-    wd.Cells.NumberFormat = "@"
-    For j = 0 To rs.Fields.Count - 1
-        wd.Cells(1, 1 + j).Value = rs.Fields(j).Name
-    Next j
-    If Not rs.EOF Then wd.Cells(2, 1).CopyFromRecordset rs
-    rs.Close: cn.Close
-    EjecutarASheet = True
-    Exit Function
-fallo:
-    msg = Err.Description
-    On Error Resume Next
-    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
-    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
-    On Error GoTo 0
-End Function
-
-' Pivota (bucket, serie, valor) de 'src' a una matriz en el Panel (D = fechas,
-' E.. = una columna por serie/categoria, en %) y dibuja el grafico apilado.
-Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Worksheet, _
-        ByVal clas As String) As Boolean
-    Dim lastR As Long, r As Long
-    lastR = src.Cells(src.Rows.Count, 1).End(xlUp).Row
+' Composicion apilada EN LOCAL desde el bloque APIL: trocea por periodo/
+' granularidad (B11/B9) y agrupa por la clasificacion (B8), para la Entidad 1.
+' Escribe la matriz en D2 y dibuja el grafico apilado. False si no hay datos.
+Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
+    Dim c0 As Long, lastR As Long, r As Long, colCat As Long
+    c0 = BLK_APIL_COL
+    lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
+    Dim clas As String, gran As String, per As String
+    clas = Trim(CStr(ws.Range("B8").Value))
+    gran = Trim(CStr(ws.Range("B9").Value))
+    If Fold(gran) = "diario" Or Fold(gran) = "semanal" Or Not DimEsTiempo(gran) Then gran = "Mensual"
+    colCat = ColClasifApil(clas)
+    If colCat = 0 Then Exit Function
+    per = Trim(CStr(ws.Range("B11").Value))
+
+    Dim dMax As Date, d As Date
+    For r = 2 To lastR
+        If IgualId(UCase(Trim(CStr(ws.Cells(r, c0).Value))), mId1) Then
+            d = FechaDeMes(CStr(ws.Cells(r, c0 + 1).Value))
+            If d > dMax Then dMax = d
+        End If
+    Next r
+    If dMax = 0 Then Exit Function
+    Dim ini As Date: ini = InicioVentana(dMax, per, gran)
+    Dim anual As Boolean: anual = (Fold(gran) = "anual")
 
     Dim bkts As Object, sers As Object, mat As Object, totB As Object
-    Set bkts = CreateObject("Scripting.Dictionary")   ' bucket -> fila destino
-    Set sers = CreateObject("Scripting.Dictionary")   ' serie  -> columna destino
-    Set mat = CreateObject("Scripting.Dictionary")    ' "bucket|serie" -> valor
-    Set totB = CreateObject("Scripting.Dictionary")   ' bucket -> total
+    Set bkts = CreateObject("Scripting.Dictionary")
+    Set sers = CreateObject("Scripting.Dictionary")
+    Set mat = CreateObject("Scripting.Dictionary")
+    Set totB = CreateObject("Scripting.Dictionary")
     Dim rowOut As Long: rowOut = 3
-    Dim colOut As Long: colOut = TCMP_COL + 1          ' BB (junto a la col de fechas BA)
-    Dim bk As String, se As String, v As Double, k As String
+    Dim colOut As Long: colOut = TCMP_COL + 1
+    Dim pid As String, bk As String, se As String, v As Double, k As String
     For r = 2 To lastR
-        bk = Trim(CStr(src.Cells(r, 1).Value))
-        se = EtiquetaClasif(clas, CStr(src.Cells(r, 2).Value))   ' agrupa GICS a sector/nombre
-        If Len(bk) = 0 Then GoTo seguir
-        v = NumDbl(src.Cells(r, 3).Value)
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        If Not IgualId(pid, mId1) Then GoTo seguir
+        d = FechaDeMes(CStr(ws.Cells(r, c0 + 1).Value))
+        If d = 0 Then GoTo seguir
+        If Not IIf(anual, d >= ini, d > ini) Or d > dMax Then GoTo seguir
+        bk = BucketMes(CStr(ws.Cells(r, c0 + 1).Value), gran)
+        se = EtiquetaClasif(clas, CStr(ws.Cells(r, colCat).Value))
+        v = NumDbl(ws.Cells(r, c0 + 8).Value)
         If Not bkts.Exists(bk) Then
             If rowOut > 402 Then GoTo seguir
             bkts.Add bk, rowOut: rowOut = rowOut + 1
         End If
         If Not sers.Exists(se) Then
             If sers.Count >= MAXSER Then se = "Otros"
-            If Not sers.Exists(se) Then
-                sers.Add se, colOut: colOut = colOut + 1
-            End If
+            If Not sers.Exists(se) Then sers.Add se, colOut: colOut = colOut + 1
         End If
         k = bk & "|" & se
         If mat.Exists(k) Then mat(k) = mat(k) + v Else mat(k) = v
@@ -1677,14 +1686,18 @@ Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Wor
 seguir:
     Next r
     If bkts.Count = 0 Or sers.Count = 0 Then Exit Function
+    EscribirApiladas ws, bkts, sers, mat, totB
+    LocalApiladas = True
+End Function
 
-    ' La matriz va a la MISMA tabla del grafico (D en adelante) para que se vea al
-    ' lado de la grafica: D = fechas, E.. = una columna por serie (max hasta V; los
-    ' bloques amplios empiezan en W). D:H se restaura al volver a un grupo normal.
+' Escribe la matriz (fechas x categorias, en %) en la tabla del grafico desde D2
+' y dibuja el grafico apilado. 'sers' ya trae la columna destino de cada serie.
+Private Sub EscribirApiladas(ByVal ws As Worksheet, ByVal bkts As Object, _
+        ByVal sers As Object, ByVal mat As Object, ByVal totB As Object)
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
     ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER)).ClearContents
-    Dim vb As Variant, vs As Variant, rr As Long, cc As Long
+    Dim vb As Variant, vs As Variant, rr As Long, cc As Long, k As String
     ws.Cells(2, TCMP_COL).Value = "Fecha"
     For Each vs In sers.Keys: ws.Cells(2, sers(vs)).Value = vs: Next vs
     For Each vb In bkts.Keys
@@ -1697,10 +1710,8 @@ seguir:
     Next vb
     ws.Range(ws.Cells(3, TCMP_COL + 1), ws.Cells(2 + bkts.Count, TCMP_COL + sers.Count)).NumberFormat = "0.00%"
     Application.EnableEvents = True
-
     DibujarApiladas ws, bkts.Count, sers.Count
-    PivotarYDibujarApiladas = True
-End Function
+End Sub
 
 ' Dibuja columnas/barras apiladas: una serie por cada columna de categoria
 ' (BB..), eje X = fechas (BA). 100% apiladas si B14 lo indica.

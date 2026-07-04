@@ -81,7 +81,7 @@ DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
     "Riesgo":      _DIM_T,
     "Composicion": ["Activo", "Sector", "Industria", "Continente", "Pais", "Divisa"],
-    "Apiladas":    _DIM_T,
+    "Apiladas":    DIM_TIEMPO,   # snapshot mensual -> Mensual/Trimestral/Semestral/Anual
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,
