@@ -859,10 +859,12 @@ Public Sub InstalarBotones()
 End Sub
 
 ' Inserta (una vez) el evento Worksheet_Change en el modulo de la hoja Panel
-' para la CASCADA: al cambiar el Grupo (B7), resetea Metrica (B8) y Dimension
-' (B9) al primer valor VALIDO de ese grupo (asi no quedan valores invalidos como
-' "Pais" en Composicion). NO consulta BigQuery ni redibuja. Requiere acceso al
-' modelo de objetos VBA; devuelve False si no se pudo instalar.
+' para la CASCADA automatica al cambiar un desplegable (sin consultar BigQuery):
+'   B3 (tipo de entidad Fondo/Cartera/Indice) -> repuebla Entidad 1/2/3.
+'   B7 (grupo) -> resetea Metrica (B8) y Dimension (B9) a valores validos.
+'   B3:B14 (cualquier parametro) -> recalcula tabla+grafico desde los datos ya
+'                                   descargados (AutoLocal); si no hay, no hace nada.
+' Requiere acceso al modelo de objetos VBA; devuelve False si no se pudo instalar.
 Public Function InstalarAutoRefresco() As Boolean
     Dim cm As Object, cn As String, txt As String, s As String
     On Error GoTo sinacceso
@@ -872,10 +874,12 @@ Public Function InstalarAutoRefresco() As Boolean
     If InStr(txt, "Worksheet_Change") > 0 Then InstalarAutoRefresco = True: Exit Function  ' ya existe
     s = "Private Sub Worksheet_Change(ByVal Target As Range)" & vbCrLf & _
         "    If Application.EnableEvents = False Then Exit Sub" & vbCrLf & _
-        "    If Intersect(Target, Me.Range(""B7"")) Is Nothing Then Exit Sub" & vbCrLf & _
+        "    If Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then Exit Sub" & vbCrLf & _
         "    Application.EnableEvents = False" & vbCrLf & _
         "    On Error Resume Next" & vbCrLf & _
-        "    ReiniciarMetricaDim" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B3"")) Is Nothing Then CargarCarteras True" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim" & vbCrLf & _
+        "    AutoLocal" & vbCrLf & _
         "    On Error GoTo 0" & vbCrLf & _
         "    Application.EnableEvents = True" & vbCrLf & _
         "End Sub"
@@ -905,16 +909,22 @@ End Sub
 ' =======================  CARGAR CARTERAS EN LOS DESPLEGABLES  =============
 ' Lee la hoja de carteras, filtra por el tipo elegido (B3) y rellena los
 ' desplegables de Entidad (B4/B5/B6) con esos nombres.
-Public Sub CargarCarteras()
+Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet, wm As Worksheet, we As Worksheet
     Dim colN As Long, colT As Long, tipoSel As String
-    Dim r As Long, n As Long, lastR As Long
+    Dim r As Long, n As Long, lastR As Long, prevE As Boolean
     Set ws = Panel()
     Set wm = HojaMaestro()
-    If wm Is Nothing Then MsgBox "No encuentro la hoja de carteras (cartera/carteras/activos).", vbExclamation: Exit Sub
+    If wm Is Nothing Then
+        If Not quiet Then MsgBox "No encuentro la hoja de carteras (cartera/carteras/activos).", vbExclamation
+        Exit Sub
+    End If
     colN = ColPorCabecera(wm, ACTIVOS_COL_NOMBRE)
     colT = ColPorCabecera(wm, "tipo_elemento")
-    If colN = 0 Then MsgBox "La hoja de carteras no tiene la columna 'nombre_elemento'.", vbExclamation: Exit Sub
+    If colN = 0 Then
+        If Not quiet Then MsgBox "La hoja de carteras no tiene la columna 'nombre_elemento'.", vbExclamation
+        Exit Sub
+    End If
 
     tipoSel = LCase(Trim(CStr(ws.Range("B3").Value)))   ' Fondo/Cartera/Indice -> minusculas
     Set we = HojaAux("_Ent")
@@ -931,7 +941,12 @@ Public Sub CargarCarteras()
     Next r
     Application.ScreenUpdating = True
 
-    If n < 2 Then MsgBox "No hay carteras de tipo '" & ws.Range("B3").Value & "' en la hoja.", vbExclamation: Exit Sub
+    If n < 2 Then
+        If Not quiet Then MsgBox "No hay carteras de tipo '" & ws.Range("B3").Value & "' en la hoja.", vbExclamation
+        Exit Sub
+    End If
+    ' Guarda/restaura EnableEvents (si viene del evento, ya esta False; no re-activar).
+    prevE = Application.EnableEvents
     Application.EnableEvents = False
     PonerDV ws.Range("B4"), "=_Ent!$A$2:$A$" & n           ' Entidad 1: solo nombres
     PonerDV ws.Range("B5"), "=_Ent!$A$1:$A$" & n           ' Entidad 2/3: incluye "(ninguna)"
@@ -939,8 +954,8 @@ Public Sub CargarCarteras()
     ws.Range("B4").Value = we.Cells(2, 1).Value
     ws.Range("B5").Value = "(ninguna)"
     ws.Range("B6").Value = "(ninguna)"
-    Application.EnableEvents = True
-    MsgBox (n - 1) & " carteras cargadas para tipo '" & ws.Range("B3").Value & "'.", vbInformation, "Carteras"
+    Application.EnableEvents = prevE
+    If Not quiet Then MsgBox (n - 1) & " entidades cargadas para tipo '" & ws.Range("B3").Value & "'.", vbInformation, "Carteras"
 End Sub
 
 ' =======================  BOTON UNICO: HACE TODO  ==========================
@@ -1188,18 +1203,20 @@ Public Sub AutoLocal()
     On Error Resume Next
     If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) Then Exit Sub
     ListaEntidades ws                 ' fija mId1/2/3 para B4/B5/B6
-    If BloqueCubre(ws) Then
-        If Not ResolverLocal(ws) Then
-            ' La metrica no esta en los datos descargados (o falta esa cartera):
-            ' limpia la tabla para NO mostrar datos de la metrica anterior.
-            GuardarPreviewSiNoExiste ws
-            Application.EnableEvents = False
-            LimpiarTablaNormal ws
-            ws.Cells(3, 4).Value = "(sin datos locales para esta metrica: pulsa 'Actualizar')"
-            Application.EnableEvents = True
-        End If
+    Dim grupo As String, dimen As String, blkId As String
+    grupo = GrupoKey(Trim(CStr(ws.Range("B7").Value)))
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    blkId = BloqueDe(grupo, dimen)
+    ' Solo recalcula si el bloque de ese grupo YA esta descargado para esta cartera.
+    ' Si no (o el grupo no tiene bloque), no hace nada: hay que pulsar 'Actualizar'
+    ' (nunca consulta BigQuery por su cuenta).
+    If Len(blkId) = 0 Then Exit Sub
+    If Not BloqueCubreId(ws, blkId) Then Exit Sub
+    If Fold(grupo) = "apiladas" Then
+        LocalApiladas ws
+    Else
+        If ResolverLocal(ws) Then DibujarGrafico
     End If
-    DibujarGrafico                    ' redibuja siempre (cubre cambio de tipo/estilo de grafico)
 End Sub
 
 ' =====================  BLOQUE AMPLIO + TROCEO LOCAL  ======================
