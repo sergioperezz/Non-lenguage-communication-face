@@ -109,7 +109,7 @@ End Function
 ' no hay que formatear celdas a mano (y no se rompe al cambiar de metrica).
 Private Function FormatoMetrica(ByVal met As String) As String
     Dim m As String: m = Fold(met)
-    If InStr(m, "rentab") = 1 Then
+    If InStr(m, "rentab") = 1 Or m = "peso" Then
         FormatoMetrica = "0.00%"
     ElseIf InStr(m, "duraci") = 1 Then
         FormatoMetrica = "0.000"
@@ -194,8 +194,8 @@ End Function
 ' se sepa el nombre real de la tabla con valoracion por valor, se pone en config
 ' (POS_TABLE y, si aplica, POS_DATASET) sin tocar la macro.
 Private Function TblPos() As String
-    TblPos = "`" & CfgProject() & "." & Cfg("POS_DATASET", CfgDataset(DS_PROD)) & _
-             "." & Cfg("POS_TABLE", T_POS) & "`"
+    TblPos = "`" & CfgProject() & "." & Cfg("POS_DATASET", CfgDataset(DS_OPER)) & _
+             "." & Cfg("POS_TABLE", "CAM_TX_PORTFOLIOS_COMP_PD") & "`"
 End Function
 Private Function PosValor() As String
     PosValor = Cfg("POS_VALOR", POS_VALOR)
@@ -477,19 +477,26 @@ Private Function DimAClasificacion(ByVal dimen As String) As String
     End Select
 End Function
 
-' Une posiciones (p) con el maestro de valores (v). La clave de union es
-' configurable: la tabla de posiciones CAM_TM_PORTFOLIOS_PD NO expone
-' PK_SECURITY_IK (aunque el diccionario lo liste), pero ambas tablas tienen
-' PK_ACTIVO_DATANOW (identificador del activo en DataNow), que es la clave por
-' defecto. Se puede sobreescribir en la hoja "config":
-'   JOIN_KEY_POS    -> columna en posiciones  (def. PK_ACTIVO_DATANOW)
-'   JOIN_KEY_VAL    -> columna en el maestro  (def. PK_ACTIVO_DATANOW)
+' Une posiciones (p) con el maestro de valores (v). Por defecto reproduce la
+' consulta que funciona en BigQuery: posiciones = CAM_TX_PORTFOLIOS_COMP_PD
+' (operativafinanciera_ds01), maestro = vista V_CAM_TM_MSTR_VALORES_PD
+' (informaciondemercado_ds01), unidas por PK_SECURITY_IK (SIN fecha, porque la
+' vista es la foto actual del maestro). Todo configurable en la hoja "config":
+'   JOIN_KEY_POS / JOIN_KEY_VAL -> columnas de union (def. PK_SECURITY_IK)
+'   VALORES_TABLE               -> tabla/vista del maestro (def. V_CAM_TM_MSTR_VALORES_PD)
+'   JOIN_FECHA = 1              -> anadir v.PK_FECHA_DATOS = p.PK_FECHA_DATOS (def. no)
+Private Function TblValores() As String
+    TblValores = Tbl(DS_MERC, Cfg("VALORES_TABLE", "V_CAM_TM_MSTR_VALORES_PD"))
+End Function
 Private Function JoinValores() As String
     Dim kPos As String, kVal As String
-    kPos = Cfg("JOIN_KEY_POS", "PK_ACTIVO_DATANOW")
-    kVal = Cfg("JOIN_KEY_VAL", "PK_ACTIVO_DATANOW")
-    JoinValores = "JOIN " & Tbl(DS_MERC, T_VALORES) & " v" & vbLf & _
-                  "  ON v." & kVal & " = p." & kPos & " AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS" & vbLf
+    kPos = Cfg("JOIN_KEY_POS", "PK_SECURITY_IK")
+    kVal = Cfg("JOIN_KEY_VAL", "PK_SECURITY_IK")
+    JoinValores = "JOIN " & TblValores() & " v" & vbLf & _
+                  "  ON v." & kVal & " = p." & kPos
+    If Cfg("JOIN_FECHA", "0") = "1" Then _
+        JoinValores = JoinValores & " AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS"
+    JoinValores = JoinValores & vbLf
 End Function
 
 Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
@@ -939,7 +946,7 @@ Private Function BlkAncho(ByVal blkId As String) As Long
     Select Case blkId
         Case "RET":  BlkAncho = 4
         Case "RISK": BlkAncho = 6
-        Case "POS":  BlkAncho = 9
+        Case "POS":  BlkAncho = 7   ' PID + gics/bics/geo/divisa/rating + valor
     End Select
 End Function
 
@@ -1113,16 +1120,17 @@ Private Function SQLBloquePos(ByVal ents As String) As String
     geo = Cfg("GEO_COL", GEO_COL)
     divc = Cfg("DIV_COL", DIV_COL)
     rat = Cfg("RATING_COL", RATING_COL)
+    ' Solo lo necesario para composicion (Peso): clasificaciones + valoracion.
+    ' Fecha por cartera (MAX por portfolio), como en la consulta que funciona.
     SQLBloquePos = _
         "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
         "       v." & gics & " AS gics, v." & bics & " AS bics," & vbLf & _
         "       v." & geo & " AS geo, v." & divc & " AS divisa, v." & rat & " AS rating," & vbLf & _
-        "       FORMAT('%.10f', CAST(p." & PosValor() & " AS FLOAT64)) AS valor," & vbLf & _
-        "       FORMAT('%.10f', CAST(p.SPREAD AS FLOAT64)) AS spread," & vbLf & _
-        "       FORMAT('%.10f', CAST(v." & TER_COL & " AS FLOAT64)) AS ter" & vbLf & _
+        "       FORMAT('%.10f', CAST(p." & PosValor() & " AS FLOAT64)) AS valor" & vbLf & _
         "FROM " & TblPos() & " p" & vbLf & JoinValores & _
-        "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")" & vbLf & _
-        "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "  AND p.PK_FECHA_DATOS = (SELECT MAX(sub.PK_FECHA_DATOS) FROM " & TblPos() & " sub" & vbLf & _
+        "                          WHERE sub.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID)" & vbLf & _
         "ORDER BY p.PK_PORTFOLIO_ID"
 End Function
 
@@ -1401,8 +1409,8 @@ Private Function ColClasifPos(ByVal dimen As String) As Long
     End Select
 End Function
 
-' Composicion (Peso) EN LOCAL desde el bloque POS: suma de valoracion por
-' categoria de la clasificacion elegida, por slot.
+' Composicion (Peso) EN LOCAL desde el bloque POS: PESO (%) por categoria de la
+' clasificacion elegida = valoracion de la categoria / valoracion total, por slot.
 Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
     Dim c0 As Long, lastR As Long, r As Long, colCat As Long
     c0 = BLK_POS_COL
@@ -1411,11 +1419,12 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
     colCat = ColClasifPos(Trim(CStr(ws.Range("B9").Value)))
     If colCat = 0 Then Exit Function
 
-    Dim cats As Object, vals As Object
+    Dim cats As Object, vals As Object, tot As Object
     Set cats = CreateObject("Scripting.Dictionary")
-    Set vals = CreateObject("Scripting.Dictionary")
+    Set vals = CreateObject("Scripting.Dictionary")   ' slot|cat -> valoracion
+    Set tot = CreateObject("Scripting.Dictionary")    ' slot -> valoracion total
     Dim rowOut As Long: rowOut = 3
-    Dim pid As String, slot As Long, cat As String, k As String
+    Dim pid As String, slot As Long, cat As String, k As String, v As Double
     For r = 2 To lastR
         pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
         slot = SlotDe(pid)
@@ -1426,12 +1435,19 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
             If rowOut > 402 Then GoTo seguir
             cats.Add cat, rowOut: rowOut = rowOut + 1
         End If
+        v = NumDbl(ws.Cells(r, c0 + 6).Value)
         k = slot & "|" & cat
-        If vals.Exists(k) Then vals(k) = vals(k) + NumDbl(ws.Cells(r, c0 + 6).Value) _
-                             Else vals(k) = NumDbl(ws.Cells(r, c0 + 6).Value)
+        If vals.Exists(k) Then vals(k) = vals(k) + v Else vals(k) = v
+        If tot.Exists(slot) Then tot(slot) = tot(slot) + v Else tot(slot) = v
 seguir:
     Next r
     If cats.Count = 0 Then Exit Function
+    ' Normaliza a peso (fraccion 0..1); se muestra como % (FormatoMetrica "Peso").
+    Dim kk As Variant, s As Long
+    For Each kk In vals.Keys
+        s = CLng(Split(CStr(kk), "|")(0))
+        If tot(s) <> 0 Then vals(kk) = vals(kk) / tot(s)
+    Next kk
     VolcarLocal ws, cats, vals
     LocalComposicion = True
 End Function
@@ -1527,10 +1543,8 @@ Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
         ResolverLocal = LocalRiesgo(ws)
     ElseIf met = "Peso" Then
         ResolverLocal = LocalComposicion(ws)
-    ElseIf met = "Spread" Then
-        ResolverLocal = LocalSpread(ws)
-    ElseIf met = "TER Look-through" Then
-        ResolverLocal = LocalTerLT(ws)
+    ' Spread / TER look-through: la tabla de posiciones (COMP) puede no traer
+    ' SPREAD/TER; se resuelven por consulta directa (ResolverLocal = False).
     End If
 End Function
 

@@ -411,11 +411,13 @@ def build_config(wb):
         ("GEO_COL", "FCCOUNTRYZONE", "Composición por Geografía (zona, todos los activos)"),
         ("DIV_COL", "CURRENCY", "Composición por Divisa (código ISO)"),
         ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
-        ("JOIN_KEY_POS", "PK_ACTIVO_DATANOW", "Clave del JOIN posiciones->maestro (columna en posiciones)"),
-        ("JOIN_KEY_VAL", "PK_ACTIVO_DATANOW", "Clave del JOIN posiciones->maestro (columna en el maestro)"),
-        ("POS_TABLE", "CAM_TM_PORTFOLIOS_PD", "Tabla de POSICIONES (holdings) para composición/spread/TER"),
-        ("POS_DATASET", "productosdatosdecontratos_ds01", "Dataset de la tabla de posiciones (si difiere)"),
+        ("POS_TABLE", "CAM_TX_PORTFOLIOS_COMP_PD", "Tabla de POSICIONES (holdings) para composición"),
+        ("POS_DATASET", "operativafinanciera_ds01", "Dataset de la tabla de posiciones"),
         ("POS_VALOR", "VALUATION_PC", "Columna de valoración de la posición (peso)"),
+        ("VALORES_TABLE", "V_CAM_TM_MSTR_VALORES_PD", "Maestro para composición (vista con clasificaciones)"),
+        ("JOIN_KEY_POS", "PK_SECURITY_IK", "Clave del JOIN posiciones->maestro (columna en posiciones)"),
+        ("JOIN_KEY_VAL", "PK_SECURITY_IK", "Clave del JOIN posiciones->maestro (columna en el maestro)"),
+        ("JOIN_FECHA", "0", "Unir también por fecha (1) o no (0). La vista es foto actual: 0"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD
