@@ -871,7 +871,18 @@ Public Function InstalarAutoRefresco() As Boolean
     cn = Panel().CodeName
     Set cm = ThisWorkbook.VBProject.VBComponents(cn).CodeModule
     If cm.CountOfLines > 0 Then txt = cm.Lines(1, cm.CountOfLines)
-    If InStr(txt, "Worksheet_Change") > 0 Then InstalarAutoRefresco = True: Exit Function  ' ya existe
+    If InStr(txt, "Worksheet_Change") > 0 Then
+        ' Si ya es la version nueva (dispara AutoLocal solo en B7:B14), nada.
+        If InStr(txt, "B7:B14") > 0 Then InstalarAutoRefresco = True: Exit Function
+        ' Version antigua -> la borramos y reinstalamos la nueva.
+        Dim pl As Long, pc As Long
+        pl = cm.ProcStartLine("Worksheet_Change", 0)   ' 0 = vbext_pk_Proc
+        pc = cm.ProcCountLines("Worksheet_Change", 0)
+        If pc > 0 Then cm.DeleteLines pl, pc
+    End If
+    ' Nota: el auto-recalculo (AutoLocal) SOLO se dispara al cambiar B7:B14
+    ' (metrica/dimension/periodo/grafico). Elegir entidad (B4:B6) NO recalcula
+    ' -> elegir carteras/fondos es instantaneo (luego pulsas 'Actualizar').
     s = "Private Sub Worksheet_Change(ByVal Target As Range)" & vbCrLf & _
         "    If Application.EnableEvents = False Then Exit Sub" & vbCrLf & _
         "    If Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then Exit Sub" & vbCrLf & _
@@ -879,7 +890,7 @@ Public Function InstalarAutoRefresco() As Boolean
         "    On Error Resume Next" & vbCrLf & _
         "    If Not Intersect(Target, Me.Range(""B3"")) Is Nothing Then CargarCarteras True" & vbCrLf & _
         "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim" & vbCrLf & _
-        "    AutoLocal" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B7:B14"")) Is Nothing Then AutoLocal" & vbCrLf & _
         "    On Error GoTo 0" & vbCrLf & _
         "    Application.EnableEvents = True" & vbCrLf & _
         "End Sub"
