@@ -58,7 +58,7 @@ ENTIDADES = {
 GRUPOS = {
     "Rendimiento": ["Rentabilidad", "Rentab. acum."],
     "Riesgo": ["Duración Modificada", "Duración Efectiva", "TIR", "Spread",
-               "Volatilidad", "Beta"],
+               "Volatilidad"],
     "Composicion": ["Peso"],
     "Costes": ["TER", "TER Look-through"],
     "Liquidez": ["Liquidez"],
@@ -68,7 +68,7 @@ ALL_METRICS = [m for ms in GRUPOS.values() for m in ms]
 
 DIM_TIEMPO = ["Mensual", "Trimestral", "Semestral", "Anual"]   # tienen TablaN (buckets)
 DIM_GRANU = ["Diario", "Semanal"]                              # granularidades finas
-DIM_COMP = ["Activo", "Geografia", "Pais", "Industria", "Sector", "Divisa", "Rating"]
+DIM_COMP = ["Sector", "Industria", "Continente", "Pais", "Divisa"]
 DIMS = DIM_GRANU + DIM_TIEMPO + DIM_COMP
 _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temporales
 
@@ -77,7 +77,7 @@ _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temp
 DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
     "Riesgo":      _DIM_T,
-    "Composicion": ["Activo", "Sector", "Industria", "Geografia", "Pais", "Divisa", "Rating"],
+    "Composicion": ["Sector", "Industria", "Continente", "Pais", "Divisa"],
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,
@@ -123,8 +123,7 @@ CATEGORIAS = {
                    + ["2026-T1", "2026-T2"]),
     "Semestral": ["2023-S2", "2024-S1", "2024-S2", "2025-S1", "2025-S2", "2026-S1"],
     "Anual": ["2024", "2025", "2026"],
-    "Activo": ["Deuda Pública", "Deuda Privada", "Acciones", "Liquidez", "Derivados"],
-    "Geografia": ["Europa", "Norteamérica", "Asia-Pacífico", "Emergentes", "Latam"],
+    "Continente": ["Europa", "Norteamérica", "Asia-Pacífico", "Emergentes", "Latam"],
     "Pais": ["España", "Francia", "Italia", "Alemania", "EE.UU.", "Reino Unido",
              "Japón", "Holanda", "Irlanda", "Otros"],
     "Industria": ["Financiero", "Tecnología", "Salud", "Energía", "Consumo",
@@ -567,9 +566,9 @@ def build_comparativa(wb):
 def build_sectorial(wb):
     """Hoja 'Sectorial': columnas APILADAS (componentes por categoría) + serie de
     puntos en EJE SECUNDARIO (Contribución al Tracking Error). Ahora se puede
-    AGRUPAR POR varias dimensiones (Sector, Industria, Geografia, Divisa, Rating,
-    Activo). Combo con openpyxl enlazado a una tabla SUMIFS -> sin macro."""
-    GROUP_DIMS = ["Sector", "Industria", "Geografia", "Divisa", "Rating", "Activo"]
+    AGRUPAR POR varias dimensiones (Sector, Industria, Continente, Pais, Divisa,
+    Rating). Combo con openpyxl enlazado a una tabla SUMIFS -> sin macro."""
+    GROUP_DIMS = ["Sector", "Industria", "Continente", "Pais", "Divisa", "Rating"]
     COMPONENTES = ["Large Cap", "Mid Cap", "Small Cap"]
     MAXCAT = max(len(CATEGORIAS[d]) for d in GROUP_DIMS)  # filas de la tabla/chart
 
