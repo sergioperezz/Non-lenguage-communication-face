@@ -57,7 +57,7 @@ ENTIDADES = {
 
 GRUPOS = {
     "Rendimiento": ["Rentabilidad", "Rentab. acum."],
-    "Riesgo": ["Duración Modificada", "Duración Efectiva", "TIR", "Spread",
+    "Riesgo": ["Duración Modificada", "Duración Macaulay", "TIR", "Spread",
                "Volatilidad"],
     "Composicion": ["Peso"],
     "Costes": ["TER", "TER Look-through"],
@@ -68,7 +68,7 @@ ALL_METRICS = [m for ms in GRUPOS.values() for m in ms]
 
 DIM_TIEMPO = ["Mensual", "Trimestral", "Semestral", "Anual"]   # tienen TablaN (buckets)
 DIM_GRANU = ["Diario", "Semanal"]                              # granularidades finas
-DIM_COMP = ["Sector", "Industria", "Continente", "Pais", "Divisa"]
+DIM_COMP = ["Activo", "Sector", "Industria", "Continente", "Pais", "Divisa"]
 DIMS = DIM_GRANU + DIM_TIEMPO + DIM_COMP
 _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temporales
 
@@ -77,7 +77,7 @@ _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temp
 DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
     "Riesgo":      _DIM_T,
-    "Composicion": ["Sector", "Industria", "Continente", "Pais", "Divisa"],
+    "Composicion": ["Activo", "Sector", "Industria", "Continente", "Pais", "Divisa"],
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,
@@ -123,6 +123,7 @@ CATEGORIAS = {
                    + ["2026-T1", "2026-T2"]),
     "Semestral": ["2023-S2", "2024-S1", "2024-S2", "2025-S1", "2025-S2", "2026-S1"],
     "Anual": ["2024", "2025", "2026"],
+    "Activo": ["Renta Fija", "Renta Variable", "Liquidez", "Alternativos", "Derivados"],
     "Continente": ["Europa", "Norteamérica", "Asia-Pacífico", "Emergentes", "Latam"],
     "Pais": ["España", "Francia", "Italia", "Alemania", "EE.UU.", "Reino Unido",
              "Japón", "Holanda", "Irlanda", "Otros"],
@@ -142,7 +143,7 @@ MAX_CATS = max(len(c) for c in CATEGORIAS.values())
 
 PARAMS = {
     "Rentabilidad": (9.0, 0.60, 0.90), "Rentab. acum.": (12.0, 1.20, 0.90),
-    "Duración Modificada": (5.0, 0.30, 0.92), "Duración Efectiva": (5.2, 0.30, 0.92),
+    "Duración Modificada": (5.0, 0.30, 0.92), "Duración Macaulay": (5.2, 0.30, 0.92),
     "TIR": (3.5, 0.20, 1.05), "Spread": (120.0, 15.0, 0.85),
     "Volatilidad": (12.0, 0.80, 1.10), "Beta": (1.0, 0.05, 1.00), "Peso": (18.0, 3.0, 1.00),
     "TER": (0.85, 0.03, 1.00), "TER Look-through": (0.95, 0.03, 1.00),
@@ -413,6 +414,7 @@ def build_config(wb):
         ("PAIS_COL", "FCCOUNTRY", "Composición por País (código país, más granular que zona)"),
         ("DIV_COL", "CURRENCY", "Composición por Divisa (código ISO)"),
         ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
+        ("ACTIVO_COL", "INSTRUMENT_TYPE", "Composición por Tipo de activo (clasificación del maestro)"),
         ("POS_TABLE", "CAM_TX_PORTFOLIOS_COMP_PD", "Tabla de POSICIONES (holdings) para composición"),
         ("POS_DATASET", "operativafinanciera_ds01", "Dataset de la tabla de posiciones"),
         ("POS_VALOR", "VALUATION_PC", "Columna de valoración de la posición (peso)"),

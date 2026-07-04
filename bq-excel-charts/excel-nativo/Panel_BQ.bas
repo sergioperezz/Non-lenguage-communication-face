@@ -474,6 +474,7 @@ Private Function DimAClasificacion(ByVal dimen As String) As String
         Case "Continente": DimAClasificacion = "v." & Cfg("GEO_COL", GEO_COL)
         Case "Pais":       DimAClasificacion = "v." & Cfg("PAIS_COL", "FCCOUNTRY")
         Case "Divisa":     DimAClasificacion = "v." & Cfg("DIV_COL", DIV_COL)
+        Case "Activo":     DimAClasificacion = "v." & Cfg("ACTIVO_COL", "INSTRUMENT_TYPE")
         Case Else:         DimAClasificacion = ""
     End Select
 End Function
@@ -951,7 +952,7 @@ Private Function BlkAncho(ByVal blkId As String) As Long
     Select Case blkId
         Case "RET":  BlkAncho = 4
         Case "RISK": BlkAncho = 6
-        Case "POS":  BlkAncho = 8   ' PID + gics/bics/geo/pais/divisa/rating + valor
+        Case "POS":  BlkAncho = 9   ' PID + gics/bics/geo/pais/divisa/rating/activo + valor
     End Select
 End Function
 
@@ -1119,20 +1120,23 @@ Private Function SQLBloqueRisk(ByVal ents As String) As String
 End Function
 
 Private Function SQLBloquePos(ByVal ents As String) As String
-    Dim gics As String, bics As String, geo As String, pais As String, divc As String, rat As String
+    Dim gics As String, bics As String, geo As String, pais As String
+    Dim divc As String, rat As String, act As String
     gics = Cfg("SECTOR_COL", SECTOR_COL)
     bics = "CLASSIFICATION_BICS"
     geo = Cfg("GEO_COL", GEO_COL)
     pais = Cfg("PAIS_COL", "FCCOUNTRY")
     divc = Cfg("DIV_COL", DIV_COL)
     rat = Cfg("RATING_COL", RATING_COL)
+    act = Cfg("ACTIVO_COL", "INSTRUMENT_TYPE")
     ' Solo lo necesario para composicion (Peso): clasificaciones + valoracion.
-    ' Columnas: PID | gics | bics | geo(zona) | pais | divisa | rating | valor
+    ' Columnas: PID | gics | bics | geo(zona) | pais | divisa | rating | activo | valor
     ' Fecha por cartera (MAX por portfolio), como en la consulta que funciona.
     SQLBloquePos = _
         "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
         "       v." & gics & " AS gics, v." & bics & " AS bics," & vbLf & _
-        "       v." & geo & " AS geo, v." & pais & " AS pais, v." & divc & " AS divisa, v." & rat & " AS rating," & vbLf & _
+        "       v." & geo & " AS geo, v." & pais & " AS pais, v." & divc & " AS divisa," & vbLf & _
+        "       v." & rat & " AS rating, v." & act & " AS activo," & vbLf & _
         "       FORMAT('%.10f', CAST(p." & PosValor() & " AS FLOAT64)) AS valor" & vbLf & _
         "FROM " & TblPos() & " p" & vbLf & JoinValores & _
         "WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
@@ -1286,6 +1290,14 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
 seguir:
     Next r
 
+    ' Rentabilidad (por periodo) = retorno de cada bucket.
+    ' Rentab. acum. = retorno COMPUESTO acumulado desde el inicio de la ventana
+    ' hasta cada bucket (curva creciente). Los buckets van en orden cronologico
+    ' (el bloque RET viene ORDER BY fecha), asi que basta un producto corriente.
+    Dim acum As Boolean: acum = (Trim(CStr(ws.Range("B8").Value)) = "Rentab. acum.")
+    Dim cum1 As Double, cum2 As Double, cum3 As Double, cumB As Double
+    cum1 = 1: cum2 = 1: cum3 = 1: cumB = 1
+
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
     ws.Range("D3:H402").ClearContents
@@ -1293,10 +1305,22 @@ seguir:
     For Each vb In bkts.Keys
         Dim rr As Long: rr = bkts(vb)
         ws.Cells(rr, 4).Value = vb
-        If prod.Exists("1|" & vb) Then ws.Cells(rr, 5).Value = prod("1|" & vb) - 1
-        If prod.Exists("2|" & vb) Then ws.Cells(rr, 6).Value = prod("2|" & vb) - 1
-        If prod.Exists("3|" & vb) Then ws.Cells(rr, 7).Value = prod("3|" & vb) - 1
-        If prodB.Exists("1|" & vb) Then ws.Cells(rr, 8).Value = prodB("1|" & vb) - 1
+        If prod.Exists("1|" & vb) Then
+            cum1 = cum1 * prod("1|" & vb)
+            ws.Cells(rr, 5).Value = IIf(acum, cum1, prod("1|" & vb)) - 1
+        End If
+        If prod.Exists("2|" & vb) Then
+            cum2 = cum2 * prod("2|" & vb)
+            ws.Cells(rr, 6).Value = IIf(acum, cum2, prod("2|" & vb)) - 1
+        End If
+        If prod.Exists("3|" & vb) Then
+            cum3 = cum3 * prod("3|" & vb)
+            ws.Cells(rr, 7).Value = IIf(acum, cum3, prod("3|" & vb)) - 1
+        End If
+        If prodB.Exists("1|" & vb) Then
+            cumB = cumB * prodB("1|" & vb)
+            ws.Cells(rr, 8).Value = IIf(acum, cumB, prodB("1|" & vb)) - 1
+        End If
     Next vb
     ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
     Application.EnableEvents = True
@@ -1405,14 +1429,15 @@ End Function
 
 ' Devuelve la columna del bloque POS que corresponde a la clasificacion elegida.
 Private Function ColClasifPos(ByVal dimen As String) As Long
-    ' POS: PID(+0) gics(+1) bics(+2) geo(+3) pais(+4) divisa(+5) rating(+6) valor(+7)
+    ' POS: PID(+0) gics(+1) bics(+2) geo(+3) pais(+4) divisa(+5) rating(+6) activo(+7) valor(+8)
     Select Case dimen
-        Case "Sector":    ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("SECTOR_COL", SECTOR_COL)), "BICS") > 0, 2, 1)
+        Case "Sector":     ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("SECTOR_COL", SECTOR_COL)), "BICS") > 0, 2, 1)
         Case "Industria":  ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("IND_COL", IND_COL)), "BICS") > 0, 2, 1)
         Case "Continente": ColClasifPos = BLK_POS_COL + 3   ' FCCOUNTRYZONE (zona)
         Case "Pais":       ColClasifPos = BLK_POS_COL + 4   ' FCCOUNTRY (pais)
         Case "Divisa":     ColClasifPos = BLK_POS_COL + 5
         Case "Rating":     ColClasifPos = BLK_POS_COL + 6
+        Case "Activo":     ColClasifPos = BLK_POS_COL + 7   ' tipo de activo (maestro)
         Case Else:         ColClasifPos = 0
     End Select
 End Function
@@ -1443,7 +1468,7 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
             If rowOut > 402 Then GoTo seguir
             cats.Add cat, rowOut: rowOut = rowOut + 1
         End If
-        v = NumDbl(ws.Cells(r, c0 + 7).Value)   ' valor = ultima columna del bloque POS
+        v = NumDbl(ws.Cells(r, c0 + 8).Value)   ' valor = ultima columna del bloque POS
         k = slot & "|" & cat
         If vals.Exists(k) Then vals(k) = vals(k) + v Else vals(k) = v
         If tot.Exists(slot) Then tot(slot) = tot(slot) + v Else tot(slot) = v
