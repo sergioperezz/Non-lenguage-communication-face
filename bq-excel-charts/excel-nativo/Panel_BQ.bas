@@ -766,6 +766,51 @@ Public Sub VerM()
     MsgBox ConstruirM(), vbInformation, "Power Query (M)"
 End Sub
 
+' Diagnostico del BENCHMARK: para la Entidad 1 (B4) muestra su BMK_GESTION (y
+' otros BMK_*) del maestro de carteras, y cuenta cuantas filas hay de ESE id en
+' las tablas de posiciones (composicion) y de riesgo. Si son > 0, el benchmark
+' se puede traer igual que la cartera (mismas tablas, como un portfolio mas).
+Public Sub VerBenchmark()
+    Dim ws As Worksheet, id As String, cn As Object, rs As Object, msg As String, bmkG As String
+    Set ws = Panel()
+    ListaEntidades ws
+    id = Trim(mId1)
+    If Len(id) = 0 Then MsgBox "Elige una cartera en B4 (y pulsa 'Cargar carteras').", vbExclamation, "Benchmark": Exit Sub
+    On Error GoTo fallo
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 60: cn.CursorLocation = 3: cn.Open CfgConn()
+    Dim master As String: master = Tbl(DS_PROD, Cfg("PORTF_MASTER", "CAM_TM_PORTFOLIOS_PD"))
+    Set rs = cn.Execute("SELECT BMK_GESTION, BMK_FOLLETO, BMK_EVAL FROM " & master & _
+                        " WHERE PK_PORTFOLIO_ID = '" & Esc(id) & "' LIMIT 1")
+    If Not rs.EOF Then
+        bmkG = Trim(CStr(rs.Fields(0).Value))
+        msg = "Benchmark de " & id & " (maestro de carteras):" & vbLf & _
+              "  BMK_GESTION = " & CStr(rs.Fields(0).Value) & vbLf & _
+              "  BMK_FOLLETO = " & CStr(rs.Fields(1).Value) & vbLf & _
+              "  BMK_EVAL    = " & CStr(rs.Fields(2).Value) & vbLf
+    Else
+        msg = "No encontre " & id & " en " & master & "." & vbLf
+    End If
+    rs.Close
+    If Len(bmkG) > 0 Then
+        Set rs = cn.Execute("SELECT COUNT(*) FROM " & TblPos() & " WHERE PK_PORTFOLIO_ID = '" & Esc(bmkG) & "'")
+        msg = msg & vbLf & "Filas en posiciones con PK_PORTFOLIO_ID='" & bmkG & "': " & CStr(rs.Fields(0).Value)
+        rs.Close
+        Set rs = cn.Execute("SELECT COUNT(*) FROM " & Tbl(DS_PROD, T_RISK) & " WHERE PK_PORTFOLIO_ID = '" & Esc(bmkG) & "'")
+        msg = msg & vbLf & "Filas en riesgo con PK_PORTFOLIO_ID='" & bmkG & "': " & CStr(rs.Fields(0).Value)
+        rs.Close
+    End If
+    cn.Close
+    MsgBox msg & vbLf & vbLf & "Si esos contadores son > 0, el benchmark se trae igual que la cartera " & _
+           "(mismas tablas). Pasame este resultado y lo cablео.", vbInformation, "Diagnostico benchmark"
+    Exit Sub
+fallo:
+    MsgBox "Error consultando el benchmark:" & vbLf & Err.Description, vbExclamation, "Benchmark"
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+End Sub
+
 ' =======================  INSTALADOR DE BOTONES  ===========================
 ' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
 ' las hojas Panel y Tablas con sus macros ya asignadas.
@@ -779,7 +824,8 @@ Public Sub InstalarBotones()
     CrearBoton ws, "A26", "Vista previa (dummy)", "VistaPreviaDummy"
     CrearBoton ws, "A28", "Ver SQL", "VerSQL"
     CrearBoton ws, "A30", "Ver columnas (diagnostico)", "VerColumnas"
-    CrearBoton ws, "A32", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A32", "Ver benchmark (diagnostico)", "VerBenchmark"
+    CrearBoton ws, "A34", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
