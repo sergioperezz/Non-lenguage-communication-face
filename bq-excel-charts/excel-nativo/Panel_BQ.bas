@@ -1019,7 +1019,13 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
         If Not dentro Or dd > dMax Then GoTo seguir
         pid = UCase(Trim(CStr(wc.Cells(r, 1).Value)))
         slot = 0
-        If IgualId(pid, mId1) Then slot = 1 ElseIf IgualId(pid, mId2) Then slot = 2 ElseIf IgualId(pid, mId3) Then slot = 3
+        If IgualId(pid, mId1) Then
+            slot = 1
+        ElseIf IgualId(pid, mId2) Then
+            slot = 2
+        ElseIf IgualId(pid, mId3) Then
+            slot = 3
+        End If
         If slot = 0 Then GoTo seguir
         bkt = BucketLocal(dd, dimen)
         If Not bkts.Exists(bkt) Then
@@ -1261,6 +1267,14 @@ Private Function IgualId(ByVal a As String, ByVal b As String) As Boolean
     IgualId = (Len(Trim(b)) > 0) And (UCase(Trim(a)) = UCase(Trim(b)))
 End Function
 
+' True si la columna (E/F/G/H) tiene algun valor en las filas de datos (3..402).
+Private Function HayDatosCol(ByVal ws As Worksheet, ByVal colLetter As String) As Boolean
+    Dim r As Long
+    For r = 3 To 402
+        If Trim(CStr(ws.Range(colLetter & r).Value)) <> "" Then HayDatosCol = True: Exit Function
+    Next r
+End Function
+
 ' =======================  DIBUJO DEL GRAFICO  ==============================
 Private Sub AjustarSeleccion(ws As Worksheet, ByVal celda As String, ByVal nombreLista As String)
     Dim rng As Range, c As Range, valido As Boolean
@@ -1335,8 +1349,11 @@ Public Sub DibujarGrafico()
     AddEnt ws, ch, "B5", "F", "ChF"
     AddEnt ws, ch, "B6", "G", "ChG"
 
+    ' Solo dibuja la serie de benchmark si REALMENTE hay datos en H (columna del
+    ' benchmark). Metricas sin benchmark (Duracion/TIR/Composicion) dejan H vacia,
+    ' asi que no se pinta una linea de ceros pegada abajo.
     benchIdx = 0
-    If conBench And Trim(CStr(ws.Range("B4").Value)) <> "" Then
+    If conBench And Trim(CStr(ws.Range("B4").Value)) <> "" And HayDatosCol(ws, "H") Then
         Set s = ch.SeriesCollection.NewSeries
         s.Name = "=Panel!$H$2"
         s.Values = RefNombre("ChH")
