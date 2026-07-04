@@ -51,8 +51,20 @@ Private Const TER_FONDO_EXPR As String = "f.COMISION_DE_GESTION_DIRECTA + f.COMI
 Private Const ACTIVOS_SHEET As String = "cartera"          ' nombre principal a buscar
 Private Const ACTIVOS_COL_NOMBRE As String = "nombre_elemento"
 Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_PORTFOLIO_ID
-Private Const CACHE_RET As String = "_CacheRet"   ' cache de retornos diarios (bloque amplio)
+Private Const CACHE_RET As String = "_CacheRet"   ' (compat) hoja antigua de cache; ya no se usa
 Private Const CACHE_ANOS As Long = 6              ' anos de historia diaria que se cachean
+' --- BLOQUE AMPLIO EN LA HOJA PANEL (a partir de la columna W) --------------
+' "Cargar datos (cartera)" baja de UNA vez TODOS los datos de las carteras
+' elegidas y los deja en la hoja Panel en tres bloques (columna W en adelante).
+' Luego cualquier metrica/dimension/periodo se calcula EN LOCAL (sin re-consultar).
+'   RET  (retornos diarios): PK_PORTFOLIO_ID | fecha | twr_1d | twr_1d_bmk
+'   RISK (riesgo diario):    fecha | PK_PORTFOLIO_ID | criterio | etiqueta | variable | valor
+'   POS  (posiciones hoy):   PK_PORTFOLIO_ID | gics | bics | geo | divisa | rating | valor | spread | ter
+Private Const BLK_RET_COL As Long = 23     ' W  (ancho 4)
+Private Const BLK_RISK_COL As Long = 29    ' AC (ancho 6)
+Private Const BLK_POS_COL As Long = 37     ' AK (ancho 9)
+Private Const BLK_MARK_COL As Long = 47    ' AU  (marca "ENTS:'A','B'")
+Private Const BLK_ULTFILA As Long = 200000 ' fila maxima para limpiar los bloques
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -839,11 +851,11 @@ Public Sub RefrescarDatos()
     Dim ws As Worksheet, sql As String, msg As String, intento As Long
     Set ws = Panel()
 
-    ' BLOQUE AMPLIO + TROCEO LOCAL: si la metrica es Rentabilidad y ya hay cache
-    ' diaria que cubre estas carteras, se calcula EN LOCAL (sin ir a BigQuery).
-    Dim met As String: met = Trim(CStr(ws.Range("B8").Value))
-    If (met = "Rentabilidad" Or met = "Rentab. acum.") And CacheCubre(ws) Then
-        If LocalRentabilidad(ws) Then
+    ' BLOQUE AMPLIO + TROCEO LOCAL: si ya se han descargado los datos de estas
+    ' carteras (boton "Cargar datos"), la metrica/dimension/periodo se calcula
+    ' EN LOCAL desde los bloques de la hoja Panel, sin volver a BigQuery.
+    If BloqueCubre(ws) Then
+        If ResolverLocal(ws) Then
             DibujarGrafico
             Exit Sub
         End If
@@ -878,42 +890,115 @@ Public Sub RefrescarDatos()
 End Sub
 
 ' =====================  BLOQUE AMPLIO + TROCEO LOCAL  ======================
-' Baja de UNA vez los retornos diarios (fondo + benchmark) de las carteras
-' elegidas a la hoja oculta _CacheRet. Luego cualquier periodo/dimension de
-' Rentabilidad se calcula en local (sin volver a BigQuery).
+' Baja de UNA vez TODOS los datos de las carteras elegidas y los deja en la
+' hoja Panel a partir de la columna W (tres bloques: retornos diarios, riesgo
+' diario y posiciones de hoy). Luego CUALQUIER metrica/dimension/periodo se
+' calcula EN LOCAL, sin volver a BigQuery. Solo hay que re-pulsar al cambiar
+' de cartera (o si quieres datos mas frescos).
 Public Sub CargarDatosCartera()
-    Dim ws As Worksheet, ents As String, sql As String, msg As String, wc As Worksheet
+    Dim ws As Worksheet, ents As String, msg As String, n As Long
     Set ws = Panel()
     ents = ListaEntidades(ws)                 ' fija mId1/2/3
     If Len(ents) = 0 Then
         MsgBox "Elige una cartera valida en B4 (y pulsa 'Cargar carteras' si hace falta).", _
                vbExclamation, "Cargar datos": Exit Sub
     End If
-    sql = "SELECT PK_PORTFOLIO_ID," & vbLf & _
-          "       FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS) AS fecha," & vbLf & _
-          "       FORMAT('%.10f', CAST(TWR_1D AS FLOAT64)) AS twr_1d," & vbLf & _
-          "       FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64)) AS twr_1d_bmk" & vbLf & _
-          "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
-          "WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
-          "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
-          "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
-          "), INTERVAL " & CACHE_ANOS & " YEAR)" & vbLf & _
-          "ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
-    Set wc = HojaAux(CACHE_RET)
-    wc.Visible = xlSheetVisible                     ' visible para poder inspeccionar TODOS los datos
-    If Not EjecutarASheet(sql, wc, msg) Then
+
+    Application.EnableEvents = False
+    Application.Cursor = xlWait
+    LimpiarBloques ws
+
+    ' 1) Retornos diarios (fondo + benchmark).
+    If Not DescargarBloque(ws, SQLBloqueRet(ents), BLK_RET_COL, 4, msg) Then GoTo fin
+
+    ' 2) Riesgo diario (todas las variantes: duracion, TIR, por criterio...).
+    '    Best-effort: si falla, seguimos (riesgo se resolvera por consulta directa).
+    DescargarBloque ws, SQLBloqueRisk(ents), BLK_RISK_COL, 6, msg
+
+    ' 3) Posiciones de hoy con el maestro (para composicion / spread / TER).
+    '    Best-effort igual que riesgo.
+    DescargarBloque ws, SQLBloquePos(ents), BLK_POS_COL, 9, msg
+
+    ws.Cells(1, BLK_MARK_COL).NumberFormat = "@"
+    ws.Cells(1, BLK_MARK_COL).Value = "ENTS:" & UCase(ents)   ' marca de que hay en los bloques
+
+fin:
+    Application.Cursor = xlDefault
+    Application.EnableEvents = True
+    If Len(Trim(CStr(ws.Cells(1, BLK_MARK_COL).Value))) = 0 Then
         MsgBox "No se pudieron cargar los datos:" & vbLf & msg, vbExclamation, "Cargar datos": Exit Sub
     End If
-    wc.Range("H1").Value = "ENTS:" & UCase(ents)    ' marca de que carteras hay en cache
-    MsgBox "Datos diarios cargados en cache." & vbLf & _
-           "Ahora Rentabilidad por cualquier periodo/dimension es instantanea (sin re-consultar)." & vbLf & _
+    MsgBox "Datos cargados en la hoja Panel (columna W en adelante)." & vbLf & _
+           "Ahora cambiar de metrica/dimension/periodo es instantaneo (sin re-consultar)." & vbLf & _
            "Vuelve a pulsar 'Cargar datos' solo al cambiar de cartera.", vbInformation, "Cargar datos"
     RefrescarDatos
 End Sub
 
-' Ejecuta una SQL y vuelca el resultado (cabeceras fila 1, datos desde fila 2)
-' en la hoja destino, como TEXTO. True si fue bien; error en msg.
-Private Function EjecutarASheet(ByVal sql As String, ByVal wd As Worksheet, ByRef msg As String) As Boolean
+' Borra las tres areas de bloque en la hoja Panel (columna W en adelante).
+Private Sub LimpiarBloques(ByVal ws As Worksheet)
+    ws.Range(ws.Cells(1, BLK_RET_COL), ws.Cells(BLK_ULTFILA, BLK_MARK_COL)).ClearContents
+End Sub
+
+' --- SQL de los tres bloques amplios -------------------------------------
+Private Function SQLBloqueRet(ByVal ents As String) As String
+    SQLBloqueRet = _
+        "SELECT PK_PORTFOLIO_ID," & vbLf & _
+        "       FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS) AS fecha," & vbLf & _
+        "       FORMAT('%.10f', CAST(TWR_1D AS FLOAT64)) AS twr_1d," & vbLf & _
+        "       FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64)) AS twr_1d_bmk" & vbLf & _
+        "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
+        "WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
+        "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
+        "), INTERVAL " & CACHE_ANOS & " YEAR)" & vbLf & _
+        "ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
+End Function
+
+Private Function SQLBloqueRisk(ByVal ents As String) As String
+    Dim w As String
+    w = "WHERE " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & vbLf & _
+        "  AND PK_PORTFOLIO = '" & Esc(CfgPortfolio()) & "'"
+    If Len(CfgLtLevel()) > 0 Then w = w & vbLf & "  AND PK_LTLEVEL = " & CfgLtLevel()
+    w = w & vbLf & "  AND PK_CRITERIO_AGREGACION IN ('Duracion','AssetType','Geo','FX','TIR')"
+    w = w & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
+        "), INTERVAL " & CACHE_ANOS & " YEAR)"
+    SQLBloqueRisk = _
+        "SELECT FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS) AS fecha," & vbLf & _
+        "       PK_PORTFOLIO_ID," & vbLf & _
+        "       PK_CRITERIO_AGREGACION AS criterio," & vbLf & _
+        "       PK_ETIQUETA_AGREGACION AS etiqueta," & vbLf & _
+        "       PK_VARIABLE_TARGET AS variable," & vbLf & _
+        "       FORMAT('%.10f', CAST(VALOR AS FLOAT64)) AS valor" & vbLf & _
+        "FROM " & Tbl(DS_PROD, T_RISK) & vbLf & w & vbLf & _
+        "ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
+End Function
+
+Private Function SQLBloquePos(ByVal ents As String) As String
+    Dim gics As String, bics As String, geo As String, divc As String, rat As String
+    gics = Cfg("SECTOR_COL", SECTOR_COL)
+    bics = "CLASSIFICATION_BICS"
+    geo = Cfg("GEO_COL", GEO_COL)
+    divc = Cfg("DIV_COL", DIV_COL)
+    rat = Cfg("RATING_COL", RATING_COL)
+    SQLBloquePos = _
+        "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
+        "       v." & gics & " AS gics, v." & bics & " AS bics," & vbLf & _
+        "       v." & geo & " AS geo, v." & divc & " AS divisa, v." & rat & " AS rating," & vbLf & _
+        "       FORMAT('%.10f', CAST(p." & POS_VALOR & " AS FLOAT64)) AS valor," & vbLf & _
+        "       FORMAT('%.10f', CAST(p.SPREAD AS FLOAT64)) AS spread," & vbLf & _
+        "       FORMAT('%.10f', CAST(v." & TER_COL & " AS FLOAT64)) AS ter" & vbLf & _
+        "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
+        "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")" & vbLf & _
+        "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "ORDER BY p.PK_PORTFOLIO_ID"
+End Function
+
+' Ejecuta una SQL y escribe el resultado (cabeceras en fila 1, datos desde
+' fila 2) en la hoja Panel a partir de la columna 'baseCol', como TEXTO.
+' True si fue bien; deja el error en msg.
+Private Function DescargarBloque(ByVal ws As Worksheet, ByVal sql As String, _
+        ByVal baseCol As Long, ByVal ancho As Long, ByRef msg As String) As Boolean
     Dim cn As Object, rs As Object, j As Long
     On Error GoTo fallo
     Set cn = CreateObject("ADODB.Connection")
@@ -921,14 +1006,13 @@ Private Function EjecutarASheet(ByVal sql As String, ByVal wd As Worksheet, ByRe
     cn.CursorLocation = 3
     cn.Open CfgConn()
     Set rs = cn.Execute(sql)
-    wd.Cells.Clear
-    wd.Cells.NumberFormat = "@"
+    ws.Range(ws.Cells(1, baseCol), ws.Cells(BLK_ULTFILA, baseCol + ancho - 1)).NumberFormat = "@"
     For j = 0 To rs.Fields.Count - 1
-        wd.Cells(1, 1 + j).Value = rs.Fields(j).Name
+        ws.Cells(1, baseCol + j).Value = rs.Fields(j).Name
     Next j
-    If Not rs.EOF Then wd.Cells(2, 1).CopyFromRecordset rs
+    If Not rs.EOF Then ws.Cells(2, baseCol).CopyFromRecordset rs
     rs.Close: cn.Close
-    EjecutarASheet = True
+    DescargarBloque = True
     Exit Function
 fallo:
     msg = Err.Description
@@ -936,23 +1020,35 @@ fallo:
     If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
     On Error GoTo 0
-    EjecutarASheet = False
+    DescargarBloque = False
 End Function
 
-' True si la cache de retornos existe y cubre TODAS las entidades elegidas.
-Private Function CacheCubre(ByVal ws As Worksheet) As Boolean
-    Dim wc As Worksheet, marca As String
-    On Error Resume Next
-    Set wc = ThisWorkbook.Sheets(CACHE_RET)
-    On Error GoTo 0
-    If wc Is Nothing Then Exit Function
-    marca = CStr(wc.Range("H1").Value)
+' True si los bloques amplios existen y cubren TODAS las entidades elegidas.
+Private Function BloqueCubre(ByVal ws As Worksheet) As Boolean
+    Dim marca As String
+    marca = CStr(ws.Cells(1, BLK_MARK_COL).Value)
     If Len(marca) = 0 Then Exit Function
     Dim ok As Boolean: ok = True
     If Len(Trim(mId1)) > 0 Then If InStr(marca, "'" & UCase(mId1) & "'") = 0 Then ok = False
     If Len(Trim(mId2)) > 0 Then If InStr(marca, "'" & UCase(mId2) & "'") = 0 Then ok = False
     If Len(Trim(mId3)) > 0 Then If InStr(marca, "'" & UCase(mId3) & "'") = 0 Then ok = False
-    CacheCubre = ok
+    BloqueCubre = ok
+End Function
+
+' Ultima fila con datos de un bloque (por su primera columna).
+Private Function UltFilaBloque(ByVal ws As Worksheet, ByVal baseCol As Long) As Long
+    UltFilaBloque = ws.Cells(BLK_ULTFILA, baseCol).End(xlUp).Row
+End Function
+
+' Slot (1/2/3) de un pk_portfolio_id segun B4/B5/B6; 0 si no es ninguno.
+Private Function SlotDe(ByVal pid As String) As Long
+    If IgualId(pid, mId1) Then
+        SlotDe = 1
+    ElseIf IgualId(pid, mId2) Then
+        SlotDe = 2
+    ElseIf IgualId(pid, mId3) Then
+        SlotDe = 3
+    End If
 End Function
 
 ' Convierte "yyyy-mm-dd" en Date (independiente del idioma).
@@ -992,15 +1088,12 @@ Private Function InicioVentana(ByVal dMax As Date, ByVal per As String, ByVal di
     InicioVentana = DateAdd("yyyy", -1, dMax)
 End Function
 
-' Calcula Rentabilidad (compuesta por bucket) EN LOCAL desde _CacheRet y la
-' vuelca a D:H. Devuelve False si no hay cache utilizable.
+' Calcula Rentabilidad (compuesta por bucket) EN LOCAL desde el bloque RET de
+' la hoja Panel (columna W) y la vuelca a D:H. False si no hay datos utilizables.
 Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
-    Dim wc As Worksheet, lastR As Long, r As Long
-    On Error Resume Next
-    Set wc = ThisWorkbook.Sheets(CACHE_RET)
-    On Error GoTo 0
-    If wc Is Nothing Then Exit Function
-    lastR = wc.Cells(wc.Rows.Count, 1).End(xlUp).Row
+    Dim c0 As Long, lastR As Long, r As Long
+    c0 = BLK_RET_COL
+    lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
 
     Dim per As String, dimen As String, conBmk As Boolean, anual As Boolean
@@ -1011,7 +1104,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
 
     Dim dMax As Date, dd As Date, ini As Date
     For r = 2 To lastR
-        dd = FechaDe(wc.Cells(r, 2).Value)
+        dd = FechaDe(ws.Cells(r, c0 + 1).Value)
         If dd > dMax Then dMax = dd
     Next r
     ini = InicioVentana(dMax, per, dimen)
@@ -1024,19 +1117,12 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     Dim pid As String, slot As Long, bkt As String, k As String, dentro As Boolean
 
     For r = 2 To lastR
-        dd = FechaDe(wc.Cells(r, 2).Value)
+        dd = FechaDe(ws.Cells(r, c0 + 1).Value)
         If dd = 0 Then GoTo seguir
         dentro = IIf(anual, dd >= ini, dd > ini)
         If Not dentro Or dd > dMax Then GoTo seguir
-        pid = UCase(Trim(CStr(wc.Cells(r, 1).Value)))
-        slot = 0
-        If IgualId(pid, mId1) Then
-            slot = 1
-        ElseIf IgualId(pid, mId2) Then
-            slot = 2
-        ElseIf IgualId(pid, mId3) Then
-            slot = 3
-        End If
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        slot = SlotDe(pid)
         If slot = 0 Then GoTo seguir
         bkt = BucketLocal(dd, dimen)
         If Not bkts.Exists(bkt) Then
@@ -1044,10 +1130,10 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
             bkts.Add bkt, rowOut: rowOut = rowOut + 1
         End If
         k = slot & "|" & bkt
-        Dim r1 As Double: r1 = 1 + NumDbl(wc.Cells(r, 3).Value)   ' dia nulo -> 0 (sin movimiento)
+        Dim r1 As Double: r1 = 1 + NumDbl(ws.Cells(r, c0 + 2).Value)   ' dia nulo -> 0 (sin movimiento)
         If prod.Exists(k) Then prod(k) = prod(k) * r1 Else prod(k) = r1
         If conBmk And slot = 1 Then
-            Dim rb As Double: rb = 1 + NumDbl(wc.Cells(r, 4).Value)
+            Dim rb As Double: rb = 1 + NumDbl(ws.Cells(r, c0 + 3).Value)
             If prodB.Exists(k) Then prodB(k) = prodB(k) * rb Else prodB(k) = rb
         End If
 seguir:
@@ -1070,10 +1156,258 @@ seguir:
     LocalRentabilidad = (bkts.Count > 0)
 End Function
 
-' Ejecuta la SQL, vuelca el crudo desde la columna W y pivota a D:H.
+' Escribe en la tabla del grafico (D:H) una serie categoria -> valores por slot.
+' 'cats' es el diccionario categoria->fila; 'vals' tiene claves "slot|cat".
+Private Sub VolcarLocal(ByVal ws As Worksheet, ByVal cats As Object, ByVal vals As Object)
+    GuardarPreviewSiNoExiste ws
+    Application.EnableEvents = False
+    ws.Range("D3:H402").ClearContents
+    Dim vc As Variant, rr As Long
+    For Each vc In cats.Keys
+        rr = cats(vc)
+        ws.Cells(rr, 4).Value = vc
+        If vals.Exists("1|" & vc) Then ws.Cells(rr, 5).Value = vals("1|" & vc)
+        If vals.Exists("2|" & vc) Then ws.Cells(rr, 6).Value = vals("2|" & vc)
+        If vals.Exists("3|" & vc) Then ws.Cells(rr, 7).Value = vals("3|" & vc)
+    Next vc
+    ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
+    Application.EnableEvents = True
+End Sub
+
+' Calcula Duracion/TIR EN LOCAL desde el bloque RISK de la hoja Panel.
+' Temporal (Diario..Anual): ultimo valor de cada bucket. Dimensional (Activo/
+' Geografia/Divisa): ultimo valor por etiqueta a la fecha mas reciente.
+Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
+    Dim c0 As Long, lastR As Long, r As Long
+    c0 = BLK_RISK_COL                       ' fecha|PID|criterio|etiqueta|variable|valor
+    lastR = UltFilaBloque(ws, c0)
+    If lastR < 2 Then Exit Function
+
+    Dim met As String, dimen As String, esTiempo As Boolean
+    Dim crit As String, varT As String
+    met = Trim(CStr(ws.Range("B8").Value))
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    esTiempo = DimEsTiempo(dimen)
+    If InStr(Fold(met), "duraci") = 1 Then
+        varT = VarTarget(met)               ' DuracionModificada / DuracionMacaulay...
+        crit = IIf(esTiempo, "Duracion", DimACriterio(dimen))
+    ElseIf met = "TIR" Then
+        varT = ""                           ' TIR es criterio, sin variable target
+        crit = "TIR"
+    Else
+        Exit Function
+    End If
+    If Len(crit) = 0 Then Exit Function     ' dimension sin desglose -> que lo resuelva la consulta
+
+    Dim per As String: per = Trim(CStr(ws.Range("B11").Value))
+    Dim anual As Boolean: anual = (Fold(dimen) = "anual")
+
+    ' Fecha maxima (para ventana temporal y para el snapshot dimensional).
+    Dim dMax As Date, dd As Date
+    For r = 2 To lastR
+        If Fold(CStr(ws.Cells(r, c0 + 2).Value)) = Fold(crit) Then
+            dd = FechaDe(ws.Cells(r, c0).Value)
+            If dd > dMax Then dMax = dd
+        End If
+    Next r
+    If dMax = 0 Then Exit Function
+    Dim ini As Date: ini = InicioVentana(dMax, per, dimen)
+
+    Dim cats As Object, vals As Object, fmax As Object
+    Set cats = CreateObject("Scripting.Dictionary")   ' categoria -> fila
+    Set vals = CreateObject("Scripting.Dictionary")   ' slot|cat -> valor (ultimo)
+    Set fmax = CreateObject("Scripting.Dictionary")   ' slot|cat -> fecha del ultimo
+    Dim rowOut As Long: rowOut = 3
+    Dim pid As String, slot As Long, cat As String, k As String, dentro As Boolean
+
+    For r = 2 To lastR
+        If Fold(CStr(ws.Cells(r, c0 + 2).Value)) <> Fold(crit) Then GoTo seguir
+        If Len(varT) > 0 Then
+            If Fold(CStr(ws.Cells(r, c0 + 4).Value)) <> Fold(varT) Then GoTo seguir
+        End If
+        pid = UCase(Trim(CStr(ws.Cells(r, c0 + 1).Value)))
+        slot = SlotDe(pid)
+        If slot = 0 Then GoTo seguir
+        dd = FechaDe(ws.Cells(r, c0).Value)
+        If dd = 0 Then GoTo seguir
+        If esTiempo Then
+            dentro = IIf(anual, dd >= ini, dd > ini)
+            If Not dentro Or dd > dMax Then GoTo seguir
+            cat = BucketLocal(dd, dimen)
+        Else
+            cat = Trim(CStr(ws.Cells(r, c0 + 3).Value))   ' etiqueta (Activo/Geo/Divisa)
+            If Len(cat) = 0 Then GoTo seguir
+        End If
+        If Not cats.Exists(cat) Then
+            If rowOut > 402 Then GoTo seguir
+            cats.Add cat, rowOut: rowOut = rowOut + 1
+        End If
+        k = slot & "|" & cat
+        ' Nos quedamos con el ultimo valor (fecha mayor) de cada slot|categoria.
+        If (Not fmax.Exists(k)) Or (dd >= fmax(k)) Then
+            fmax(k) = dd
+            vals(k) = NumDbl(ws.Cells(r, c0 + 5).Value)
+        End If
+seguir:
+    Next r
+
+    If cats.Count = 0 Then Exit Function
+    VolcarLocal ws, cats, vals
+    LocalRiesgo = True
+End Function
+
+' Devuelve la columna del bloque POS que corresponde a la clasificacion elegida.
+Private Function ColClasifPos(ByVal dimen As String) As Long
+    ' POS: PID(+0) gics(+1) bics(+2) geo(+3) divisa(+4) rating(+5) valor(+6) spread(+7) ter(+8)
+    Select Case dimen
+        Case "Sector":    ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("SECTOR_COL", SECTOR_COL)), "BICS") > 0, 2, 1)
+        Case "Industria": ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("IND_COL", IND_COL)), "BICS") > 0, 2, 1)
+        Case "Geografia": ColClasifPos = BLK_POS_COL + 3
+        Case "Divisa":    ColClasifPos = BLK_POS_COL + 4
+        Case "Rating":    ColClasifPos = BLK_POS_COL + 5
+        Case Else:        ColClasifPos = 0
+    End Select
+End Function
+
+' Composicion (Peso) EN LOCAL desde el bloque POS: suma de valoracion por
+' categoria de la clasificacion elegida, por slot.
+Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
+    Dim c0 As Long, lastR As Long, r As Long, colCat As Long
+    c0 = BLK_POS_COL
+    lastR = UltFilaBloque(ws, c0)
+    If lastR < 2 Then Exit Function
+    colCat = ColClasifPos(Trim(CStr(ws.Range("B9").Value)))
+    If colCat = 0 Then Exit Function
+
+    Dim cats As Object, vals As Object
+    Set cats = CreateObject("Scripting.Dictionary")
+    Set vals = CreateObject("Scripting.Dictionary")
+    Dim rowOut As Long: rowOut = 3
+    Dim pid As String, slot As Long, cat As String, k As String
+    For r = 2 To lastR
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        slot = SlotDe(pid)
+        If slot = 0 Then GoTo seguir
+        cat = Trim(CStr(ws.Cells(r, colCat).Value))
+        If Len(cat) = 0 Then cat = "(sin dato)"
+        If Not cats.Exists(cat) Then
+            If rowOut > 402 Then GoTo seguir
+            cats.Add cat, rowOut: rowOut = rowOut + 1
+        End If
+        k = slot & "|" & cat
+        If vals.Exists(k) Then vals(k) = vals(k) + NumDbl(ws.Cells(r, c0 + 6).Value) _
+                             Else vals(k) = NumDbl(ws.Cells(r, c0 + 6).Value)
+seguir:
+    Next r
+    If cats.Count = 0 Then Exit Function
+    VolcarLocal ws, cats, vals
+    LocalComposicion = True
+End Function
+
+' Spread medio (ponderado por valoracion) EN LOCAL desde el bloque POS. Si la
+' dimension es una clasificacion, desglosa por ella; si no, un valor por slot.
+Private Function LocalSpread(ByVal ws As Worksheet) As Boolean
+    Dim c0 As Long, lastR As Long, r As Long, colCat As Long
+    c0 = BLK_POS_COL
+    lastR = UltFilaBloque(ws, c0)
+    If lastR < 2 Then Exit Function
+    colCat = ColClasifPos(Trim(CStr(ws.Range("B9").Value)))   ' 0 = sin desglose
+
+    Dim cats As Object, num As Object, den As Object
+    Set cats = CreateObject("Scripting.Dictionary")
+    Set num = CreateObject("Scripting.Dictionary")
+    Set den = CreateObject("Scripting.Dictionary")
+    Dim rowOut As Long: rowOut = 3
+    Dim pid As String, slot As Long, cat As String, k As String, w As Double, sp As Double
+    For r = 2 To lastR
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        slot = SlotDe(pid)
+        If slot = 0 Then GoTo seguir
+        If colCat = 0 Then
+            cat = "Total"
+        Else
+            cat = Trim(CStr(ws.Cells(r, colCat).Value))
+            If Len(cat) = 0 Then cat = "(sin dato)"
+        End If
+        If Not cats.Exists(cat) Then
+            If rowOut > 402 Then GoTo seguir
+            cats.Add cat, rowOut: rowOut = rowOut + 1
+        End If
+        w = NumDbl(ws.Cells(r, c0 + 6).Value)    ' valoracion (peso)
+        sp = NumDbl(ws.Cells(r, c0 + 7).Value)   ' spread
+        k = slot & "|" & cat
+        If num.Exists(k) Then num(k) = num(k) + sp * w Else num(k) = sp * w
+        If den.Exists(k) Then den(k) = den(k) + w Else den(k) = w
+seguir:
+    Next r
+    If cats.Count = 0 Then Exit Function
+    Dim vals As Object: Set vals = CreateObject("Scripting.Dictionary")
+    Dim kk As Variant
+    For Each kk In num.Keys
+        If den(kk) <> 0 Then vals(kk) = num(kk) / den(kk)
+    Next kk
+    VolcarLocal ws, cats, vals
+    LocalSpread = True
+End Function
+
+' TER look-through (ponderado por valoracion) EN LOCAL desde el bloque POS.
+Private Function LocalTerLT(ByVal ws As Worksheet) As Boolean
+    Dim c0 As Long, lastR As Long, r As Long
+    c0 = BLK_POS_COL
+    lastR = UltFilaBloque(ws, c0)
+    If lastR < 2 Then Exit Function
+
+    Dim cats As Object, num As Object, den As Object
+    Set cats = CreateObject("Scripting.Dictionary")
+    Set num = CreateObject("Scripting.Dictionary")
+    Set den = CreateObject("Scripting.Dictionary")
+    cats.Add "Total", 3
+    Dim pid As String, slot As Long, k As String, w As Double, te As Double
+    For r = 2 To lastR
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        slot = SlotDe(pid)
+        If slot = 0 Then GoTo seguir
+        w = NumDbl(ws.Cells(r, c0 + 6).Value)    ' valoracion
+        te = NumDbl(ws.Cells(r, c0 + 8).Value)   ' ter
+        k = slot & "|Total"
+        If num.Exists(k) Then num(k) = num(k) + te * w Else num(k) = te * w
+        If den.Exists(k) Then den(k) = den(k) + w Else den(k) = w
+seguir:
+    Next r
+    Dim vals As Object: Set vals = CreateObject("Scripting.Dictionary")
+    Dim kk As Variant, hay As Boolean
+    For Each kk In num.Keys
+        If den(kk) <> 0 Then vals(kk) = num(kk) / den(kk): hay = True
+    Next kk
+    If Not hay Then Exit Function
+    VolcarLocal ws, cats, vals
+    LocalTerLT = True
+End Function
+
+' Enruta la metrica actual a su calculo LOCAL desde los bloques amplios.
+' Devuelve True si la resolvio en local (y ya dibujo); False para que
+' RefrescarDatos caiga a la consulta directa de BigQuery.
+Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
+    Dim met As String: met = Trim(CStr(ws.Range("B8").Value))
+    If (met = "Rentabilidad" Or met = "Rentab. acum.") Then
+        ResolverLocal = LocalRentabilidad(ws)
+    ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" Then
+        ResolverLocal = LocalRiesgo(ws)
+    ElseIf met = "Peso" Then
+        ResolverLocal = LocalComposicion(ws)
+    ElseIf met = "Spread" Then
+        ResolverLocal = LocalSpread(ws)
+    ElseIf met = "TER Look-through" Then
+        ResolverLocal = LocalTerLT(ws)
+    End If
+End Function
+
+' Ejecuta la SQL de una metrica concreta (via directa, sin bloque amplio),
+' vuelca el crudo a la hoja oculta _Volcado y pivota a D:H. La columna W de la
+' hoja Panel queda LIBRE para los bloques amplios (no se toca aqui).
 ' Devuelve True si fue bien; si no, deja el mensaje de error en msg.
 Private Function EjecutarYVolcar(ByVal ws As Worksheet, ByVal sql As String, ByRef msg As String) As Boolean
-    Dim cn As Object, rs As Object, j As Long
+    Dim cn As Object, rs As Object, j As Long, wv As Worksheet
     On Error GoTo fallo
     Set cn = CreateObject("ADODB.Connection")
     cn.CommandTimeout = 120
@@ -1082,16 +1416,17 @@ Private Function EjecutarYVolcar(ByVal ws As Worksheet, ByVal sql As String, ByR
     Set rs = cn.Execute(sql)       ' recordset de solo avance (el driver si lo admite)
 
     Application.EnableEvents = False
-    ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).ClearContents   ' columna W en adelante
-    ' Area W como TEXTO: los valores llegan formateados con '.' decimal; asi Excel
+    Set wv = HojaAux("_Volcado")   ' hoja oculta de trabajo (crudo de la consulta directa)
+    wv.Cells.Clear
+    ' Todo como TEXTO: los valores llegan formateados con '.' decimal; asi Excel
     ' no los auto-convierte (ni reescala) y VolcarResultado los parsea con NumVal.
-    ws.Range(ws.Cells(1, 23), ws.Cells(100000, 60)).NumberFormat = "@"
+    wv.Cells.NumberFormat = "@"
     For j = 0 To rs.Fields.Count - 1
-        ws.Cells(1, 23 + j).Value = rs.Fields(j).Name
+        wv.Cells(1, 1 + j).Value = rs.Fields(j).Name
     Next j
-    If Not rs.EOF Then ws.Cells(2, 23).CopyFromRecordset rs
+    If Not rs.EOF Then wv.Cells(2, 1).CopyFromRecordset rs
     rs.Close: cn.Close
-    VolcarResultado ws
+    VolcarResultado ws, wv
     Application.EnableEvents = True
     EjecutarYVolcar = True
     Exit Function
@@ -1170,17 +1505,18 @@ Public Sub VistaPreviaDummy()
     DibujarGrafico
 End Sub
 
-' Pivota el resultado crudo (desde W) a la tabla del grafico D:H.
-Private Sub VolcarResultado(ByVal ws As Worksheet)
+' Pivota el resultado crudo (hoja 'src', desde la columna 1) a la tabla del
+' grafico D:H de la hoja Panel (ws).
+Private Sub VolcarResultado(ByVal ws As Worksheet, ByVal src As Worksheet)
     Dim c As Long, hdr As String
     Dim colPort As Long, colCat As Long, colVal As Long, colBmk As Long
     Dim lastData As Long, r As Long, rowOut As Long, rr As Long
     Dim id1 As String, id2 As String, id3 As String, cat As String, pid As String
     Dim cats As Object
 
-    c = 23
-    Do While Trim(CStr(ws.Cells(1, c).Value)) <> "" And c < 60
-        hdr = LCase(Trim(CStr(ws.Cells(1, c).Value)))
+    c = 1
+    Do While Trim(CStr(src.Cells(1, c).Value)) <> "" And c < 40
+        hdr = LCase(Trim(CStr(src.Cells(1, c).Value)))
         Select Case hdr
             Case "pk_portfolio_id": colPort = c
             Case "categoria":       colCat = c
@@ -1191,9 +1527,9 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
     Loop
     If colVal = 0 Then Exit Sub
 
-    c = colPort: If c = 0 Then c = 23
+    c = colPort: If c = 0 Then c = 1
     r = 2: lastData = 1
-    Do While Trim(CStr(ws.Cells(r, c).Value)) <> "" And r < 100000
+    Do While Trim(CStr(src.Cells(r, c).Value)) <> "" And r < 200000
         lastData = r: r = r + 1
     Loop
 
@@ -1209,7 +1545,7 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
     Set mapPid = CreateObject("Scripting.Dictionary")
     Set dist = CreateObject("Scripting.Dictionary")
     For r = 2 To lastData
-        pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
+        pid = UCase(Trim(CStr(src.Cells(r, colPort).Value)))
         If pid <> "" And Not dist.Exists(pid) Then dist.Add pid, 0
     Next r
     For Each ky In dist.Keys                       ' 1) match por id
@@ -1239,7 +1575,7 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
         Set cats = CreateObject("Scripting.Dictionary")
         rowOut = 3
         For r = 2 To lastData
-            cat = Trim(CStr(ws.Cells(r, colCat).Value))
+            cat = Trim(CStr(src.Cells(r, colCat).Value))
             If cat <> "" And Not cats.Exists(cat) Then
                 cats.Add cat, rowOut
                 ws.Cells(rowOut, 4).Value = cat
@@ -1248,22 +1584,22 @@ Private Sub VolcarResultado(ByVal ws As Worksheet)
             End If
         Next r
         For r = 2 To lastData
-            pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
-            cat = Trim(CStr(ws.Cells(r, colCat).Value))
+            pid = UCase(Trim(CStr(src.Cells(r, colPort).Value)))
+            cat = Trim(CStr(src.Cells(r, colCat).Value))
             If cats.Exists(cat) And mapPid.Exists(pid) Then
                 rr = cats(cat): tc = mapPid(pid)
-                ws.Cells(rr, tc).Value = NumVal(ws.Cells(r, colVal).Value)
-                If tc = 5 And colBmk > 0 Then ws.Cells(rr, 8).Value = NumVal(ws.Cells(r, colBmk).Value)
+                ws.Cells(rr, tc).Value = NumVal(src.Cells(r, colVal).Value)
+                If tc = 5 And colBmk > 0 Then ws.Cells(rr, 8).Value = NumVal(src.Cells(r, colBmk).Value)
             End If
         Next r
     Else
         ws.Cells(3, 4).Value = Trim(CStr(ws.Range("B8").Value)) & " - " & Trim(CStr(ws.Range("B11").Value))
         For r = 2 To lastData
-            pid = UCase(Trim(CStr(ws.Cells(r, colPort).Value)))
+            pid = UCase(Trim(CStr(src.Cells(r, colPort).Value)))
             If mapPid.Exists(pid) Then
                 tc = mapPid(pid)
-                ws.Cells(3, tc).Value = NumVal(ws.Cells(r, colVal).Value)
-                If tc = 5 And colBmk > 0 Then ws.Cells(3, 8).Value = NumVal(ws.Cells(r, colBmk).Value)
+                ws.Cells(3, tc).Value = NumVal(src.Cells(r, colVal).Value)
+                If tc = 5 And colBmk > 0 Then ws.Cells(3, 8).Value = NumVal(src.Cells(r, colBmk).Value)
             End If
         Next r
     End If
