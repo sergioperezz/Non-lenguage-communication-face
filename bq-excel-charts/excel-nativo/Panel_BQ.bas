@@ -783,7 +783,23 @@ Public Sub CargarCarteras()
 End Sub
 
 ' =======================  BOTON UNICO: HACE TODO  ==========================
+' Reinicia Metrica (B8) y Dimension (B9) al primer valor valido del Grupo (B7),
+' leyendo los rangos con nombre DIRECTAMENTE (sin Evaluate/INDIRECT, que con
+' nombres definidos puede devolver #REF). Se puede llamar desde el evento de hoja.
+Public Sub ReiniciarMetricaDim()
+    Dim ws As Worksheet, g As String, r As Range
+    Set ws = Panel(): g = Trim(CStr(ws.Range("B7").Value))
+    On Error Resume Next
+    Set r = Nothing: Set r = ThisWorkbook.Names("Grupo_" & g).RefersToRange
+    If Not r Is Nothing Then ws.Range("B8").Value = r.Cells(1, 1).Value
+    Set r = Nothing: Set r = ThisWorkbook.Names("Dim_" & g).RefersToRange
+    If Not r Is Nothing Then ws.Range("B9").Value = r.Cells(1, 1).Value
+    On Error GoTo 0
+End Sub
+
 Public Sub Actualizar()
+    ' Repara B8/B9 si quedaron en #REF (p.ej. por un evento mal pegado).
+    If IsError(Panel().Range("B8").Value) Or IsError(Panel().Range("B9").Value) Then ReiniciarMetricaDim
     ActualizarSQL          ' 1) SQL en A41 (y calcula mAvisoEnt)
     ' Aviso si alguna entidad no se encontro en 'cartera' (pero otras si).
     If Len(mAvisoEnt) > 0 Then
