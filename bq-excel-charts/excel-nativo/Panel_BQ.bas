@@ -802,7 +802,7 @@ Public Sub VerBenchmark()
     End If
     cn.Close
     MsgBox msg & vbLf & vbLf & "Si esos contadores son > 0, el benchmark se trae igual que la cartera " & _
-           "(mismas tablas). Pasame este resultado y lo cablео.", vbInformation, "Diagnostico benchmark"
+           "(mismas tablas). Pasame este resultado y lo conecto.", vbInformation, "Diagnostico benchmark"
     Exit Sub
 fallo:
     MsgBox "Error consultando el benchmark:" & vbLf & Err.Description, vbExclamation, "Benchmark"
