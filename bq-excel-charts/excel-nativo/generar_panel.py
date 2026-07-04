@@ -68,7 +68,7 @@ ALL_METRICS = [m for ms in GRUPOS.values() for m in ms]
 
 DIM_TIEMPO = ["Mensual", "Trimestral", "Semestral", "Anual"]   # tienen TablaN (buckets)
 DIM_GRANU = ["Diario", "Semanal"]                              # granularidades finas
-DIM_COMP = ["Activo", "Geografia", "Industria", "Sector", "Divisa", "Rating"]
+DIM_COMP = ["Activo", "Geografia", "Pais", "Industria", "Sector", "Divisa", "Rating"]
 DIMS = DIM_GRANU + DIM_TIEMPO + DIM_COMP
 _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temporales
 
@@ -77,7 +77,7 @@ _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temp
 DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
     "Riesgo":      _DIM_T + ["Activo", "Geografia", "Divisa"],
-    "Composicion": ["Sector", "Industria", "Geografia", "Divisa", "Rating"],
+    "Composicion": ["Sector", "Industria", "Geografia", "Pais", "Divisa", "Rating"],
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,
@@ -125,6 +125,8 @@ CATEGORIAS = {
     "Anual": ["2024", "2025", "2026"],
     "Activo": ["Deuda Pública", "Deuda Privada", "Acciones", "Liquidez", "Derivados"],
     "Geografia": ["Europa", "Norteamérica", "Asia-Pacífico", "Emergentes", "Latam"],
+    "Pais": ["España", "Francia", "Italia", "Alemania", "EE.UU.", "Reino Unido",
+             "Japón", "Holanda", "Irlanda", "Otros"],
     "Industria": ["Financiero", "Tecnología", "Salud", "Energía", "Consumo",
                   "Industrial", "Utilities"],
     "Sector": ["Financiero", "Industrial", "Tecnología", "Consumo", "Energía", "Salud"],
@@ -408,7 +410,8 @@ def build_config(wb):
         ("RET_ESC", "1.0", "Escala de los TWR al componer (1.0 = fracción, 100.0 = porcentaje)"),
         ("SECTOR_COL", "CLASSIFICATION_GICS", "Composición por Sector (maestro de valores)"),
         ("IND_COL", "CLASSIFICATION_GICS", "Composición por Industria (GICS por defecto; puede ser CLASSIFICATION_BICS)"),
-        ("GEO_COL", "FCCOUNTRYZONE", "Composición por Geografía (zona, todos los activos)"),
+        ("GEO_COL", "FCCOUNTRYZONE", "Composición por Geografía (zona: Europa/América…)"),
+        ("PAIS_COL", "FCCOUNTRY", "Composición por País (código país, más granular que zona)"),
         ("DIV_COL", "CURRENCY", "Composición por Divisa (código ISO)"),
         ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
         ("POS_TABLE", "CAM_TX_PORTFOLIOS_COMP_PD", "Tabla de POSICIONES (holdings) para composición"),

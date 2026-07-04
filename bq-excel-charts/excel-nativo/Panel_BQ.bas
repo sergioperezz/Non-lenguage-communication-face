@@ -472,6 +472,7 @@ Private Function DimAClasificacion(ByVal dimen As String) As String
         Case "Industria": DimAClasificacion = "v." & Cfg("IND_COL", IND_COL)
         Case "Rating":    DimAClasificacion = "v." & Cfg("RATING_COL", RATING_COL)
         Case "Geografia": DimAClasificacion = "v." & Cfg("GEO_COL", GEO_COL)
+        Case "Pais":      DimAClasificacion = "v." & Cfg("PAIS_COL", "FCCOUNTRY")
         Case "Divisa":    DimAClasificacion = "v." & Cfg("DIV_COL", DIV_COL)
         Case Else:        DimAClasificacion = ""
     End Select
@@ -946,7 +947,7 @@ Private Function BlkAncho(ByVal blkId As String) As Long
     Select Case blkId
         Case "RET":  BlkAncho = 4
         Case "RISK": BlkAncho = 6
-        Case "POS":  BlkAncho = 7   ' PID + gics/bics/geo/divisa/rating + valor
+        Case "POS":  BlkAncho = 8   ' PID + gics/bics/geo/pais/divisa/rating + valor
     End Select
 End Function
 
@@ -1114,18 +1115,20 @@ Private Function SQLBloqueRisk(ByVal ents As String) As String
 End Function
 
 Private Function SQLBloquePos(ByVal ents As String) As String
-    Dim gics As String, bics As String, geo As String, divc As String, rat As String
+    Dim gics As String, bics As String, geo As String, pais As String, divc As String, rat As String
     gics = Cfg("SECTOR_COL", SECTOR_COL)
     bics = "CLASSIFICATION_BICS"
     geo = Cfg("GEO_COL", GEO_COL)
+    pais = Cfg("PAIS_COL", "FCCOUNTRY")
     divc = Cfg("DIV_COL", DIV_COL)
     rat = Cfg("RATING_COL", RATING_COL)
     ' Solo lo necesario para composicion (Peso): clasificaciones + valoracion.
+    ' Columnas: PID | gics | bics | geo(zona) | pais | divisa | rating | valor
     ' Fecha por cartera (MAX por portfolio), como en la consulta que funciona.
     SQLBloquePos = _
         "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
         "       v." & gics & " AS gics, v." & bics & " AS bics," & vbLf & _
-        "       v." & geo & " AS geo, v." & divc & " AS divisa, v." & rat & " AS rating," & vbLf & _
+        "       v." & geo & " AS geo, v." & pais & " AS pais, v." & divc & " AS divisa, v." & rat & " AS rating," & vbLf & _
         "       FORMAT('%.10f', CAST(p." & PosValor() & " AS FLOAT64)) AS valor" & vbLf & _
         "FROM " & TblPos() & " p" & vbLf & JoinValores & _
         "WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
@@ -1398,13 +1401,14 @@ End Function
 
 ' Devuelve la columna del bloque POS que corresponde a la clasificacion elegida.
 Private Function ColClasifPos(ByVal dimen As String) As Long
-    ' POS: PID(+0) gics(+1) bics(+2) geo(+3) divisa(+4) rating(+5) valor(+6) spread(+7) ter(+8)
+    ' POS: PID(+0) gics(+1) bics(+2) geo(+3) pais(+4) divisa(+5) rating(+6) valor(+7)
     Select Case dimen
         Case "Sector":    ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("SECTOR_COL", SECTOR_COL)), "BICS") > 0, 2, 1)
         Case "Industria": ColClasifPos = BLK_POS_COL + IIf(InStr(UCase(Cfg("IND_COL", IND_COL)), "BICS") > 0, 2, 1)
         Case "Geografia": ColClasifPos = BLK_POS_COL + 3
-        Case "Divisa":    ColClasifPos = BLK_POS_COL + 4
-        Case "Rating":    ColClasifPos = BLK_POS_COL + 5
+        Case "Pais":      ColClasifPos = BLK_POS_COL + 4
+        Case "Divisa":    ColClasifPos = BLK_POS_COL + 5
+        Case "Rating":    ColClasifPos = BLK_POS_COL + 6
         Case Else:        ColClasifPos = 0
     End Select
 End Function
@@ -1435,7 +1439,7 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
             If rowOut > 402 Then GoTo seguir
             cats.Add cat, rowOut: rowOut = rowOut + 1
         End If
-        v = NumDbl(ws.Cells(r, c0 + 6).Value)
+        v = NumDbl(ws.Cells(r, c0 + 7).Value)   ' valor = ultima columna del bloque POS
         k = slot & "|" & cat
         If vals.Exists(k) Then vals(k) = vals(k) + v Else vals(k) = v
         If tot.Exists(slot) Then tot(slot) = tot(slot) + v Else tot(slot) = v
