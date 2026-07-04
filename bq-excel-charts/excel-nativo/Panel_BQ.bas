@@ -906,10 +906,13 @@ Public Sub Actualizar()
     dimen = Trim(CStr(ws.Range("B9").Value))
     blkId = BloqueDe(grupo, dimen)
 
-    ' Composicion + grafico APILADO -> vista temporal (evolucion) para la Entidad 1:
-    ' eje X = buckets del periodo, series apiladas = categorias de la clasificacion.
-    If Fold(grupo) = "composicion" And EsApilado(ws) And Len(ents) > 0 Then
-        If ComposicionTemporal(ws) Then Exit Sub
+    ' Grupo "Apiladas" = composicion apilada EN EL TIEMPO para la Entidad 1:
+    ' B8 (metrica) = la clasificacion (Sector/Industria/...); B9 (dimension) = la
+    ' granularidad temporal (Semanal/Mensual/...), como en Rendimiento.
+    If Fold(grupo) = "apiladas" Then
+        If Len(ents) = 0 Then MsgBox "Elige una cartera en B4.", vbExclamation, "Apiladas": Exit Sub
+        ComposicionTemporal ws
+        Exit Sub
     End If
 
     ' Grupos con bloque amplio (Rendimiento/Riesgo/Composicion): cache por grupo.
@@ -1470,8 +1473,7 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
         pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
         slot = SlotDe(pid)
         If slot = 0 Then GoTo seguir
-        cat = Trim(CStr(ws.Cells(r, colCat).Value))
-        If Len(cat) = 0 Then cat = "(sin dato)"
+        cat = EtiquetaClasif(Trim(CStr(ws.Range("B9").Value)), CStr(ws.Cells(r, colCat).Value))
         If Not cats.Exists(cat) Then
             If rowOut > 402 Then GoTo seguir
             cats.Add cat, rowOut: rowOut = rowOut + 1
@@ -1494,17 +1496,41 @@ seguir:
 End Function
 
 ' =====================  COMPOSICION APILADA EN EL TIEMPO  ==================
-' True si el tipo de grafico (B14) es apilado (activa la vista temporal).
-Private Function EsApilado(ByVal ws As Worksheet) As Boolean
-    EsApilado = (InStr(Fold(ws.Range("B14").Value), "apilad") > 0)
+' Nombre legible del sector GICS (codigo de 2 digitos). "" si no lo reconoce.
+Private Function GicsSector(ByVal code2 As String) As String
+    Select Case Trim(code2)
+        Case "10": GicsSector = "Energia"
+        Case "15": GicsSector = "Materiales"
+        Case "20": GicsSector = "Industria"
+        Case "25": GicsSector = "Consumo discrecional"
+        Case "30": GicsSector = "Consumo basico"
+        Case "35": GicsSector = "Salud"
+        Case "40": GicsSector = "Financiero"
+        Case "45": GicsSector = "Tecnologia"
+        Case "50": GicsSector = "Comunicaciones"
+        Case "55": GicsSector = "Utilities"
+        Case "60": GicsSector = "Inmobiliario"
+        Case Else: GicsSector = ""
+    End Select
 End Function
 
-' Granularidad temporal (buckets del eje X) derivada del periodo (B11): periodos
-' en meses -> Mensual; hasta 2 anos -> Trimestral; mas -> Anual.
-Private Function GranularidadComp(ByVal per As String) As String
-    Dim p As String: p = UCase(Trim(per))
-    If p = "MTD" Or p = "YTD" Or Right(p, 1) = "M" Then GranularidadComp = "Mensual": Exit Function
-    If AnyosPeriodo(per) <= 2 Then GranularidadComp = "Trimestral" Else GranularidadComp = "Anual"
+' Etiqueta legible de una categoria de clasificacion: agrupa GICS/BICS a nivel
+' sector (2 digitos) / industria (4 digitos) segun config, y pone nombre al
+' sector GICS. Asi el eje/leyenda no muestra 40 codigos de 8 digitos.
+Private Function EtiquetaClasif(ByVal clas As String, ByVal raw As String) As String
+    Dim s As String, n As Long, nm As String
+    s = Trim(CStr(raw))
+    Select Case clas
+        Case "Sector"
+            n = CLng(Val(Cfg("SECTOR_DIG", "2")))
+            If n > 0 And Len(s) >= n Then s = Left(s, n)
+            nm = GicsSector(s): If Len(nm) > 0 Then s = nm
+        Case "Industria"
+            n = CLng(Val(Cfg("IND_DIG", "4")))
+            If n > 0 And Len(s) >= n Then s = Left(s, n)
+    End Select
+    If Len(s) = 0 Then s = "(sin dato)"
+    EtiquetaClasif = s
 End Function
 
 ' Expresion SQL de bucket para una columna de fecha concreta.
@@ -1551,22 +1577,23 @@ End Function
 ' buckets del periodo; series apiladas = categorias de la clasificacion (B9).
 ' Consulta directa (no usa los bloques). Devuelve False si no hay datos.
 Public Function ComposicionTemporal(ByVal ws As Worksheet) As Boolean
-    Dim ents As String, dimen As String, clasCol As String, per As String, gran As String
+    Dim clas As String, clasCol As String, per As String, gran As String
     Dim sql As String, msg As String, wv As Worksheet
-    ents = ListaEntidades(ws)                 ' fija mId1
+    ListaEntidades ws                         ' fija mId1
     If Len(Trim(mId1)) = 0 Then Exit Function
-    dimen = Trim(CStr(ws.Range("B9").Value))
-    clasCol = DimAClasificacion(dimen)
+    clas = Trim(CStr(ws.Range("B8").Value))   ' clasificacion (metrica del grupo Apiladas)
+    clasCol = DimAClasificacion(clas)
     If Len(clasCol) = 0 Then Exit Function
+    gran = Trim(CStr(ws.Range("B9").Value))   ' granularidad temporal (dimension)
+    If Not DimEsTiempo(gran) Then gran = "Mensual"
     per = Trim(CStr(ws.Range("B11").Value))
-    gran = GranularidadComp(per)
     sql = SQLCompTemporal(mId1, clasCol, gran, per)
 
     Set wv = HojaAux("_Volcado")
     If Not EjecutarASheet(sql, wv, msg) Then
-        MsgBox "No se pudo consultar la composicion temporal:" & vbLf & msg, vbExclamation, "Composicion apilada": Exit Function
+        MsgBox "No se pudo consultar la composicion apilada:" & vbLf & msg, vbExclamation, "Apiladas": Exit Function
     End If
-    ComposicionTemporal = PivotarYDibujarApiladas(ws, wv)
+    ComposicionTemporal = PivotarYDibujarApiladas(ws, wv, clas)
 End Function
 
 ' Ejecuta una SQL y vuelca cabeceras (fila 1) + datos (fila 2+) en 'wd' como texto.
@@ -1597,7 +1624,8 @@ End Function
 
 ' Pivota (bucket, serie, valor) de 'src' a una matriz en el Panel (D = fechas,
 ' E.. = una columna por serie/categoria, en %) y dibuja el grafico apilado.
-Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Worksheet) As Boolean
+Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Worksheet, _
+        ByVal clas As String) As Boolean
     Dim lastR As Long, r As Long
     lastR = src.Cells(src.Rows.Count, 1).End(xlUp).Row
     If lastR < 2 Then Exit Function
@@ -1612,8 +1640,7 @@ Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Wor
     Dim bk As String, se As String, v As Double, k As String
     For r = 2 To lastR
         bk = Trim(CStr(src.Cells(r, 1).Value))
-        se = Trim(CStr(src.Cells(r, 2).Value))
-        If Len(se) = 0 Then se = "(sin dato)"
+        se = EtiquetaClasif(clas, CStr(src.Cells(r, 2).Value))   ' agrupa GICS a sector/nombre
         If Len(bk) = 0 Then GoTo seguir
         v = NumDbl(src.Cells(r, 3).Value)
         If Not bkts.Exists(bk) Then

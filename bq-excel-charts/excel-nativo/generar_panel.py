@@ -60,6 +60,9 @@ GRUPOS = {
     "Riesgo": ["Duración Modificada", "Duración Macaulay", "TIR", "Spread",
                "Volatilidad"],
     "Composicion": ["Peso"],
+    # Composicion APILADA en el tiempo: la "metrica" (B8) es la clasificacion y
+    # la "dimension" (B9) es temporal (Semanal/Mensual/...), como en Rendimiento.
+    "Apiladas": ["Sector", "Industria", "Continente", "Pais", "Divisa", "Activo"],
     "Costes": ["TER", "TER Look-through"],
     "Liquidez": ["Liquidez"],
     "Valoracion": ["PER", "DividendYield"],
@@ -78,6 +81,7 @@ DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
     "Riesgo":      _DIM_T,
     "Composicion": ["Activo", "Sector", "Industria", "Continente", "Pais", "Divisa"],
+    "Apiladas":    _DIM_T,
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,
@@ -149,6 +153,10 @@ PARAMS = {
     "TER": (0.85, 0.03, 1.00), "TER Look-through": (0.95, 0.03, 1.00),
     "Liquidez": (5.0, 0.10, 1.02),
     "PER": (15.0, 0.80, 1.04), "DividendYield": (2.8, 0.20, 0.95),
+    # Metricas del grupo "Apiladas" (la clasificacion actua de metrica).
+    "Sector": (18.0, 3.0, 1.0), "Industria": (12.0, 2.0, 1.0),
+    "Continente": (25.0, 4.0, 1.0), "Pais": (15.0, 3.0, 1.0),
+    "Divisa": (40.0, 5.0, 1.0), "Activo": (50.0, 6.0, 1.0),
 }
 
 PERIODOS = ["MTD", "YTD", "1M", "2M", "3M", "4M", "5M", "6M",
@@ -415,6 +423,8 @@ def build_config(wb):
         ("DIV_COL", "CURRENCY", "Composición por Divisa (código ISO)"),
         ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
         ("ACTIVO_COL", "INSTRUMENT_TYPE", "Composición por Tipo de activo (clasificación del maestro)"),
+        ("SECTOR_DIG", "2", "GICS: nº de dígitos para agrupar Sector (2=11 sectores; 0=sin agrupar)"),
+        ("IND_DIG", "4", "GICS: nº de dígitos para agrupar Industria (4=grupos; 0=sin agrupar)"),
         ("POS_TABLE", "CAM_TX_PORTFOLIOS_COMP_PD", "Tabla de POSICIONES (holdings) para composición"),
         ("POS_DATASET", "operativafinanciera_ds01", "Dataset de la tabla de posiciones"),
         ("POS_VALOR", "VALUATION_PC", "Columna de valoración de la posición (peso)"),
