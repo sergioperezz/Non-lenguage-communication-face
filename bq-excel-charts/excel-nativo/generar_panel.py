@@ -94,6 +94,28 @@ def _meses(n, y0, m0):
     return out
 
 
+import datetime as _dt
+
+
+def _dias_dummy(n, end=(2026, 6, 30)):
+    """n fechas 'yyyy-mm-dd' consecutivas terminando en 'end' (para la preview)."""
+    e = _dt.date(*end)
+    return [(e - _dt.timedelta(days=n - 1 - i)).isoformat() for i in range(n)]
+
+
+def _semanas_dummy(n, end=(2026, 24)):
+    """n etiquetas 'yyyy-Www' consecutivas terminando en (ano, semana)."""
+    y, w = end
+    out = []
+    for i in range(n):
+        ww, yy = w - (n - 1 - i), y
+        while ww < 1:
+            ww += 52
+            yy -= 1
+        out.append(f"{yy}-W{ww:02d}")
+    return out
+
+
 CATEGORIAS = {
     "Mensual": _meses(36, 2023, 7),
     "Trimestral": (["2023-T3", "2023-T4"]
@@ -109,9 +131,11 @@ CATEGORIAS = {
     "Divisa": ["EUR", "USD", "GBP", "JPY", "CHF", "Otras"],
     "Rating": ["AAA", "AA", "A", "BBB", "BB", "B"],
     # Granularidades finas (etiquetas dummy con el MISMO formato que genera la
-    # query: Diario -> "2026-06-15", Semanal -> "2026-W24").
-    "Diario": [f"2026-06-{d:02d}" for d in range(2, 21)],
-    "Semanal": [f"2026-W{w:02d}" for w in range(12, 24)],
+    # query: Diario -> "2026-06-15", Semanal -> "2026-W24"). Se generan MAS
+    # entradas que las mensuales para que la vista previa sea coherente
+    # (mas granular = mas puntos). Con datos reales, cada dia es una barra.
+    "Diario": _dias_dummy(60),
+    "Semanal": _semanas_dummy(40),
 }
 MAX_CATS = max(len(c) for c in CATEGORIAS.values())
 
