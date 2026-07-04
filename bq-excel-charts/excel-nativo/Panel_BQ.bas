@@ -777,18 +777,30 @@ Public Sub InstalarBotones()
     On Error Resume Next
     DibujarGrafico
     On Error GoTo 0
-    MsgBox "Botones creados en 'Panel' y 'Tablas'." & vbLf & vbLf & _
-           "Flujo: elige los desplegables y pulsa 'ACTUALIZAR QUERY Y GRAFICO'." & vbLf & _
-           "La 1a vez de cada GRUPO (Rendimiento/Riesgo/Composicion) y cartera descarga " & _
-           "todos sus datos (todos los periodos); despues cambiar metrica/dimension/" & _
-           "periodo del mismo grupo es instantaneo (usa lo ya descargado).", _
-           vbInformation, "Instalacion"
+    ' Cascada automatica: al cambiar el Grupo (B7), Metrica/Dimension se resetean
+    ' a valores validos. Se intenta instalar el evento; si no hay acceso al
+    ' proyecto VBA, se avisa (Actualizar tambien lo repara como red de seguridad).
+    Dim casc As Boolean: casc = InstalarAutoRefresco()
+    Dim m As String
+    m = "Botones creados en 'Panel' y 'Tablas'." & vbLf & vbLf & _
+        "Flujo: elige los desplegables y pulsa 'ACTUALIZAR QUERY Y GRAFICO'." & vbLf & _
+        "La 1a vez de cada GRUPO y cartera descarga sus datos; despues cambiar " & _
+        "metrica/dimension/periodo del mismo grupo es instantaneo."
+    If casc Then
+        m = m & vbLf & vbLf & "Cascada ACTIVADA: al cambiar el Grupo, Metrica/Dimension se ajustan solas."
+    Else
+        m = m & vbLf & vbLf & "Para que Metrica/Dimension se ajusten SOLAS al cambiar el Grupo: activa " & _
+            "'Confiar en el acceso al modelo de objetos de proyectos de VBA' (Opciones > Centro de " & _
+            "confianza) y re-ejecuta InstalarBotones. (Aun sin eso, 'Actualizar' lo corrige.)"
+    End If
+    MsgBox m, vbInformation, "Instalacion"
 End Sub
 
-' Inserta (una vez) el evento Worksheet_Change en el modulo de la hoja Panel,
-' para que al cambiar un desplegable el grafico se recalcule SOLO desde los
-' datos ya descargados (local, sin BigQuery). Requiere que este activado el
-' acceso al modelo de objetos VBA; devuelve False si no se pudo.
+' Inserta (una vez) el evento Worksheet_Change en el modulo de la hoja Panel
+' para la CASCADA: al cambiar el Grupo (B7), resetea Metrica (B8) y Dimension
+' (B9) al primer valor VALIDO de ese grupo (asi no quedan valores invalidos como
+' "Pais" en Composicion). NO consulta BigQuery ni redibuja. Requiere acceso al
+' modelo de objetos VBA; devuelve False si no se pudo instalar.
 Public Function InstalarAutoRefresco() As Boolean
     Dim cm As Object, cn As String, txt As String, s As String
     On Error GoTo sinacceso
@@ -798,10 +810,10 @@ Public Function InstalarAutoRefresco() As Boolean
     If InStr(txt, "Worksheet_Change") > 0 Then InstalarAutoRefresco = True: Exit Function  ' ya existe
     s = "Private Sub Worksheet_Change(ByVal Target As Range)" & vbCrLf & _
         "    If Application.EnableEvents = False Then Exit Sub" & vbCrLf & _
+        "    If Intersect(Target, Me.Range(""B7"")) Is Nothing Then Exit Sub" & vbCrLf & _
         "    Application.EnableEvents = False" & vbCrLf & _
         "    On Error Resume Next" & vbCrLf & _
-        "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim" & vbCrLf & _
-        "    If Not Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then AutoLocal" & vbCrLf & _
+        "    ReiniciarMetricaDim" & vbCrLf & _
         "    On Error GoTo 0" & vbCrLf & _
         "    Application.EnableEvents = True" & vbCrLf & _
         "End Sub"
@@ -890,6 +902,19 @@ Public Sub ReiniciarMetricaDim()
     On Error GoTo 0
 End Sub
 
+' True si 'val' esta entre los valores del rango con nombre (o si no se puede
+' comprobar). Sirve para validar B8/B9 contra el grupo actual.
+Private Function EnRango(ByVal val As String, ByVal nombre As String) As Boolean
+    Dim r As Range, c As Range
+    On Error Resume Next
+    Set r = ThisWorkbook.Names(nombre).RefersToRange
+    On Error GoTo 0
+    If r Is Nothing Then EnRango = True: Exit Function
+    For Each c In r.Cells
+        If Trim(CStr(c.Value)) = Trim(val) Then EnRango = True: Exit Function
+    Next c
+End Function
+
 ' BOTON UNICO "Actualizar query y grafico":
 '  - Descarga (una vez) TODOS los datos del GRUPO de metrica elegido (B7) para
 '    las carteras elegidas, con TODOS los periodos, y los guarda en la hoja Panel.
@@ -899,8 +924,13 @@ End Sub
 Public Sub Actualizar()
     Dim ws As Worksheet, ents As String, grupo As String, dimen As String, blkId As String, msg As String
     Set ws = Panel()
-    ' Repara B8/B9 si quedaron en #REF (p.ej. por un evento mal pegado).
-    If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) Then ReiniciarMetricaDim
+    ' Red de seguridad de la cascada: si B8/B9 quedaron en #REF o con un valor
+    ' que NO es valido para el grupo actual (p.ej. "Pais" en Composicion), se
+    ' resetean al primer valor valido del grupo.
+    Dim gk As String: gk = GrupoKey(Trim(CStr(ws.Range("B7").Value)))
+    If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) _
+       Or Not EnRango(CStr(ws.Range("B8").Value), "Grupo_" & gk) _
+       Or Not EnRango(CStr(ws.Range("B9").Value), "Dim_" & gk) Then ReiniciarMetricaDim
     ActualizarSQL          ' deja la SQL en A41 (para 'Ver SQL') y calcula mAvisoEnt
     If Len(mAvisoEnt) > 0 Then
         MsgBox "No encontre estas entidades en la hoja 'cartera' (columna nombre_elemento):" & _
@@ -961,7 +991,7 @@ Private Function BloqueDe(ByVal grupo As String, ByVal dimen As String) As Strin
     Select Case Fold(grupo)
         Case "rendimiento": BloqueDe = "RET"
         Case "riesgo":      BloqueDe = "RISK"
-        Case "composicion": BloqueDe = "POS"
+        Case "composicion": BloqueDe = "APIL"   ' MISMO bloque que la apilada (comparten datos)
         Case "apiladas":    BloqueDe = "APIL"
         Case Else:          BloqueDe = ""
     End Select
@@ -1485,39 +1515,50 @@ Private Function ColClasifPos(ByVal dimen As String) As Long
     End Select
 End Function
 
-' Composicion (Peso) EN LOCAL desde el bloque POS: PESO (%) por categoria de la
-' clasificacion elegida = valoracion de la categoria / valoracion total, por slot.
+' Composicion (Peso) EN LOCAL desde el MISMO bloque APIL que la composicion
+' apilada (comparten datos): toma el ULTIMO mes de cada cartera y reparte el
+' PESO (%) por la clasificacion elegida (B9), por slot (E/F/G).
 Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
-    Dim c0 As Long, lastR As Long, r As Long, colCat As Long
-    c0 = BLK_POS_COL
+    Dim c0 As Long, lastR As Long, r As Long, colCat As Long, clas As String
+    c0 = BLK_APIL_COL                         ' PID | mes | gics|bics|geo|pais|divisa|activo | valor
     lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
-    colCat = ColClasifPos(Trim(CStr(ws.Range("B9").Value)))
+    clas = Trim(CStr(ws.Range("B9").Value))   ' en Composicion, B9 = la clasificacion
+    colCat = ColClasifApil(clas)
     If colCat = 0 Then Exit Function
+
+    ' Ultimo mes disponible por slot (los meses "YYYY-MM" ordenan cronologicamente).
+    Dim mesMax(1 To 3) As String, pid As String, slot As Long, mes As String
+    For r = 2 To lastR
+        slot = SlotDe(UCase(Trim(CStr(ws.Cells(r, c0).Value))))
+        If slot > 0 Then
+            mes = Trim(CStr(ws.Cells(r, c0 + 1).Value))
+            If mes > mesMax(slot) Then mesMax(slot) = mes
+        End If
+    Next r
 
     Dim cats As Object, vals As Object, tot As Object
     Set cats = CreateObject("Scripting.Dictionary")
     Set vals = CreateObject("Scripting.Dictionary")   ' slot|cat -> valoracion
     Set tot = CreateObject("Scripting.Dictionary")    ' slot -> valoracion total
     Dim rowOut As Long: rowOut = 3
-    Dim pid As String, slot As Long, cat As String, k As String, v As Double
+    Dim cat As String, k As String, v As Double
     For r = 2 To lastR
-        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
-        slot = SlotDe(pid)
+        slot = SlotDe(UCase(Trim(CStr(ws.Cells(r, c0).Value))))
         If slot = 0 Then GoTo seguir
-        cat = EtiquetaClasif(Trim(CStr(ws.Range("B9").Value)), CStr(ws.Cells(r, colCat).Value))
+        If Trim(CStr(ws.Cells(r, c0 + 1).Value)) <> mesMax(slot) Then GoTo seguir   ' solo el ultimo mes
+        cat = EtiquetaClasif(clas, CStr(ws.Cells(r, colCat).Value))
         If Not cats.Exists(cat) Then
             If rowOut > 402 Then GoTo seguir
             cats.Add cat, rowOut: rowOut = rowOut + 1
         End If
-        v = NumDbl(ws.Cells(r, c0 + 8).Value)   ' valor = ultima columna del bloque POS
+        v = NumDbl(ws.Cells(r, c0 + 8).Value)
         k = slot & "|" & cat
         If vals.Exists(k) Then vals(k) = vals(k) + v Else vals(k) = v
         If tot.Exists(slot) Then tot(slot) = tot(slot) + v Else tot(slot) = v
 seguir:
     Next r
     If cats.Count = 0 Then Exit Function
-    ' Normaliza a peso (fraccion 0..1); se muestra como % (FormatoMetrica "Peso").
     Dim kk As Variant, s As Long
     For Each kk In vals.Keys
         s = CLng(Split(CStr(kk), "|")(0))
