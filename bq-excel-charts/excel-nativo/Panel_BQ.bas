@@ -1636,7 +1636,7 @@ Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Wor
     Set mat = CreateObject("Scripting.Dictionary")    ' "bucket|serie" -> valor
     Set totB = CreateObject("Scripting.Dictionary")   ' bucket -> total
     Dim rowOut As Long: rowOut = 3
-    Dim colOut As Long: colOut = 5                     ' E
+    Dim colOut As Long: colOut = TCMP_COL + 1          ' BB (junto a la col de fechas BA)
     Dim bk As String, se As String, v As Double, k As String
     For r = 2 To lastR
         bk = Trim(CStr(src.Cells(r, 1).Value))
@@ -1709,6 +1709,13 @@ Private Sub DibujarApiladas(ByVal ws As Worksheet, ByVal nRows As Long, ByVal nS
     ch.HasTitle = True
     ch.ChartTitle.Text = ws.Range("A19").Value & " - evolucion"
     ch.HasLegend = True
+    ' Ejes: % en el de valores, granularidad en el de categorias (borra el titulo
+    ' antiguo, p.ej. "Duracion Modificada", que quedaba de un dibujo anterior).
+    ch.Axes(xlValue).HasTitle = True
+    ch.Axes(xlValue).AxisTitle.Text = "Peso (%)"
+    ch.Axes(xlValue).TickLabels.NumberFormat = "0%"
+    ch.Axes(xlCategory).HasTitle = True
+    ch.Axes(xlCategory).AxisTitle.Text = ws.Range("B9").Value
     On Error GoTo 0
 End Sub
 
