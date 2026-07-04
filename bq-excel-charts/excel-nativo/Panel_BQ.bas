@@ -453,9 +453,19 @@ Private Function DimAClasificacion(ByVal dimen As String) As String
     End Select
 End Function
 
+' Une posiciones (p) con el maestro de valores (v). La clave de union es
+' configurable: la tabla de posiciones CAM_TM_PORTFOLIOS_PD NO expone
+' PK_SECURITY_IK (aunque el diccionario lo liste), pero ambas tablas tienen
+' PK_ACTIVO_DATANOW (identificador del activo en DataNow), que es la clave por
+' defecto. Se puede sobreescribir en la hoja "config":
+'   JOIN_KEY_POS    -> columna en posiciones  (def. PK_ACTIVO_DATANOW)
+'   JOIN_KEY_VAL    -> columna en el maestro  (def. PK_ACTIVO_DATANOW)
 Private Function JoinValores() As String
+    Dim kPos As String, kVal As String
+    kPos = Cfg("JOIN_KEY_POS", "PK_ACTIVO_DATANOW")
+    kVal = Cfg("JOIN_KEY_VAL", "PK_ACTIVO_DATANOW")
     JoinValores = "JOIN " & Tbl(DS_MERC, T_VALORES) & " v" & vbLf & _
-                  "  ON v.PK_SECURITY_IK = p.PK_SECURITY_IK AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS" & vbLf
+                  "  ON v." & kVal & " = p." & kPos & " AND v.PK_FECHA_DATOS = p.PK_FECHA_DATOS" & vbLf
 End Function
 
 Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
@@ -890,6 +900,7 @@ Public Sub CargarDatosCartera()
           "), INTERVAL " & CACHE_ANOS & " YEAR)" & vbLf & _
           "ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
     Set wc = HojaAux(CACHE_RET)
+    wc.Visible = xlSheetVisible                     ' visible para poder inspeccionar TODOS los datos
     If Not EjecutarASheet(sql, wc, msg) Then
         MsgBox "No se pudieron cargar los datos:" & vbLf & msg, vbExclamation, "Cargar datos": Exit Sub
     End If

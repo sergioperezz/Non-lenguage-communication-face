@@ -411,6 +411,8 @@ def build_config(wb):
         ("GEO_COL", "FCCOUNTRYZONE", "Composición por Geografía (zona, todos los activos)"),
         ("DIV_COL", "CURRENCY", "Composición por Divisa (código ISO)"),
         ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
+        ("JOIN_KEY_POS", "PK_ACTIVO_DATANOW", "Clave del JOIN posiciones->maestro (columna en posiciones)"),
+        ("JOIN_KEY_VAL", "PK_ACTIVO_DATANOW", "Clave del JOIN posiciones->maestro (columna en el maestro)"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD
