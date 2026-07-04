@@ -281,7 +281,7 @@ def build() -> Workbook:
         ("B11", f'"{periodos_lst}"', False),
         ("B12", '"Con benchmark,Sin benchmark"', False),
         ("B13", '"Barras,Líneas,Puntos"', False),
-        ("B14", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar,Apiladas,100% apiladas"', False),
+        ("B14", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar,Apiladas,100% apiladas,Barras apiladas"', False),
     ]
     for celda, formula, blank in dvs:
         dv = DataValidation(type="list", formula1=formula, allow_blank=blank)

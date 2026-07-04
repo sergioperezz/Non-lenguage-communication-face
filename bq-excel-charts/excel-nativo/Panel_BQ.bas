@@ -65,6 +65,8 @@ Private Const BLK_RISK_COL As Long = 29    ' AC (ancho 6)
 Private Const BLK_POS_COL As Long = 37     ' AK (ancho 9)
 Private Const BLK_MARK_COL As Long = 47    ' AU  (marca "ENTS:'A','B'")
 Private Const BLK_ULTFILA As Long = 200000 ' fila maxima para limpiar los bloques
+Private Const TCMP_COL As Long = 53        ' BA: matriz de composicion temporal (apiladas)
+Private Const MAXSER As Long = 20          ' maximo de series en la vista apilada
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -904,6 +906,12 @@ Public Sub Actualizar()
     dimen = Trim(CStr(ws.Range("B9").Value))
     blkId = BloqueDe(grupo, dimen)
 
+    ' Composicion + grafico APILADO -> vista temporal (evolucion) para la Entidad 1:
+    ' eje X = buckets del periodo, series apiladas = categorias de la clasificacion.
+    If Fold(grupo) = "composicion" And EsApilado(ws) And Len(ents) > 0 Then
+        If ComposicionTemporal(ws) Then Exit Sub
+    End If
+
     ' Grupos con bloque amplio (Rendimiento/Riesgo/Composicion): cache por grupo.
     If Len(ents) > 0 And Len(blkId) > 0 Then
         If AsegurarBloque(ws, blkId, ents, msg) Then
@@ -1485,6 +1493,198 @@ seguir:
     LocalComposicion = True
 End Function
 
+' =====================  COMPOSICION APILADA EN EL TIEMPO  ==================
+' True si el tipo de grafico (B14) es apilado (activa la vista temporal).
+Private Function EsApilado(ByVal ws As Worksheet) As Boolean
+    EsApilado = (InStr(Fold(ws.Range("B14").Value), "apilad") > 0)
+End Function
+
+' Granularidad temporal (buckets del eje X) derivada del periodo (B11): periodos
+' en meses -> Mensual; hasta 2 anos -> Trimestral; mas -> Anual.
+Private Function GranularidadComp(ByVal per As String) As String
+    Dim p As String: p = UCase(Trim(per))
+    If p = "MTD" Or p = "YTD" Or Right(p, 1) = "M" Then GranularidadComp = "Mensual": Exit Function
+    If AnyosPeriodo(per) <= 2 Then GranularidadComp = "Trimestral" Else GranularidadComp = "Anual"
+End Function
+
+' Expresion SQL de bucket para una columna de fecha concreta.
+Private Function BucketSQL(ByVal gran As String, ByVal col As String) As String
+    Select Case Fold(gran)
+        Case "mensual":    BucketSQL = "FORMAT_DATE('%Y-%m', " & col & ")"
+        Case "trimestral": BucketSQL = "CONCAT(CAST(EXTRACT(YEAR FROM " & col & ") AS STRING),'-T'," & _
+                                       "CAST(EXTRACT(QUARTER FROM " & col & ") AS STRING))"
+        Case "semestral":  BucketSQL = "CONCAT(CAST(EXTRACT(YEAR FROM " & col & ") AS STRING),'-S'," & _
+                                       "CAST(IF(EXTRACT(MONTH FROM " & col & ")<=6,1,2) AS STRING))"
+        Case Else:         BucketSQL = "CAST(EXTRACT(YEAR FROM " & col & ") AS STRING)"   ' anual
+    End Select
+End Function
+
+' SQL: peso por (bucket temporal, categoria de clasificacion) para UNA cartera,
+' tomando la ultima foto de posiciones disponible dentro de cada bucket.
+Private Function SQLCompTemporal(ByVal id As String, ByVal clasCol As String, _
+        ByVal gran As String, ByVal per As String) As String
+    Dim intv As String, kPos As String, kVal As String, bexpr As String
+    intv = IntervaloPeriodo(per): If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
+    kPos = Cfg("JOIN_KEY_POS", "PK_SECURITY_IK")
+    kVal = Cfg("JOIN_KEY_VAL", "PK_SECURITY_IK")
+    bexpr = BucketSQL(gran, "b.PK_FECHA_DATOS")
+    SQLCompTemporal = _
+        "WITH base AS (" & vbLf & _
+        "  SELECT p.PK_FECHA_DATOS, p." & kPos & " AS seckey, p." & PosValor() & " AS valor" & vbLf & _
+        "  FROM " & TblPos() & " p" & vbLf & _
+        "  WHERE p.PK_PORTFOLIO_ID = '" & Esc(id) & "')," & vbLf & _
+        " mx AS (SELECT MAX(PK_FECHA_DATOS) AS dmax FROM base)," & vbLf & _
+        " win AS (SELECT b.PK_FECHA_DATOS, b.seckey, b.valor, " & bexpr & " AS bucket" & vbLf & _
+        "   FROM base b, mx" & vbLf & _
+        "   WHERE b.PK_FECHA_DATOS > DATE_SUB(mx.dmax, " & intv & ") AND b.PK_FECHA_DATOS <= mx.dmax)," & vbLf & _
+        " ult AS (SELECT bucket, MAX(PK_FECHA_DATOS) AS f FROM win GROUP BY bucket)" & vbLf & _
+        "SELECT w.bucket AS categoria, " & clasCol & " AS serie," & vbLf & _
+        "       FORMAT('%.10f', CAST(SUM(w.valor) AS FLOAT64)) AS valor" & vbLf & _
+        "FROM win w" & vbLf & _
+        "JOIN ult ON ult.bucket = w.bucket AND w.PK_FECHA_DATOS = ult.f" & vbLf & _
+        "JOIN " & TblValores() & " v ON v." & kVal & " = w.seckey" & vbLf & _
+        "GROUP BY categoria, serie" & vbLf & _
+        "ORDER BY categoria"
+End Function
+
+' Vista de composicion APILADA EN EL TIEMPO para la Entidad 1 (B4): eje X =
+' buckets del periodo; series apiladas = categorias de la clasificacion (B9).
+' Consulta directa (no usa los bloques). Devuelve False si no hay datos.
+Public Function ComposicionTemporal(ByVal ws As Worksheet) As Boolean
+    Dim ents As String, dimen As String, clasCol As String, per As String, gran As String
+    Dim sql As String, msg As String, wv As Worksheet
+    ents = ListaEntidades(ws)                 ' fija mId1
+    If Len(Trim(mId1)) = 0 Then Exit Function
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    clasCol = DimAClasificacion(dimen)
+    If Len(clasCol) = 0 Then Exit Function
+    per = Trim(CStr(ws.Range("B11").Value))
+    gran = GranularidadComp(per)
+    sql = SQLCompTemporal(mId1, clasCol, gran, per)
+
+    Set wv = HojaAux("_Volcado")
+    If Not EjecutarASheet(sql, wv, msg) Then
+        MsgBox "No se pudo consultar la composicion temporal:" & vbLf & msg, vbExclamation, "Composicion apilada": Exit Function
+    End If
+    ComposicionTemporal = PivotarYDibujarApiladas(ws, wv)
+End Function
+
+' Ejecuta una SQL y vuelca cabeceras (fila 1) + datos (fila 2+) en 'wd' como texto.
+Private Function EjecutarASheet(ByVal sql As String, ByVal wd As Worksheet, ByRef msg As String) As Boolean
+    Dim cn As Object, rs As Object, j As Long
+    On Error GoTo fallo
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 180
+    cn.CursorLocation = 3
+    cn.Open CfgConn()
+    Set rs = cn.Execute(sql)
+    wd.Cells.Clear
+    wd.Cells.NumberFormat = "@"
+    For j = 0 To rs.Fields.Count - 1
+        wd.Cells(1, 1 + j).Value = rs.Fields(j).Name
+    Next j
+    If Not rs.EOF Then wd.Cells(2, 1).CopyFromRecordset rs
+    rs.Close: cn.Close
+    EjecutarASheet = True
+    Exit Function
+fallo:
+    msg = Err.Description
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+    On Error GoTo 0
+End Function
+
+' Pivota (bucket, serie, valor) de 'src' a una matriz en el Panel (D = fechas,
+' E.. = una columna por serie/categoria, en %) y dibuja el grafico apilado.
+Private Function PivotarYDibujarApiladas(ByVal ws As Worksheet, ByVal src As Worksheet) As Boolean
+    Dim lastR As Long, r As Long
+    lastR = src.Cells(src.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Function
+
+    Dim bkts As Object, sers As Object, mat As Object, totB As Object
+    Set bkts = CreateObject("Scripting.Dictionary")   ' bucket -> fila destino
+    Set sers = CreateObject("Scripting.Dictionary")   ' serie  -> columna destino
+    Set mat = CreateObject("Scripting.Dictionary")    ' "bucket|serie" -> valor
+    Set totB = CreateObject("Scripting.Dictionary")   ' bucket -> total
+    Dim rowOut As Long: rowOut = 3
+    Dim colOut As Long: colOut = 5                     ' E
+    Dim bk As String, se As String, v As Double, k As String
+    For r = 2 To lastR
+        bk = Trim(CStr(src.Cells(r, 1).Value))
+        se = Trim(CStr(src.Cells(r, 2).Value))
+        If Len(se) = 0 Then se = "(sin dato)"
+        If Len(bk) = 0 Then GoTo seguir
+        v = NumDbl(src.Cells(r, 3).Value)
+        If Not bkts.Exists(bk) Then
+            If rowOut > 402 Then GoTo seguir
+            bkts.Add bk, rowOut: rowOut = rowOut + 1
+        End If
+        If Not sers.Exists(se) Then
+            If sers.Count >= MAXSER Then se = "Otros"
+            If Not sers.Exists(se) Then
+                sers.Add se, colOut: colOut = colOut + 1
+            End If
+        End If
+        k = bk & "|" & se
+        If mat.Exists(k) Then mat(k) = mat(k) + v Else mat(k) = v
+        If totB.Exists(bk) Then totB(bk) = totB(bk) + v Else totB(bk) = v
+seguir:
+    Next r
+    If bkts.Count = 0 Or sers.Count = 0 Then Exit Function
+
+    ' La matriz temporal va a un area propia (columna BA=53 en adelante) para NO
+    ' pisar la tabla del grafico D:H ni las cabeceras E2/F2/G2 (nombres de cartera).
+    GuardarPreviewSiNoExiste ws
+    Application.EnableEvents = False
+    ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER + 1)).ClearContents
+    Dim vb As Variant, vs As Variant, rr As Long, cc As Long
+    ws.Cells(2, TCMP_COL).Value = "Fecha"
+    For Each vs In sers.Keys: ws.Cells(2, sers(vs)).Value = vs: Next vs
+    For Each vb In bkts.Keys
+        rr = bkts(vb): ws.Cells(rr, TCMP_COL).Value = vb
+        For Each vs In sers.Keys
+            cc = sers(vs)
+            k = CStr(vb) & "|" & CStr(vs)
+            If mat.Exists(k) And totB(vb) <> 0 Then ws.Cells(rr, cc).Value = mat(k) / totB(vb)
+        Next vs
+    Next vb
+    ws.Range(ws.Cells(3, TCMP_COL + 1), ws.Cells(2 + bkts.Count, TCMP_COL + sers.Count)).NumberFormat = "0.00%"
+    Application.EnableEvents = True
+
+    DibujarApiladas ws, bkts.Count, sers.Count
+    PivotarYDibujarApiladas = True
+End Function
+
+' Dibuja columnas/barras apiladas: una serie por cada columna de categoria
+' (BB..), eje X = fechas (BA). 100% apiladas si B14 lo indica.
+Private Sub DibujarApiladas(ByVal ws As Worksheet, ByVal nRows As Long, ByVal nSer As Long)
+    Dim ch As Chart, s As Series, c As Long, r0 As Long, r1 As Long
+    On Error Resume Next
+    Set ch = ws.ChartObjects(1).Chart
+    On Error GoTo 0
+    If ch Is Nothing Then Exit Sub
+    r0 = 3: r1 = 2 + nRows
+    Do While ch.SeriesCollection.Count > 0: ch.SeriesCollection(1).Delete: Loop
+    For c = TCMP_COL + 1 To TCMP_COL + nSer
+        Set s = ch.SeriesCollection.NewSeries
+        s.Name = "=Panel!" & ws.Cells(2, c).Address
+        s.Values = "=Panel!" & ws.Range(ws.Cells(r0, c), ws.Cells(r1, c)).Address
+        s.XValues = "=Panel!" & ws.Range(ws.Cells(r0, TCMP_COL), ws.Cells(r1, TCMP_COL)).Address
+    Next c
+    Dim t As String: t = Fold(ws.Range("B14").Value)
+    If InStr(t, "100%") > 0 Then
+        ch.ChartType = IIf(InStr(t, "barra") > 0, xlBarStacked100, xlColumnStacked100)
+    Else
+        ch.ChartType = IIf(InStr(t, "barra") > 0, xlBarStacked, xlColumnStacked)
+    End If
+    On Error Resume Next
+    ch.HasTitle = True
+    ch.ChartTitle.Text = ws.Range("A19").Value & " - evolucion"
+    ch.HasLegend = True
+    On Error GoTo 0
+End Sub
+
 ' Spread medio (ponderado por valoracion) EN LOCAL desde el bloque POS. Si la
 ' dimension es una clasificacion, desglosa por ella; si no, un valor por slot.
 Private Function LocalSpread(ByVal ws As Worksheet) As Boolean
@@ -1919,6 +2119,7 @@ Public Sub DibujarGrafico()
         Case "radar":             ch.ChartType = xlRadarMarkers
         Case "apiladas":          ch.ChartType = xlColumnStacked
         Case "100% apiladas":     ch.ChartType = xlColumnStacked100
+        Case "barras apiladas":   ch.ChartType = xlBarStacked
         Case Else:                ch.ChartType = xlColumnClustered
     End Select
 
