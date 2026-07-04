@@ -736,14 +736,30 @@ Public Function ConstruirM() As String
         Replace(sql, vbLf, " ") & """)" & vbLf & "in" & vbLf & "    Origen"
 End Function
 
+' SQL que REALMENTE se lanza para los parametros actuales: si el grupo usa un
+' bloque amplio (Rendimiento/Riesgo/Composicion/Composicion apilada), es la SQL
+' del bloque; si no, la consulta directa por metrica. Para 'Ver SQL' / A41.
+Public Function SQLActual() As String
+    Dim ws As Worksheet, gk As String, blkId As String, ents As String
+    Set ws = Panel()
+    gk = GrupoKey(Trim(CStr(ws.Range("B7").Value)))
+    ents = ListaEntidades(ws)
+    blkId = BloqueDe(gk, Trim(CStr(ws.Range("B9").Value)))
+    If Len(blkId) > 0 And Len(ents) > 0 Then
+        SQLActual = "-- Bloque '" & blkId & "' (se descarga una vez y se trocea en local):" & vbLf & BlkSQL(blkId, ents)
+    Else
+        SQLActual = ConstruirSQL()
+    End If
+End Function
+
 Public Sub ActualizarSQL()
     On Error Resume Next
-    Panel().Range("A41").Value = ConstruirSQL()
+    Panel().Range("A41").Value = SQLActual()
 End Sub
 
 Public Sub VerSQL()
     ActualizarSQL
-    MsgBox ConstruirSQL(), vbInformation, "SQL para los parametros actuales"
+    MsgBox SQLActual(), vbInformation, "SQL para los parametros actuales"
 End Sub
 
 Public Sub VerM()
@@ -1587,9 +1603,42 @@ Private Function GicsSector(ByVal code2 As String) As String
     End Select
 End Function
 
-' Etiqueta legible de una categoria de clasificacion: agrupa GICS/BICS a nivel
-' sector (2 digitos) / industria (4 digitos) segun config, y pone nombre al
-' sector GICS. Asi el eje/leyenda no muestra 40 codigos de 8 digitos.
+' Nombre legible del grupo de industria GICS (codigo de 4 digitos). "" si no lo
+' reconoce (p.ej. si la columna es BICS, con otra numeracion).
+Private Function GicsIndustria(ByVal code4 As String) As String
+    Select Case Trim(code4)
+        Case "1010": GicsIndustria = "Energia"
+        Case "1510": GicsIndustria = "Materiales"
+        Case "2010": GicsIndustria = "Bienes de equipo"
+        Case "2020": GicsIndustria = "Servicios comerciales"
+        Case "2030": GicsIndustria = "Transporte"
+        Case "2510": GicsIndustria = "Automocion"
+        Case "2520": GicsIndustria = "Consumo duradero y textil"
+        Case "2530": GicsIndustria = "Servicios al consumo"
+        Case "2550": GicsIndustria = "Distribucion consumo discrecional"
+        Case "3010": GicsIndustria = "Distribucion consumo basico"
+        Case "3020": GicsIndustria = "Alimentacion, bebidas y tabaco"
+        Case "3030": GicsIndustria = "Hogar y cuidado personal"
+        Case "3510": GicsIndustria = "Equipos y servicios de salud"
+        Case "3520": GicsIndustria = "Farmacia y biotecnologia"
+        Case "4010": GicsIndustria = "Bancos"
+        Case "4020": GicsIndustria = "Servicios financieros"
+        Case "4030": GicsIndustria = "Seguros"
+        Case "4510": GicsIndustria = "Software y servicios"
+        Case "4520": GicsIndustria = "Hardware tecnologico"
+        Case "4530": GicsIndustria = "Semiconductores"
+        Case "5010": GicsIndustria = "Telecomunicaciones"
+        Case "5020": GicsIndustria = "Medios y entretenimiento"
+        Case "5510": GicsIndustria = "Utilities"
+        Case "6010": GicsIndustria = "Inmobiliario"
+        Case Else:   GicsIndustria = ""
+    End Select
+End Function
+
+' Etiqueta legible de una categoria de clasificacion: agrupa GICS a nivel sector
+' (2 digitos) o industria (4 digitos) segun config y le pone NOMBRE. Asi el eje/
+' leyenda no muestra codigos de 8 digitos. Si no reconoce el codigo (p.ej. BICS,
+' o un activo sin GICS como liquidez), deja el codigo tal cual.
 Private Function EtiquetaClasif(ByVal clas As String, ByVal raw As String) As String
     Dim s As String, n As Long, nm As String
     s = Trim(CStr(raw))
@@ -1601,6 +1650,7 @@ Private Function EtiquetaClasif(ByVal clas As String, ByVal raw As String) As St
         Case "Industria"
             n = CLng(Val(Cfg("IND_DIG", "4")))
             If n > 0 And Len(s) >= n Then s = Left(s, n)
+            nm = GicsIndustria(s): If Len(nm) > 0 Then s = nm
     End Select
     If Len(s) = 0 Then s = "(sin dato)"
     EtiquetaClasif = s
