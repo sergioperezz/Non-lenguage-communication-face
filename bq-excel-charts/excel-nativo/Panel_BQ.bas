@@ -189,6 +189,18 @@ Private Function Tbl(ByVal ds As String, ByVal t As String) As String
     Tbl = "`" & CfgProject() & "." & CfgDataset(ds) & "." & t & "`"
 End Function
 
+' Tabla de POSICIONES (holdings) para composicion/spread/TER. Es configurable
+' porque puede estar en otra tabla/dataset distinto al de rendimiento. Cuando
+' se sepa el nombre real de la tabla con valoracion por valor, se pone en config
+' (POS_TABLE y, si aplica, POS_DATASET) sin tocar la macro.
+Private Function TblPos() As String
+    TblPos = "`" & CfgProject() & "." & Cfg("POS_DATASET", CfgDataset(DS_PROD)) & _
+             "." & Cfg("POS_TABLE", T_POS) & "`"
+End Function
+Private Function PosValor() As String
+    PosValor = Cfg("POS_VALOR", POS_VALOR)
+End Function
+
 ' Normaliza un nombre para comparar (evita fallos tipicos del copy-paste):
 ' minusculas, sin acentos, sin espacios duros (nbsp) ni espacios dobles.
 Private Function NormNom(ByVal s As String) As String
@@ -488,9 +500,9 @@ Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
         SQLComposicion = "-- Composicion por '" & dimen & "': disponible por Sector y Rating."
         Exit Function
     End If
-    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, FORMAT('%.10f', CAST(SUM(p." & POS_VALOR & ") AS FLOAT64)) AS valor" & vbLf & _
-          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+    sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64)) AS valor" & vbLf & _
+          "FROM " & TblPos() & " p" & vbLf & JoinValores & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID, " & grp & vbLf & "ORDER BY p.PK_PORTFOLIO_ID, valor DESC"
     SQLComposicion = sql
@@ -504,9 +516,9 @@ Private Function SQLSpread(ws As Worksheet, ByVal ents As String) As String
         selCat = ", " & grp & " AS categoria": grpBy = ", " & grp: joinV = JoinValores
     End If
     sql = "SELECT p.PK_PORTFOLIO_ID" & selCat & "," & vbLf & _
-          "       FORMAT('%.10f', CAST(SUM(p.SPREAD * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64)) AS valor" & vbLf & _
-          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & joinV & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+          "       FORMAT('%.10f', CAST(SUM(p.SPREAD * p." & PosValor() & ") / NULLIF(SUM(p." & PosValor() & "), 0) AS FLOAT64)) AS valor" & vbLf & _
+          "FROM " & TblPos() & " p" & vbLf & joinV & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID" & grpBy & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
     SQLSpread = sql
@@ -515,9 +527,9 @@ End Function
 Private Function SQLTerLookthrough(ws As Worksheet, ByVal ents As String) As String
     Dim sql As String
     sql = "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
-          "       FORMAT('%.10f', CAST(SUM(v." & TER_COL & " * p." & POS_VALOR & ") / NULLIF(SUM(p." & POS_VALOR & "), 0) AS FLOAT64)) AS valor" & vbLf & _
-          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+          "       FORMAT('%.10f', CAST(SUM(v." & TER_COL & " * p." & PosValor() & ") / NULLIF(SUM(p." & PosValor() & "), 0) AS FLOAT64)) AS valor" & vbLf & _
+          "FROM " & TblPos() & " p" & vbLf & JoinValores & _
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID" & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
     SQLTerLookthrough = sql
@@ -526,9 +538,9 @@ End Function
 Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     Dim sql As String
     sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(" & TER_FONDO_EXPR & " AS FLOAT64)) AS valor" & vbLf & _
-          "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & _
+          "FROM " & TblPos() & " p" & vbLf & _
           "JOIN " & Tbl(DS_PROD, T_FONDOS) & " f ON f.PK_PRODUCTO_DATANOW = p.FK_PRODUCTO_DATANOW" & vbLf & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")"
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
     SQLTerFondo = sql
@@ -887,12 +899,15 @@ Public Sub Actualizar()
         If AsegurarBloque(ws, blkId, ents, msg) Then
             If ResolverLocal(ws) Then DibujarGrafico: Exit Sub
             ' El bloque esta pero esta dimension/metrica no sale de el -> directa.
-        ElseIf InStr(msg, "not found inside p") > 0 Then
-            MsgBox "La composicion/spread/TER necesita unir posiciones con el maestro, " & _
-                   "pero la columna de union no existe con ese nombre en posiciones." & vbLf & vbLf & _
-                   "1) Pulsa 'Ver columnas' para ver los nombres reales." & vbLf & _
-                   "2) En la hoja 'config' ajusta JOIN_KEY_POS y JOIN_KEY_VAL." & vbLf & vbLf & _
-                   "Detalle: " & msg, vbExclamation, "Composicion: falta la clave de union": Exit Sub
+        ElseIf InStr(msg, "not found inside p") > 0 Or InStr(msg, "Unrecognized name") > 0 Then
+            MsgBox "Composicion/Spread/TER necesita una tabla de POSICIONES (valoracion por " & _
+                   "valor: PK_PORTFOLIO_ID + " & PosValor() & " + clave de valor) para unirla al maestro." & vbLf & vbLf & _
+                   "La tabla configurada ('" & Cfg("POS_TABLE", T_POS) & "') NO tiene esos campos: " & _
+                   "solo trae columnas de nivel cartera. Es un tema de DISPONIBILIDAD del dato." & vbLf & vbLf & _
+                   "Cuando tengas la tabla real de posiciones, ponla en la hoja 'config':" & vbLf & _
+                   "  POS_TABLE (y POS_DATASET si esta en otro dataset), POS_VALOR," & vbLf & _
+                   "  JOIN_KEY_POS / JOIN_KEY_VAL (clave con el maestro)." & vbLf & vbLf & _
+                   "Detalle: " & msg, vbExclamation, "Composicion: falta tabla de posiciones": Exit Sub
         ElseIf Len(msg) > 0 Then
             MsgBox "No se pudo descargar el grupo de datos:" & vbLf & msg, vbExclamation, "Actualizar": Exit Sub
         End If
@@ -1102,11 +1117,11 @@ Private Function SQLBloquePos(ByVal ents As String) As String
         "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
         "       v." & gics & " AS gics, v." & bics & " AS bics," & vbLf & _
         "       v." & geo & " AS geo, v." & divc & " AS divisa, v." & rat & " AS rating," & vbLf & _
-        "       FORMAT('%.10f', CAST(p." & POS_VALOR & " AS FLOAT64)) AS valor," & vbLf & _
+        "       FORMAT('%.10f', CAST(p." & PosValor() & " AS FLOAT64)) AS valor," & vbLf & _
         "       FORMAT('%.10f', CAST(p.SPREAD AS FLOAT64)) AS spread," & vbLf & _
         "       FORMAT('%.10f', CAST(v." & TER_COL & " AS FLOAT64)) AS ter" & vbLf & _
-        "FROM " & Tbl(DS_PROD, T_POS) & " p" & vbLf & JoinValores & _
-        "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_POS) & ")" & vbLf & _
+        "FROM " & TblPos() & " p" & vbLf & JoinValores & _
+        "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")" & vbLf & _
         "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
         "ORDER BY p.PK_PORTFOLIO_ID"
 End Function
@@ -1570,7 +1585,7 @@ Public Sub VerColumnas()
     col = 1
     nf = nf + VolcarColumnasTabla(wc, col, T_PERF, Tbl(DS_PROD, T_PERF))
     col = col + 1
-    nf = nf + VolcarColumnasTabla(wc, col, T_POS, Tbl(DS_PROD, T_POS))
+    nf = nf + VolcarColumnasTabla(wc, col, T_POS, TblPos())
     col = col + 1
     nf = nf + VolcarColumnasTabla(wc, col, T_VALORES, Tbl(DS_MERC, T_VALORES))
     wc.Activate

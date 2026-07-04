@@ -413,6 +413,9 @@ def build_config(wb):
         ("RATING_COL", "COMPOSITERATINGSPCOMPOSITE", "Composición por Rating"),
         ("JOIN_KEY_POS", "PK_ACTIVO_DATANOW", "Clave del JOIN posiciones->maestro (columna en posiciones)"),
         ("JOIN_KEY_VAL", "PK_ACTIVO_DATANOW", "Clave del JOIN posiciones->maestro (columna en el maestro)"),
+        ("POS_TABLE", "CAM_TM_PORTFOLIOS_PD", "Tabla de POSICIONES (holdings) para composición/spread/TER"),
+        ("POS_DATASET", "productosdatosdecontratos_ds01", "Dataset de la tabla de posiciones (si difiere)"),
+        ("POS_VALOR", "VALUATION_PC", "Columna de valoración de la posición (peso)"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD
