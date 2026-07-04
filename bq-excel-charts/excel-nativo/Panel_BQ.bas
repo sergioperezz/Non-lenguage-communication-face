@@ -734,13 +734,12 @@ Public Sub InstalarBotones()
     Set ws = Panel()
     BorrarBotones ws
     CrearBoton ws, "A20", "Cargar carteras (segun B3)", "CargarCarteras"
-    CrearBoton ws, "A22", ">> Cargar datos (cartera)", "CargarDatosCartera"
-    CrearBoton ws, "A24", "> Actualizar", "Actualizar"
-    CrearBoton ws, "A26", "Dibujar (aplica tipo)", "DibujarGrafico"
-    CrearBoton ws, "A28", "Vista previa (dummy)", "VistaPreviaDummy"
-    CrearBoton ws, "A30", "Ver SQL", "VerSQL"
+    CrearBoton ws, "A22", ">> EJECUTAR QUERY Y ACTUALIZAR GRAFICO", "Actualizar"
+    CrearBoton ws, "A24", "Dibujar (aplica tipo)", "DibujarGrafico"
+    CrearBoton ws, "A26", "Vista previa (dummy)", "VistaPreviaDummy"
+    CrearBoton ws, "A28", "Ver SQL", "VerSQL"
+    CrearBoton ws, "A30", "Ver columnas (diagnostico)", "VerColumnas"
     CrearBoton ws, "A32", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
-    CrearBoton ws, "A34", "Activar auto-refresco", "ActivarAutoRefresco"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -754,57 +753,10 @@ Public Sub InstalarBotones()
     On Error Resume Next
     DibujarGrafico
     On Error GoTo 0
-    ' Intenta instalar el auto-refresco (evento de hoja) para que el grafico se
-    ' actualice SOLO al cambiar un desplegable (recalculo local, sin BigQuery).
-    Dim autoOK As Boolean: autoOK = InstalarAutoRefresco()
-    Dim m As String
-    m = "Botones creados en 'Panel' y 'Tablas'." & vbLf & _
-        "El grafico ya se ajusta solo al cambiar los parametros."
-    If autoOK Then
-        m = m & vbLf & vbLf & "AUTO-REFRESCO ACTIVADO: al cambiar cualquier desplegable, " & _
-            "el grafico se recalcula solo desde los datos descargados (sin re-consultar)."
-    Else
-        m = m & vbLf & vbLf & "PARA QUE SE ACTUALICE SOLO al cambiar un desplegable, pulsa el " & _
-            "boton 'Activar auto-refresco' (te dira exactamente que hacer)."
-    End If
-    MsgBox m, vbInformation, "Instalacion"
-End Sub
-
-' Boton dedicado: activa el auto-refresco. Si puede, inyecta el evento en la
-' hoja Panel; si no (acceso al proyecto VBA bloqueado), deja el codigo listo en
-' una hoja para copiar/pegar en 2 pasos.
-Public Sub ActivarAutoRefresco()
-    If InstalarAutoRefresco() Then
-        MsgBox "AUTO-REFRESCO ACTIVADO." & vbLf & vbLf & _
-               "Descarga los datos ('Cargar datos') y a partir de ahi el grafico se " & _
-               "actualiza SOLO al cambiar cualquier desplegable (metrica, dimension, " & _
-               "periodo...), sin volver a consultar BigQuery.", vbInformation, "Auto-refresco"
-        Exit Sub
-    End If
-    ' No hay acceso al proyecto VBA: dejamos el snippet listo para pegar.
-    Dim wa As Worksheet
-    Set wa = HojaAux("_AutoRefresco")
-    wa.Visible = xlSheetVisible
-    wa.Cells.ClearContents
-    wa.Range("A1").Value = "PEGA ESTO EN EL CODIGO DE LA HOJA 'Panel' (clic derecho en la pestana Panel > Ver codigo):"
-    wa.Range("A3").Value = "Private Sub Worksheet_Change(ByVal Target As Range)"
-    wa.Range("A4").Value = "    If Application.EnableEvents = False Then Exit Sub"
-    wa.Range("A5").Value = "    Application.EnableEvents = False"
-    wa.Range("A6").Value = "    On Error Resume Next"
-    wa.Range("A7").Value = "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim"
-    wa.Range("A8").Value = "    If Not Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then AutoLocal"
-    wa.Range("A9").Value = "    On Error GoTo 0"
-    wa.Range("A10").Value = "    Application.EnableEvents = True"
-    wa.Range("A11").Value = "End Sub"
-    wa.Activate
-    MsgBox "No tengo acceso para instalarlo solo. Dos opciones:" & vbLf & vbLf & _
-           "OPCION RAPIDA (2 pasos, siempre funciona):" & vbLf & _
-           "  1) Clic derecho en la pestana 'Panel' > Ver codigo." & vbLf & _
-           "  2) Copia las lineas de la hoja '_AutoRefresco' (ya abierta) y pegalas ahi. Guarda." & vbLf & vbLf & _
-           "OPCION AUTOMATICA (para no volver a pegar nunca):" & vbLf & _
-           "  Archivo > Opciones > Centro de confianza > Configuracion de macros >" & vbLf & _
-           "  marca 'Confiar en el acceso al modelo de objetos de proyectos de VBA'," & vbLf & _
-           "  y pulsa otra vez 'Activar auto-refresco'.", vbInformation, "Activar auto-refresco"
+    MsgBox "Botones creados en 'Panel' y 'Tablas'." & vbLf & vbLf & _
+           "Flujo: elige los desplegables y pulsa 'EJECUTAR QUERY Y ACTUALIZAR GRAFICO'." & vbLf & _
+           "Consulta a BigQuery SOLO los datos de esa seleccion y dibuja el grafico.", _
+           vbInformation, "Instalacion"
 End Sub
 
 ' Inserta (una vez) el evento Worksheet_Change en el modulo de la hoja Panel,
@@ -928,16 +880,9 @@ Public Sub RefrescarDatos()
     Dim ws As Worksheet, sql As String, msg As String, intento As Long
     Set ws = Panel()
 
-    ' BLOQUE AMPLIO + TROCEO LOCAL: si ya se han descargado los datos de estas
-    ' carteras (boton "Cargar datos"), la metrica/dimension/periodo se calcula
-    ' EN LOCAL desde los bloques de la hoja Panel, sin volver a BigQuery.
-    If BloqueCubre(ws) Then
-        If ResolverLocal(ws) Then
-            DibujarGrafico
-            Exit Sub
-        End If
-    End If
-
+    ' MODELO "solo lo necesario": consulta a BigQuery exactamente los datos de la
+    ' seleccion actual (metrica/dimension/periodo/carteras) y dibuja. Sin bloques
+    ' amplios ni troceo local.
     mForzarSinBmk = False
     For intento = 1 To 2
         sql = ConstruirSQL()
