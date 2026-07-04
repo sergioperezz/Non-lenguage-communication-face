@@ -76,8 +76,8 @@ _DIM_T = DIM_GRANU + DIM_TIEMPO                                 # todas las temp
 # asi solo se ofrece lo que la macro sabe consultar y no salen errores "no mapeada").
 DIM_POR_GRUPO = {
     "Rendimiento": _DIM_T,
-    "Riesgo":      _DIM_T + ["Activo", "Geografia", "Divisa"],
-    "Composicion": ["Sector", "Industria", "Geografia", "Pais", "Divisa", "Rating"],
+    "Riesgo":      _DIM_T,
+    "Composicion": ["Activo", "Sector", "Industria", "Geografia", "Pais", "Divisa", "Rating"],
     "Costes":      _DIM_T,
     "Liquidez":    _DIM_T,
     "Valoracion":  _DIM_T,

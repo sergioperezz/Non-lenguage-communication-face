@@ -887,7 +887,7 @@ End Sub
 '    los datos que hay y solo recalcula/dibuja en local.
 ' Asi la primera vez de cada grupo/cartera consulta; el resto es instantaneo.
 Public Sub Actualizar()
-    Dim ws As Worksheet, ents As String, grupo As String, blkId As String, msg As String
+    Dim ws As Worksheet, ents As String, grupo As String, dimen As String, blkId As String, msg As String
     Set ws = Panel()
     ' Repara B8/B9 si quedaron en #REF (p.ej. por un evento mal pegado).
     If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) Then ReiniciarMetricaDim
@@ -900,7 +900,8 @@ Public Sub Actualizar()
     End If
     ents = ListaEntidades(ws)                 ' fija mId1/2/3
     grupo = Trim(CStr(ws.Range("B7").Value))
-    blkId = GrupoABlk(grupo)
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    blkId = BloqueDe(grupo, dimen)
 
     ' Grupos con bloque amplio (Rendimiento/Riesgo/Composicion): cache por grupo.
     If Len(ents) > 0 And Len(blkId) > 0 Then
@@ -925,13 +926,20 @@ Public Sub Actualizar()
     RefrescarDatos
 End Sub
 
-' Grupo de metrica (B7) -> bloque amplio que lo cubre ("" si no tiene bloque).
-Private Function GrupoABlk(ByVal grupo As String) As String
+' Grupo (B7) + dimension (B9) -> bloque amplio que lo cubre ("" si no tiene).
+' Composicion usa DOS fuentes:
+'   - Exposicion (Tipo de activo/Geografia/Divisa) -> bloque RISK (riesgo agregado)
+'   - Peso por clasificacion (Sector/Industria/Pais/Rating) -> bloque POS (posiciones)
+Private Function BloqueDe(ByVal grupo As String, ByVal dimen As String) As String
     Select Case Fold(grupo)
-        Case "rendimiento": GrupoABlk = "RET"
-        Case "riesgo":      GrupoABlk = "RISK"
-        Case "composicion": GrupoABlk = "POS"
-        Case Else:          GrupoABlk = ""
+        Case "rendimiento": BloqueDe = "RET"
+        Case "riesgo":      BloqueDe = "RISK"
+        Case "composicion"
+            Select Case dimen
+                Case "Activo", "Geografia", "Divisa": BloqueDe = "RISK"   ' exposicion
+                Case Else:                            BloqueDe = "POS"    ' holdings
+            End Select
+        Case Else:          BloqueDe = ""
     End Select
 End Function
 
@@ -1546,10 +1554,55 @@ Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
     ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" Then
         ResolverLocal = LocalRiesgo(ws)
     ElseIf met = "Peso" Then
-        ResolverLocal = LocalComposicion(ws)
+        Dim dimen As String: dimen = Trim(CStr(ws.Range("B9").Value))
+        Select Case dimen
+            Case "Activo", "Geografia", "Divisa"      ' exposicion (bloque RISK)
+                ResolverLocal = LocalExposicion(ws, DimACriterio(dimen))
+            Case Else                                 ' peso por clasificacion (bloque POS)
+                ResolverLocal = LocalComposicion(ws)
+        End Select
     ' Spread / TER look-through: la tabla de posiciones (COMP) puede no traer
     ' SPREAD/TER; se resuelven por consulta directa (ResolverLocal = False).
     End If
+End Function
+
+' Composicion por EXPOSICION EN LOCAL desde el bloque RISK: reparto (%) por
+' etiqueta del criterio (AssetType/Geo/FX) a la fecha mas reciente. Los valores
+' de exposicion ya vienen en fraccion; se muestran como % (FormatoMetrica Peso).
+Private Function LocalExposicion(ByVal ws As Worksheet, ByVal crit As String) As Boolean
+    Dim c0 As Long, lastR As Long, r As Long
+    c0 = BLK_RISK_COL                       ' fecha|PID|criterio|etiqueta|variable|valor
+    lastR = UltFilaBloque(ws, c0)
+    If lastR < 2 Or Len(crit) = 0 Then Exit Function
+
+    Dim cats As Object, vals As Object, fmax As Object
+    Set cats = CreateObject("Scripting.Dictionary")
+    Set vals = CreateObject("Scripting.Dictionary")   ' slot|cat -> valor (ultimo)
+    Set fmax = CreateObject("Scripting.Dictionary")   ' slot|cat -> fecha del ultimo
+    Dim rowOut As Long: rowOut = 3
+    Dim pid As String, slot As Long, cat As String, k As String, dd As Date
+    For r = 2 To lastR
+        If Fold(CStr(ws.Cells(r, c0 + 2).Value)) <> Fold(crit) Then GoTo seguir
+        pid = UCase(Trim(CStr(ws.Cells(r, c0 + 1).Value)))
+        slot = SlotDe(pid)
+        If slot = 0 Then GoTo seguir
+        cat = Trim(CStr(ws.Cells(r, c0 + 3).Value))   ' etiqueta
+        If Len(cat) = 0 Then GoTo seguir
+        dd = FechaDe(ws.Cells(r, c0).Value)
+        If Not cats.Exists(cat) Then
+            If rowOut > 402 Then GoTo seguir
+            cats.Add cat, rowOut: rowOut = rowOut + 1
+        End If
+        k = slot & "|" & cat
+        If (Not fmax.Exists(k)) Or (dd >= fmax(k)) Then
+            fmax(k) = dd
+            vals(k) = NumDbl(ws.Cells(r, c0 + 5).Value)
+        End If
+seguir:
+    Next r
+    If cats.Count = 0 Then Exit Function
+    VolcarLocal ws, cats, vals
+    LocalExposicion = True
 End Function
 
 ' Ejecuta la SQL de una metrica concreta (via directa, sin bloque amplio),
