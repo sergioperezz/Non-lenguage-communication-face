@@ -939,18 +939,30 @@ Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
 
     tipoSel = LCase(Trim(CStr(ws.Range("B3").Value)))   ' Fondo/Cartera/Indice -> minusculas
     Set we = HojaAux("_Ent")
-    we.Cells.ClearContents
+    we.Columns(1).ClearContents
     we.Cells(1, 1).Value = "(ninguna)"
     n = 1
     lastR = wm.Cells(wm.Rows.Count, colN).End(xlUp).Row
-    Application.ScreenUpdating = False
-    For r = 2 To lastR
-        If colT = 0 Or LCase(Trim(CStr(wm.Cells(r, colT).Value))) = tipoSel Then
-            n = n + 1
-            we.Cells(n, 1).Value = wm.Cells(r, colN).Value
-        End If
-    Next r
-    Application.ScreenUpdating = True
+
+    ' RAPIDO: lee toda la hoja de carteras a un array de UNA vez, filtra por tipo
+    ' en memoria y escribe la lista filtrada en _Ent en UNA sola operacion (evita
+    ' miles de accesos celda a celda, que es lo que hacia lento cambiar de tipo).
+    If lastR >= 2 Then
+        Dim lastCol As Long, datos As Variant, filt() As Variant, r2 As Long
+        lastCol = colN: If colT > lastCol Then lastCol = colT
+        If lastCol < 2 Then lastCol = 2
+        datos = wm.Range(wm.Cells(2, 1), wm.Cells(lastR, lastCol)).Value   ' array 2D
+        ReDim filt(1 To UBound(datos, 1), 1 To 1)
+        Dim okTipo As Boolean, nom As String
+        For r = 1 To UBound(datos, 1)
+            If colT = 0 Then okTipo = True Else okTipo = (LCase(Trim(CStr(datos(r, colT)))) = tipoSel)
+            If okTipo Then
+                nom = Trim(CStr(datos(r, colN)))
+                If Len(nom) > 0 Then n = n + 1: r2 = r2 + 1: filt(r2, 1) = nom
+            End If
+        Next r
+        If r2 > 0 Then we.Range(we.Cells(2, 1), we.Cells(r2 + 1, 1)).Value = filt
+    End If
 
     If n < 2 Then
         If Not quiet Then MsgBox "No hay carteras de tipo '" & ws.Range("B3").Value & "' en la hoja.", vbExclamation
