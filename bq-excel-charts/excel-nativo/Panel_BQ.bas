@@ -51,6 +51,8 @@ Private Const TER_FONDO_EXPR As String = "f.COMISION_DE_GESTION_DIRECTA + f.COMI
 Private Const ACTIVOS_SHEET As String = "cartera"          ' nombre principal a buscar
 Private Const ACTIVOS_COL_NOMBRE As String = "nombre_elemento"
 Private Const ACTIVOS_COL_ID As String = "id_elemento"    ' columna que va a PK_PORTFOLIO_ID
+Private Const CACHE_RET As String = "_CacheRet"   ' cache de retornos diarios (bloque amplio)
+Private Const CACHE_ANOS As Long = 6              ' anos de historia diaria que se cachean
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -80,6 +82,13 @@ Private Function NumVal(ByVal v As Variant) As Variant
     Dim s As String
     s = Trim(CStr(v))
     If s = "" Then NumVal = "" Else NumVal = Val(Replace(s, ",", "."))
+End Function
+
+' Como NumVal pero SIEMPRE devuelve un Double (vacio/no numerico -> 0).
+Private Function NumDbl(ByVal v As Variant) As Double
+    Dim s As String
+    s = Trim(CStr(v))
+    If s <> "" Then NumDbl = Val(Replace(s, ",", "."))
 End Function
 
 ' Formato de numero segun la metrica del panel (B8). Los rendimientos vienen en
@@ -703,11 +712,12 @@ Public Sub InstalarBotones()
     Set ws = Panel()
     BorrarBotones ws
     CrearBoton ws, "A20", "Cargar carteras (segun B3)", "CargarCarteras"
-    CrearBoton ws, "A22", "> Actualizar (BigQuery)", "Actualizar"
-    CrearBoton ws, "A24", "Dibujar (aplica tipo)", "DibujarGrafico"
-    CrearBoton ws, "A26", "Vista previa (dummy)", "VistaPreviaDummy"
-    CrearBoton ws, "A28", "Ver SQL", "VerSQL"
-    CrearBoton ws, "A30", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A22", ">> Cargar datos (cartera)", "CargarDatosCartera"
+    CrearBoton ws, "A24", "> Actualizar", "Actualizar"
+    CrearBoton ws, "A26", "Dibujar (aplica tipo)", "DibujarGrafico"
+    CrearBoton ws, "A28", "Vista previa (dummy)", "VistaPreviaDummy"
+    CrearBoton ws, "A30", "Ver SQL", "VerSQL"
+    CrearBoton ws, "A32", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -818,6 +828,17 @@ End Sub
 Public Sub RefrescarDatos()
     Dim ws As Worksheet, sql As String, msg As String, intento As Long
     Set ws = Panel()
+
+    ' BLOQUE AMPLIO + TROCEO LOCAL: si la metrica es Rentabilidad y ya hay cache
+    ' diaria que cubre estas carteras, se calcula EN LOCAL (sin ir a BigQuery).
+    Dim met As String: met = Trim(CStr(ws.Range("B8").Value))
+    If (met = "Rentabilidad" Or met = "Rentab. acum.") And CacheCubre(ws) Then
+        If LocalRentabilidad(ws) Then
+            DibujarGrafico
+            Exit Sub
+        End If
+    End If
+
     mForzarSinBmk = False
     For intento = 1 To 2
         sql = ConstruirSQL()
@@ -845,6 +866,192 @@ Public Sub RefrescarDatos()
         End If
     Next intento
 End Sub
+
+' =====================  BLOQUE AMPLIO + TROCEO LOCAL  ======================
+' Baja de UNA vez los retornos diarios (fondo + benchmark) de las carteras
+' elegidas a la hoja oculta _CacheRet. Luego cualquier periodo/dimension de
+' Rentabilidad se calcula en local (sin volver a BigQuery).
+Public Sub CargarDatosCartera()
+    Dim ws As Worksheet, ents As String, sql As String, msg As String, wc As Worksheet
+    Set ws = Panel()
+    ents = ListaEntidades(ws)                 ' fija mId1/2/3
+    If Len(ents) = 0 Then
+        MsgBox "Elige una cartera valida en B4 (y pulsa 'Cargar carteras' si hace falta).", _
+               vbExclamation, "Cargar datos": Exit Sub
+    End If
+    sql = "SELECT PK_PORTFOLIO_ID," & vbLf & _
+          "       FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS) AS fecha," & vbLf & _
+          "       FORMAT('%.10f', CAST(TWR_1D AS FLOAT64)) AS twr_1d," & vbLf & _
+          "       FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64)) AS twr_1d_bmk" & vbLf & _
+          "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
+          "WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
+          "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+          "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
+          "), INTERVAL " & CACHE_ANOS & " YEAR)" & vbLf & _
+          "ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
+    Set wc = HojaAux(CACHE_RET)
+    If Not EjecutarASheet(sql, wc, msg) Then
+        MsgBox "No se pudieron cargar los datos:" & vbLf & msg, vbExclamation, "Cargar datos": Exit Sub
+    End If
+    wc.Range("H1").Value = "ENTS:" & UCase(ents)    ' marca de que carteras hay en cache
+    MsgBox "Datos diarios cargados en cache." & vbLf & _
+           "Ahora Rentabilidad por cualquier periodo/dimension es instantanea (sin re-consultar)." & vbLf & _
+           "Vuelve a pulsar 'Cargar datos' solo al cambiar de cartera.", vbInformation, "Cargar datos"
+    RefrescarDatos
+End Sub
+
+' Ejecuta una SQL y vuelca el resultado (cabeceras fila 1, datos desde fila 2)
+' en la hoja destino, como TEXTO. True si fue bien; error en msg.
+Private Function EjecutarASheet(ByVal sql As String, ByVal wd As Worksheet, ByRef msg As String) As Boolean
+    Dim cn As Object, rs As Object, j As Long
+    On Error GoTo fallo
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 180
+    cn.CursorLocation = 3
+    cn.Open CfgConn()
+    Set rs = cn.Execute(sql)
+    wd.Cells.Clear
+    wd.Cells.NumberFormat = "@"
+    For j = 0 To rs.Fields.Count - 1
+        wd.Cells(1, 1 + j).Value = rs.Fields(j).Name
+    Next j
+    If Not rs.EOF Then wd.Cells(2, 1).CopyFromRecordset rs
+    rs.Close: cn.Close
+    EjecutarASheet = True
+    Exit Function
+fallo:
+    msg = Err.Description
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+    On Error GoTo 0
+    EjecutarASheet = False
+End Function
+
+' True si la cache de retornos existe y cubre TODAS las entidades elegidas.
+Private Function CacheCubre(ByVal ws As Worksheet) As Boolean
+    Dim wc As Worksheet, marca As String
+    On Error Resume Next
+    Set wc = ThisWorkbook.Sheets(CACHE_RET)
+    On Error GoTo 0
+    If wc Is Nothing Then Exit Function
+    marca = CStr(wc.Range("H1").Value)
+    If Len(marca) = 0 Then Exit Function
+    Dim ok As Boolean: ok = True
+    If Len(Trim(mId1)) > 0 Then If InStr(marca, "'" & UCase(mId1) & "'") = 0 Then ok = False
+    If Len(Trim(mId2)) > 0 Then If InStr(marca, "'" & UCase(mId2) & "'") = 0 Then ok = False
+    If Len(Trim(mId3)) > 0 Then If InStr(marca, "'" & UCase(mId3) & "'") = 0 Then ok = False
+    CacheCubre = ok
+End Function
+
+' Convierte "yyyy-mm-dd" en Date (independiente del idioma).
+Private Function FechaDe(ByVal s As String) As Date
+    s = Trim(CStr(s))
+    If Len(s) < 10 Then Exit Function
+    FechaDe = DateSerial(CLng(Left(s, 4)), CLng(Mid(s, 6, 2)), CLng(Mid(s, 9, 2)))
+End Function
+
+' Etiqueta de bucket de una fecha segun la dimension (igual que BucketExpr en SQL).
+Private Function BucketLocal(ByVal d As Date, ByVal dimen As String) As String
+    Dim y As Long, m As Long
+    y = Year(d): m = Month(d)
+    Select Case Fold(dimen)
+        Case "diario":     BucketLocal = Format(d, "yyyy-mm-dd")
+        Case "semanal":    BucketLocal = y & "-W" & Format(DatePart("ww", d, vbMonday, vbFirstFourDays), "00")
+        Case "mensual":    BucketLocal = Format(d, "yyyy-mm")
+        Case "trimestral": BucketLocal = y & "-T" & (Int((m - 1) / 3) + 1)
+        Case "semestral":  BucketLocal = y & "-S" & IIf(m <= 6, 1, 2)
+        Case "anual":      BucketLocal = CStr(y)
+        Case Else:         BucketLocal = Format(d, "yyyy-mm")
+    End Select
+End Function
+
+' Fecha de inicio de la ventana (Anual alineada a ano natural; resto, movil).
+Private Function InicioVentana(ByVal dMax As Date, ByVal per As String, ByVal dimen As String) As Date
+    Dim p As String, n As Long
+    If Fold(dimen) = "anual" Then
+        InicioVentana = DateSerial(Year(dMax) - (AnyosPeriodo(per) - 1), 1, 1): Exit Function
+    End If
+    p = UCase(Trim(per))
+    If Len(p) >= 2 And IsNumeric(Left(p, Len(p) - 1)) Then
+        n = CLng(Left(p, Len(p) - 1))
+        If Right(p, 1) = "A" Then InicioVentana = DateAdd("yyyy", -n, dMax): Exit Function
+        If Right(p, 1) = "M" Then InicioVentana = DateAdd("m", -n, dMax): Exit Function
+    End If
+    InicioVentana = DateAdd("yyyy", -1, dMax)
+End Function
+
+' Calcula Rentabilidad (compuesta por bucket) EN LOCAL desde _CacheRet y la
+' vuelca a D:H. Devuelve False si no hay cache utilizable.
+Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
+    Dim wc As Worksheet, lastR As Long, r As Long
+    On Error Resume Next
+    Set wc = ThisWorkbook.Sheets(CACHE_RET)
+    On Error GoTo 0
+    If wc Is Nothing Then Exit Function
+    lastR = wc.Cells(wc.Rows.Count, 1).End(xlUp).Row
+    If lastR < 2 Then Exit Function
+
+    Dim per As String, dimen As String, conBmk As Boolean, anual As Boolean
+    per = Trim(CStr(ws.Range("B11").Value))
+    dimen = Trim(CStr(ws.Range("B9").Value))
+    conBmk = (ws.Range("B12").Value = "Con benchmark")
+    anual = (Fold(dimen) = "anual")
+
+    Dim dMax As Date, dd As Date, ini As Date
+    For r = 2 To lastR
+        dd = FechaDe(wc.Cells(r, 2).Value)
+        If dd > dMax Then dMax = dd
+    Next r
+    ini = InicioVentana(dMax, per, dimen)
+
+    Dim prod As Object, prodB As Object, bkts As Object
+    Set prod = CreateObject("Scripting.Dictionary")   ' clave slot|bucket -> producto
+    Set prodB = CreateObject("Scripting.Dictionary")
+    Set bkts = CreateObject("Scripting.Dictionary")   ' bucket -> fila destino (orden de aparicion)
+    Dim rowOut As Long: rowOut = 3
+    Dim pid As String, slot As Long, bkt As String, k As String, dentro As Boolean
+
+    For r = 2 To lastR
+        dd = FechaDe(wc.Cells(r, 2).Value)
+        If dd = 0 Then GoTo seguir
+        dentro = IIf(anual, dd >= ini, dd > ini)
+        If Not dentro Or dd > dMax Then GoTo seguir
+        pid = UCase(Trim(CStr(wc.Cells(r, 1).Value)))
+        slot = 0
+        If IgualId(pid, mId1) Then slot = 1 ElseIf IgualId(pid, mId2) Then slot = 2 ElseIf IgualId(pid, mId3) Then slot = 3
+        If slot = 0 Then GoTo seguir
+        bkt = BucketLocal(dd, dimen)
+        If Not bkts.Exists(bkt) Then
+            If rowOut > 402 Then GoTo seguir
+            bkts.Add bkt, rowOut: rowOut = rowOut + 1
+        End If
+        k = slot & "|" & bkt
+        Dim r1 As Double: r1 = 1 + NumDbl(wc.Cells(r, 3).Value)   ' dia nulo -> 0 (sin movimiento)
+        If prod.Exists(k) Then prod(k) = prod(k) * r1 Else prod(k) = r1
+        If conBmk And slot = 1 Then
+            Dim rb As Double: rb = 1 + NumDbl(wc.Cells(r, 4).Value)
+            If prodB.Exists(k) Then prodB(k) = prodB(k) * rb Else prodB(k) = rb
+        End If
+seguir:
+    Next r
+
+    GuardarPreviewSiNoExiste ws
+    Application.EnableEvents = False
+    ws.Range("D3:H402").ClearContents
+    Dim vb As Variant
+    For Each vb In bkts.Keys
+        Dim rr As Long: rr = bkts(vb)
+        ws.Cells(rr, 4).Value = vb
+        If prod.Exists("1|" & vb) Then ws.Cells(rr, 5).Value = prod("1|" & vb) - 1
+        If prod.Exists("2|" & vb) Then ws.Cells(rr, 6).Value = prod("2|" & vb) - 1
+        If prod.Exists("3|" & vb) Then ws.Cells(rr, 7).Value = prod("3|" & vb) - 1
+        If prodB.Exists("1|" & vb) Then ws.Cells(rr, 8).Value = prodB("1|" & vb) - 1
+    Next vb
+    ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
+    Application.EnableEvents = True
+    LocalRentabilidad = (bkts.Count > 0)
+End Function
 
 ' Ejecuta la SQL, vuelca el crudo desde la columna W y pivota a D:H.
 ' Devuelve True si fue bien; si no, deja el mensaje de error en msg.
