@@ -753,9 +753,50 @@ Public Sub InstalarBotones()
     On Error Resume Next
     DibujarGrafico
     On Error GoTo 0
-    MsgBox "Botones creados en 'Panel' y 'Tablas'." & vbLf & _
-           "El grafico ya se ajusta solo al cambiar los parametros.", vbInformation, "Instalacion"
+    ' Intenta instalar el auto-refresco (evento de hoja) para que el grafico se
+    ' actualice SOLO al cambiar un desplegable (recalculo local, sin BigQuery).
+    Dim autoOK As Boolean: autoOK = InstalarAutoRefresco()
+    Dim m As String
+    m = "Botones creados en 'Panel' y 'Tablas'." & vbLf & _
+        "El grafico ya se ajusta solo al cambiar los parametros."
+    If autoOK Then
+        m = m & vbLf & vbLf & "AUTO-REFRESCO ACTIVADO: al cambiar cualquier desplegable, " & _
+            "el grafico se recalcula solo desde los datos descargados (sin re-consultar)."
+    Else
+        m = m & vbLf & vbLf & "Para que se actualice SOLO al cambiar un desplegable, activa " & _
+            "'Trust access to the VBA project object model' (Opciones > Centro de confianza > " & _
+            "Configuracion de macros) y vuelve a ejecutar InstalarBotones; o pega a mano el " & _
+            "evento de 'evento_autorefresco.txt' en el modulo de la hoja Panel."
+    End If
+    MsgBox m, vbInformation, "Instalacion"
 End Sub
+
+' Inserta (una vez) el evento Worksheet_Change en el modulo de la hoja Panel,
+' para que al cambiar un desplegable el grafico se recalcule SOLO desde los
+' datos ya descargados (local, sin BigQuery). Requiere que este activado el
+' acceso al modelo de objetos VBA; devuelve False si no se pudo.
+Public Function InstalarAutoRefresco() As Boolean
+    Dim cm As Object, cn As String, txt As String, s As String
+    On Error GoTo sinacceso
+    cn = Panel().CodeName
+    Set cm = ThisWorkbook.VBProject.VBComponents(cn).CodeModule
+    If cm.CountOfLines > 0 Then txt = cm.Lines(1, cm.CountOfLines)
+    If InStr(txt, "Worksheet_Change") > 0 Then InstalarAutoRefresco = True: Exit Function  ' ya existe
+    s = "Private Sub Worksheet_Change(ByVal Target As Range)" & vbCrLf & _
+        "    If Application.EnableEvents = False Then Exit Sub" & vbCrLf & _
+        "    Application.EnableEvents = False" & vbCrLf & _
+        "    On Error Resume Next" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then AutoLocal" & vbCrLf & _
+        "    On Error GoTo 0" & vbCrLf & _
+        "    Application.EnableEvents = True" & vbCrLf & _
+        "End Sub"
+    cm.AddFromString s
+    InstalarAutoRefresco = True
+    Exit Function
+sinacceso:
+    InstalarAutoRefresco = False
+End Function
 
 Private Sub BorrarBotones(ws As Worksheet)
     Dim i As Long
@@ -887,6 +928,19 @@ Public Sub RefrescarDatos()
             Exit Sub
         End If
     Next intento
+End Sub
+
+' Auto-refresco LOCAL: lo llama el evento Worksheet_Change al cambiar un
+' desplegable. Recalcula el grafico SOLO desde los datos ya descargados (sin ir
+' a BigQuery). Si aun no hay datos de esa cartera, no hace nada (hay que pulsar
+' 'Cargar datos'); nunca lanza una consulta por si solo.
+Public Sub AutoLocal()
+    Dim ws As Worksheet: Set ws = Panel()
+    On Error Resume Next
+    If IsError(ws.Range("B8").Value) Or IsError(ws.Range("B9").Value) Then Exit Sub
+    ListaEntidades ws                 ' fija mId1/2/3 para B4/B5/B6
+    If BloqueCubre(ws) Then ResolverLocal ws   ' recalcula la tabla si la metrica esta en los bloques
+    DibujarGrafico                    ' redibuja siempre (cubre cambio de tipo/estilo de grafico)
 End Sub
 
 ' =====================  BLOQUE AMPLIO + TROCEO LOCAL  ======================
