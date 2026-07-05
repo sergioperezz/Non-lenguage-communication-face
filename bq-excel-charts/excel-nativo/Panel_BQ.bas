@@ -1031,13 +1031,14 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     ' --- Clasificar variables ---
     Dim kind() As String, pA() As String, pB() As String
     ReDim kind(1 To nv): ReDim pA(1 To nv): ReDim pB(1 To nv)
-    Dim needRet As Boolean, needPos As Boolean
+    Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean
     Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
     For i = 1 To nv
         ClasificarVar vName(i), kind(i), pA(i), pB(i)
         Select Case kind(i)
             Case "ret", "year", "month", "vol": needRet = True
             Case "patrim", "peso":              needPos = True
+            Case "patmes":                      needPatMes = True
             Case "risk":                        If Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
         End Select
     Next i
@@ -1121,6 +1122,34 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
         Dim kp As Variant
         For Each kp In patr.Keys: totPatr = totPatr + patr(kp): Next kp
     End If
+
+    ' --- PATRIMONIO MENSUAL en memoria: "id|YYYY-MM" -> valoracion total del mes ---
+    Dim patMes As Object: Set patMes = CreateObject("Scripting.Dictionary")
+    If needPatMes Then
+        Dim sqlPM As String
+        sqlPM = "WITH base AS (SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m', PK_FECHA_DATOS) AS mes," & _
+                " PK_FECHA_DATOS, " & PosValor() & " AS valor FROM " & TblPos() & _
+                " WHERE PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
+                " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & _
+                "), INTERVAL " & CACHE_ANOS & " YEAR))," & _
+                " ult AS (SELECT PK_PORTFOLIO_ID, mes, MAX(PK_FECHA_DATOS) AS f FROM base GROUP BY PK_PORTFOLIO_ID, mes)" & _
+                " SELECT b.PK_PORTFOLIO_ID, b.mes, FORMAT('%.10f', CAST(SUM(b.valor) AS FLOAT64))" & _
+                " FROM base b JOIN ult ON ult.PK_PORTFOLIO_ID=b.PK_PORTFOLIO_ID AND ult.mes=b.mes" & _
+                " AND b.PK_FECHA_DATOS=ult.f GROUP BY b.PK_PORTFOLIO_ID, b.mes"
+        Set rs = cn.Execute(sqlPM)
+        Do While Not rs.EOF
+            patMes(UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value))) = NumDbl(rs.Fields(2).Value)
+            rs.MoveNext
+        Loop
+        rs.Close
+    End If
+    ' Ano por defecto para columnas "Patrimonio <mes>" sin ano: el mas reciente.
+    Dim defYear As String: defYear = ""
+    Dim kpm As Variant
+    For Each kpm In patMes.Keys
+        Dim yy4 As String: yy4 = Mid(CStr(kpm), InStr(CStr(kpm), "|") + 1, 4)
+        If yy4 > defYear Then defYear = yy4
+    Next kpm
     cn.Close
 
     ' --- Rellenar celdas ---
@@ -1145,6 +1174,12 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
                         If patr.Exists(eId(i)) Then cellVal = patr(eId(i))
                     Case "peso"
                         If patr.Exists(eId(i)) And totPatr <> 0 Then cellVal = patr(eId(i)) / totPatr
+                    Case "patmes"
+                        Dim yr3 As String: yr3 = pB(j): If Len(yr3) <> 4 Then yr3 = defYear
+                        If Len(yr3) = 4 Then
+                            Dim kpat As String: kpat = eId(i) & "|" & yr3 & "-" & Right("0" & pA(j), 2)
+                            If patMes.Exists(kpat) Then cellVal = patMes(kpat)
+                        End If
                 End Select
             End If
             valM(i, j) = cellVal
@@ -1162,7 +1197,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
         For j = 1 To nv
             Dim tv As Variant: tv = ""
             Select Case kind(j)
-                Case "patrim", "peso"
+                Case "patrim", "peso", "patmes"
                     Dim sAcc As Double, any1 As Boolean: sAcc = 0: any1 = False
                     For i = 1 To ne
                         If IsNumeric(valM(i, j)) Then sAcc = sAcc + CDbl(valM(i, j)): any1 = True
@@ -1204,7 +1239,16 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
     Dim s As String, f As String
     s = Trim(v): f = Fold(s): kind = "": pA = "": pB = ""
     If Len(s) = 4 And IsNumeric(s) Then kind = "year": pA = s: Exit Sub
-    If f = "patrimonio" Or f = "patrim" Then kind = "patrim": Exit Sub
+    If Left(f, 6) = "patrim" Then          ' "Patrimonio" (ultimo) o "Patrimonio Ene 2026" (mensual)
+        Dim pp() As String: pp = Split(f, " ")
+        Dim mmes As Long, ayr As String, ii As Long: mmes = 0: ayr = ""
+        For ii = 1 To UBound(pp)
+            If MesNum(pp(ii)) > 0 Then mmes = MesNum(pp(ii))
+            If Len(pp(ii)) = 4 Then If IsNumeric(pp(ii)) Then ayr = pp(ii)
+        Next ii
+        If mmes > 0 Then kind = "patmes": pA = CStr(mmes): pB = ayr Else kind = "patrim"
+        Exit Sub
+    End If
     If f = "peso" Then kind = "peso": Exit Sub
     If InStr(f, "duraci") = 1 Then kind = "risk": pA = "Duracion": pB = VarTarget(s): Exit Sub
     If f = "tir" Then kind = "risk": pA = "TIR": pB = "": Exit Sub
@@ -1300,17 +1344,31 @@ Private Sub ExpandirPlantilla(ByVal ws As Worksheet, ByVal inlist As String)
         t = Trim(toks(k))
         If Len(t) > 0 Then
             ft = Fold(t)
-            If ft = "meses" Or Left(ft, 6) = "meses " Then
-                Dim yr As String, cnt As Long, prts() As String, m As Long
+            ' Bloque de meses: "Meses" (rentabilidad), "Meses de Patrimonio",
+            ' "Patrimonio mensual" / "Patrimonio meses".
+            Dim esMeses As Boolean, metric As String
+            esMeses = (ft = "meses" Or Left(ft, 6) = "meses ")
+            metric = ""
+            If esMeses And InStr(ft, "patrim") > 0 Then metric = "patmes"
+            If Left(ft, 6) = "patrim" And (InStr(ft, "mensual") > 0 Or InStr(ft, "meses") > 0) Then _
+                esMeses = True: metric = "patmes"
+            If esMeses Then
+                Dim yr As String, cnt As Long, prts() As String, m As Long, ip As Long
                 prts = Split(ft, " ")
                 yr = yData
-                If UBound(prts) >= 1 Then                 ' And de VBA no cortocircuita:
-                    If IsNumeric(prts(1)) Then yr = prts(1)   ' accede a prts(1) solo si existe
-                End If
+                For ip = 1 To UBound(prts)
+                    If Len(prts(ip)) = 4 Then If IsNumeric(prts(ip)) Then yr = prts(ip)
+                Next ip
                 If yr = yData Then cnt = mData Else cnt = 12
                 For m = 1 To cnt
                     nh = nh + 1
-                    If yr = yData Then hdrs(nh) = MesAbbr(m) Else hdrs(nh) = MesAbbr(m) & " " & yr
+                    If metric = "patmes" Then
+                        hdrs(nh) = "Patrimonio " & MesAbbr(m) & " " & yr
+                    ElseIf yr = yData Then
+                        hdrs(nh) = MesAbbr(m)
+                    Else
+                        hdrs(nh) = MesAbbr(m) & " " & yr
+                    End If
                 Next m
             Else
                 nh = nh + 1: hdrs(nh) = t
@@ -1388,10 +1446,10 @@ End Function
 
 Private Function FormatoVar(ByVal kind As String, ByVal pA As String) As String
     Select Case kind
-        Case "risk":   FormatoVar = IIf(pA = "Duracion", "0.000", "0.00")
-        Case "patrim": FormatoVar = "#,##0"
-        Case "peso":   FormatoVar = "0.0%"
-        Case Else:     FormatoVar = "0.00%"
+        Case "risk":             FormatoVar = IIf(pA = "Duracion", "0.000", "0.00")
+        Case "patrim", "patmes": FormatoVar = "#,##0"
+        Case "peso":             FormatoVar = "0.0%"
+        Case Else:               FormatoVar = "0.00%"
     End Select
 End Function
 

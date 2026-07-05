@@ -766,8 +766,9 @@ def build_tablas(wb, n):
     ws["A5"].font = BOLD
     ws["B5"] = ""
     ws["B5"].fill = PatternFill("solid", fgColor=GRIS)
-    ws["C5"] = ('Opcional. Ej: «Meses, 2026, Volatilidad Diaria, Volatilidad Anualizada». '
-                '«Meses» añade Ene..último mes solo. Vacío = usas la fila 6 a mano.')
+    ws["C5"] = ('Opcional. Ej: «Meses, 2026, Volatilidad Anualizada». «Meses» = rentab. '
+                'mensual (Ene..último, se añade sola). «Meses de Patrimonio» = patrimonio '
+                'mes a mes. Vacío = usas la fila 6 a mano.')
     ws["C5"].font = Font(italic=True, size=9, color="808080")
     ws.merge_cells("C5:H5")
 
