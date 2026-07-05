@@ -710,115 +710,87 @@ TAB_ROW0 = TAB_HDR + 1  # primera fila de datos (18)
 
 
 def build_tablas(wb, n):
-    """Hoja 'Tablas': generador CONFIGURABLE (con macro). Selectores de tipo de
-    entidad, métrica, dimensión, serie, filtro tipo activo, periodo, estilo y
-    decimales. Los valores salen con SUMIFS; la macro `FormatearTablas` ajusta
-    columnas visibles, decimales y el estilo de formato condicional."""
-    NROW = max(len(e) for e in ENTIDADES.values())
-    HDR, NCOL, ROW0 = TAB_HDR, TAB_NCOL, TAB_ROW0
-    last_row = HDR + NROW
-    last_col = 1 + NCOL
-    last_col_l = get_column_letter(last_col)
+    """Hoja 'Tablas': MATRIZ CONFIGURABLE. Filas = entidades (columna A, desde la
+    fila 7); columnas = variables (cabecera fila 6, desde B). La macro
+    `RellenarTabla` consulta BigQuery para esas entidades y rellena cada celda.
+    Variables: Rentab MTD/YTD/1M../1A.., años naturales (2025..) y riesgo
+    (Duración Modificada/Macaulay, TIR, VaR, CMR)."""
+    HDR = 6          # fila de cabecera de variables (== TB_HDR del .bas)
+    ROW0 = 7         # primera fila de entidades (== TB_ROW0 del .bas)
+    NROWS = 40       # filas de entidades preparadas (con validación)
+    NCOLS = 14       # columnas de variables preparadas (B..O)
 
     ws = wb.create_sheet("Tablas")
     ws.sheet_view.showGridLines = False
-    ws["A1"] = "Generador de tablas"
+    ws["A1"] = "Tabla configurable (entidades × variables)"
     ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = ("Filas = entidades (columna A, desde la fila 7). Columnas = variables "
+                "(fila 6, desde B). Elige/escribe y pulsa «Rellenar tabla».")
+    ws["A2"].font = Font(italic=True, size=9, color="808080")
 
-    etiquetas = {
-        "A3": "Tipo de entidad", "A4": "Métrica", "A5": "Dimensión (columnas)",
-        "A6": "Serie", "A7": "Filtro: tipo de activo", "A8": "Periodo",
-        "A9": "Estilo", "A10": "Decimales",
-    }
-    for celda, txt in etiquetas.items():
-        ws[celda] = txt
-        ws[celda].font = BOLD
-    defaults = {
-        "B3": "Cartera", "B4": "Rentabilidad", "B5": "Anual", "B6": "Cartera",
-        "B7": "Todos", "B8": "3A", "B9": "Mapa de calor", "B10": 2,
-    }
-    for celda, val in defaults.items():
-        ws[celda] = val
-        ws[celda].fill = PatternFill("solid", fgColor=GRIS)
+    ws["A3"] = "Mapa de calor"
+    ws["A3"].font = BOLD
+    ws["B3"] = "Sí"
+    ws["B3"].fill = PatternFill("solid", fgColor=GRIS)
+    dv_hm = DataValidation(type="list", formula1='"Sí,No"', allow_blank=False)
+    ws.add_data_validation(dv_hm)
+    dv_hm.add(ws["B3"])
 
-    dvs = [
-        ("B3", '"Fondo,Cartera,Indice"'),
-        ("B4", f'"{",".join(ALL_METRICS)}"'),
-        ("B5", f'"{",".join(DIMS)}"'),
-        ("B6", '"Cartera,Benchmark"'),
-        ("B7", '"Todos,RF,RV"'),
-        ("B8", f'"{",".join(PERIODOS)}"'),
-        ("B9", '"Mapa de calor,Barras de datos,Signos +/-,Sin formato"'),
-        ("B10", '"0,1,2"'),
-    ]
-    for celda, formula in dvs:
-        dv = DataValidation(type="list", formula1=formula, allow_blank=False)
-        ws.add_data_validation(dv)
-        dv.add(ws[celda])
+    # Catálogo de variables (columna oculta T) + rango con nombre para el dropdown.
+    variables = ["Rentab MTD", "Rentab YTD", "Rentab 1M", "Rentab 3M", "Rentab 6M",
+                 "Rentab 1A", "Rentab 2A", "Rentab 3A", "2025", "2024", "2023",
+                 "2022", "2021", "Duración Modificada", "Duración Macaulay",
+                 "TIR", "VaR", "CMR"]
+    for i, v in enumerate(variables):
+        ws.cell(2 + i, 20, v)          # T2..
+    ws.column_dimensions["T"].hidden = True
+    wb.defined_names.add(DefinedName(
+        "VariablesTabla", attr_text=f"Tablas!$T$2:$T${1 + len(variables)}"))
 
-    # Helpers (como en el Panel): buckets visibles y criterio de tipo de activo.
-    ws["A12"] = "Buckets visibles"
-    ws["A12"].font = Font(italic=True, size=9)
-    ws["B12"] = ('=IFERROR(INDEX(TablaN,MATCH($B$8,Periodos,0),MATCH($B$5,DimTiempo,0)),'
-                 'COUNTA(INDIRECT("Cat_"&$B$5)))')
-    ws["A13"] = "Criterio tipo activo"
-    ws["A13"].font = Font(italic=True, size=9)
-    ws["B13"] = '=IF($B$7="Todos","*",$B$7)'
-
-    # Subtítulo dinámico.
-    ws.merge_cells("A15:C15")
-    ws["A15"] = ('=$B$3&": "&$B$4&"  ·  por "&$B$5&IF($B$7<>"Todos"," ("&$B$7&")","")'
-                 '&"  ·  "&$B$8&"  ·  "&$B$6')
-    ws["A15"].font = Font(bold=True, size=12, color=AZUL[2:])
-
-    # Cabecera de categorías (muestra los últimos "buckets visibles" de la dimensión).
-    ws.cell(HDR, 1, "Entidad \\ Categoría").font = BOLD_WHITE
+    # Cabecera: A6 = "Entidad", B6.. = variables (dropdown) con unas por defecto.
+    ws.cell(HDR, 1, "Entidad \\ Variable").font = BOLD_WHITE
     ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
-    for j in range(NCOL):
-        k = j + 1
-        c = ws.cell(HDR, 1 + k, (
-            f'=IF({k}>$B$12,"",INDEX(INDIRECT("Cat_"&$B$5),'
-            f'COUNTA(INDIRECT("Cat_"&$B$5))-$B$12+{k}))'
-        ))
+    defaults_hdr = ["Rentab MTD", "Rentab YTD", "Duración Modificada", "TIR", "VaR"]
+    for j in range(NCOLS):
+        c = ws.cell(HDR, 2 + j)
+        if j < len(defaults_hdr):
+            c.value = defaults_hdr[j]
         c.font = BOLD_WHITE
         c.fill = PatternFill("solid", fgColor=AZUL)
         c.alignment = Alignment(horizontal="center")
+    dv_var = DataValidation(type="list", formula1="=VariablesTabla", allow_blank=True)
+    dv_var.showErrorMessage = False    # permite escribir años u otras variables a mano
+    ws.add_data_validation(dv_var)
+    dv_var.add(f"B{HDR}:{get_column_letter(1 + NCOLS)}{HDR}")
 
+    # Entidades: columna A, dropdown de la lista de carteras (EntLista); 2 ejemplos.
+    dv_ent = DataValidation(type="list", formula1="=EntLista", allow_blank=True)
+    dv_ent.showErrorMessage = False    # permite escribir/pegar nombres o ids libremente
+    ws.add_data_validation(dv_ent)
+    dv_ent.add(f"A{ROW0}:A{ROW0 + NROWS - 1}")
+    ejemplos = ["Cartera RF Gobierno", "Cartera RF Crédito"]
     thin = Side(style="thin", color="D6DEE8")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    for i in range(NROW):
+    for i in range(NROWS):
         r = ROW0 + i
-        ec = ws.cell(r, 1, f'=IFERROR(INDEX(INDIRECT("Ent_"&$B$3),{i + 1}),"")')
-        ec.font = BOLD
-        ec.border = border
-        for j in range(NCOL):
-            cc = 2 + j
-            cl = get_column_letter(cc)
-            cell = ws.cell(r, cc, (
-                f'=IF(OR($A{r}="",{cl}${HDR}=""),"",'
-                f'SUMIFS(Datos!$G$2:$G${n},Datos!$A$2:$A${n},$A{r},'
-                f'Datos!$B$2:$B${n},$B$13,Datos!$C$2:$C${n},$B$4,'
-                f'Datos!$D$2:$D${n},$B$5,Datos!$E$2:$E${n},{cl}${HDR},'
-                f'Datos!$F$2:$F${n},$B$6))'
-            ))
-            cell.number_format = "0.00"
+        a = ws.cell(r, 1)
+        if i < len(ejemplos):
+            a.value = ejemplos[i]
+        a.font = BOLD
+        a.border = border
+        for j in range(NCOLS):
+            cell = ws.cell(r, 2 + j)
             cell.border = border
             cell.alignment = Alignment(horizontal="center")
 
-    # Formato condicional por defecto (Mapa de calor). La macro lo cambia según B9.
-    body = f"B{ROW0}:{last_col_l}{last_row}"
-    ws.conditional_formatting.add(body, ColorScaleRule(
-        start_type="min", start_color="F8696B",
-        mid_type="percentile", mid_value=50, mid_color="FFEB84",
-        end_type="max", end_color="63BE7B"))
+    ws["A" + str(ROW0 + NROWS + 1)] = ("Consejo: la columna A admite nombres (nombre_elemento) "
+                                       "o ids (id_elemento). El mapa de calor se aplica a las "
+                                       "columnas de rentabilidad/año.")
+    ws["A" + str(ROW0 + NROWS + 1)].font = Font(italic=True, size=9, color="808080")
 
-    ws["A" + str(last_row + 2)] = ("Consejo: al abrir la pestaña o cambiar un desplegable, "
-                                   "la macro ajusta columnas, decimales y estilo.")
-    ws["A" + str(last_row + 2)].font = Font(italic=True, size=9, color="808080")
-
-    ws.column_dimensions["A"].width = 24
-    for j in range(NCOL):
-        ws.column_dimensions[get_column_letter(2 + j)].width = 11
+    ws.column_dimensions["A"].width = 28
+    for j in range(NCOLS):
+        ws.column_dimensions[get_column_letter(2 + j)].width = 13
     return ws
 
 

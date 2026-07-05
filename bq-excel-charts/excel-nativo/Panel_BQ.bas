@@ -933,6 +933,240 @@ Public Sub VerRentabMes()
     dg.Activate
 End Sub
 
+' ==============  TABLA CONFIGURABLE (entidades x variables)  ===============
+' Hoja "Tablas": FILAS = entidades (columna A, desde la fila 7); COLUMNAS =
+' variables (cabecera en la fila 6, desde B). "Rellenar tabla" consulta BigQuery
+' para esas entidades y rellena cada celda. Variables soportadas:
+'   - Rentabilidad por periodo: MTD/YTD/QTD/WTD/1D/1M/3M/6M/1A/2A/3A (o "Rentab YTD").
+'     Compuesta desde el inicio del periodo hasta la ultima fecha.
+'   - Ano natural: 2025, 2024...  (rentabilidad del ano completo).
+'   - Riesgo (ultimo valor): Duracion Modificada, Duracion Macaulay, TIR, VaR, CMR.
+Private Const TB_HDR As Long = 6
+Private Const TB_ROW0 As Long = 7
+
+Public Sub RellenarTabla()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("Tablas")
+    On Error GoTo 0
+    If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
+
+    ' --- Cabecera (variables) y columna A (entidades) ---
+    Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
+    Dim vName() As String, vCol() As Long
+    ReDim vName(1 To 64): ReDim vCol(1 To 64): nv = 0
+    nc = 2
+    Do While nc <= 80 And Len(Trim(CStr(ws.Cells(TB_HDR, nc).Value))) > 0
+        nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(TB_HDR, nc).Value)): vCol(nv) = nc
+        nc = nc + 1
+    Loop
+    If nv = 0 Then MsgBox "Escribe al menos una variable en la fila " & TB_HDR & " (desde la columna B).", vbExclamation, "Tablas": Exit Sub
+
+    Dim eName() As String, eRow() As Long, eId() As String, ne As Long
+    ReDim eName(1 To 1000): ReDim eRow(1 To 1000): ReDim eId(1 To 1000): ne = 0
+    r = TB_ROW0
+    Do While r <= 5000 And Len(Trim(CStr(ws.Cells(r, 1).Value))) > 0
+        ne = ne + 1: eName(ne) = Trim(CStr(ws.Cells(r, 1).Value)): eRow(ne) = r
+        eId(ne) = UCase(Trim(IdEntidad(eName(ne))))
+        r = r + 1
+    Loop
+    If ne = 0 Then MsgBox "Escribe al menos una entidad en la columna A (desde la fila " & TB_ROW0 & ").", vbExclamation, "Tablas": Exit Sub
+
+    Dim inlist As String, seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+    For i = 1 To ne
+        If Len(eId(i)) > 0 And Not seen.Exists(eId(i)) Then
+            seen.Add eId(i), 1
+            inlist = inlist & IIf(Len(inlist) > 0, ",", "") & "'" & Esc(eId(i)) & "'"
+        End If
+    Next i
+    If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera' (nombre_elemento/id_elemento).", vbExclamation, "Tablas": Exit Sub
+
+    ' --- Clasificar variables ---
+    Dim kind() As String, pA() As String, pB() As String
+    ReDim kind(1 To nv): ReDim pA(1 To nv): ReDim pB(1 To nv)
+    Dim needRet As Boolean, crits As Object: Set crits = CreateObject("Scripting.Dictionary")
+    For i = 1 To nv
+        ClasificarVar vName(i), kind(i), pA(i), pB(i)
+        If kind(i) = "ret" Or kind(i) = "year" Then needRet = True
+        If kind(i) = "risk" And Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
+    Next i
+
+    Dim cn As Object, rs As Object
+    On Error GoTo fallo
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 120: cn.CursorLocation = 3: cn.Open CfgConn()
+
+    ' --- RET en memoria: id -> Collection de Array(dserial, factor) ---
+    Dim retColl As Object: Set retColl = CreateObject("Scripting.Dictionary")
+    If needRet Then
+        Dim sqlR As String
+        sqlR = "SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS)," & _
+               " FORMAT('%.10f', CAST(TWR_1D AS FLOAT64))" & _
+               " FROM " & Tbl(DS_PROD, T_PERF) & _
+               " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & "'" & _
+               " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & _
+               " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
+               "), INTERVAL " & CACHE_ANOS & " YEAR)" & _
+               " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
+        Set rs = cn.Execute(sqlR)
+        Dim idc As String
+        Do While Not rs.EOF
+            idc = UCase(Trim(CStr(rs.Fields(0).Value)))
+            If Not retColl.Exists(idc) Then retColl.Add idc, New Collection
+            retColl(idc).Add Array(CDbl(FechaDe(CStr(rs.Fields(1).Value))), 1 + NumDbl(rs.Fields(2).Value))
+            rs.MoveNext
+        Loop
+        rs.Close
+    End If
+
+    ' --- RISK en memoria: "id|crit|var" -> ultimo valor ---
+    Dim riskV As Object: Set riskV = CreateObject("Scripting.Dictionary")
+    If crits.Count > 0 Then
+        Dim inCrit As String, kc As Variant
+        For Each kc In crits.Keys
+            inCrit = inCrit & IIf(Len(inCrit) > 0, ",", "") & "'" & Esc(CStr(kc)) & "'"
+        Next kc
+        Dim wq As String
+        wq = "WHERE " & RISK_COL_FONDOBMK & "='" & CfgFondo() & "' AND PK_PORTFOLIO='" & Esc(CfgPortfolio()) & "'"
+        If Len(CfgLtLevel()) > 0 Then wq = wq & " AND PK_LTLEVEL=" & CfgLtLevel()
+        wq = wq & " AND PK_CRITERIO_AGREGACION IN (" & inCrit & ")" & _
+             " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & _
+             " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
+             "), INTERVAL " & CACHE_ANOS & " YEAR)"
+        Set rs = cn.Execute("SELECT PK_PORTFOLIO_ID, PK_CRITERIO_AGREGACION, PK_VARIABLE_TARGET," & _
+            " FORMAT('%.10f', CAST(VALOR AS FLOAT64)) FROM " & Tbl(DS_PROD, T_RISK) & " " & wq & _
+            " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS")
+        Dim kRisk As String
+        Do While Not rs.EOF
+            kRisk = UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value)) & "|" & Trim(CStr(rs.Fields(2).Value))
+            riskV(kRisk) = NumDbl(rs.Fields(3).Value)   ' ordenado ASC -> el ultimo (mas reciente) gana
+            rs.MoveNext
+        Loop
+        rs.Close
+    End If
+    cn.Close
+
+    ' --- Rellenar celdas ---
+    Application.EnableEvents = False
+    Application.ScreenUpdating = False
+    For i = 1 To ne
+        For j = 1 To nv
+            Dim cellVal As Variant: cellVal = ""
+            If Len(eId(i)) > 0 Then
+                If kind(j) = "ret" Or kind(j) = "year" Then
+                    If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j))
+                ElseIf kind(j) = "risk" Then
+                    Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
+                    If riskV.Exists(kL) Then cellVal = riskV(kL)
+                End If
+            End If
+            ws.Cells(eRow(i), vCol(j)).Value = cellVal
+            ws.Cells(eRow(i), vCol(j)).NumberFormat = FormatoVar(kind(j), pA(j))
+        Next j
+    Next i
+    AplicarMapaCalorTabla ws, kind, vCol, nv, TB_ROW0, TB_ROW0 + ne - 1
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    MsgBox "Tabla rellenada: " & ne & " entidades x " & nv & " variables.", vbInformation, "Tablas"
+    Exit Sub
+fallo:
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+    MsgBox "Error al rellenar la tabla:" & vbLf & Err.Description, vbExclamation, "Tablas"
+End Sub
+
+' Clasifica el texto de una cabecera de variable en (kind, pA, pB):
+'  kind="year" pA=ano | kind="ret" pA=periodo | kind="risk" pA=criterio pB=variable
+Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As String, ByRef pB As String)
+    Dim s As String, f As String
+    s = Trim(v): f = Fold(s): kind = "": pA = "": pB = ""
+    If Len(s) = 4 And IsNumeric(s) Then kind = "year": pA = s: Exit Sub
+    If InStr(f, "duraci") = 1 Then kind = "risk": pA = "Duracion": pB = VarTarget(s): Exit Sub
+    If f = "tir" Then kind = "risk": pA = "TIR": pB = "": Exit Sub
+    If f = "cmr" Then kind = "risk": pA = Cfg("RISK_CRIT_CMR", "CMR"): pB = Cfg("RISK_VAR_CMR", ""): Exit Sub
+    If Left(f, 3) = "var" Then kind = "risk": pA = Cfg("RISK_CRIT_VAR", "VaR"): pB = Cfg("RISK_VAR_VAR", ""): Exit Sub
+    Dim tok As String: tok = f
+    If InStr(tok, "rent") = 1 Then
+        Dim sp As Long: sp = InStr(tok, " ")
+        If sp > 0 Then tok = Trim(Mid(tok, sp + 1)) Else tok = ""
+    End If
+    tok = UCase(Replace(tok, " ", ""))
+    If Len(tok) = 4 And IsNumeric(tok) Then kind = "year": pA = tok: Exit Sub
+    If EsPeriodoTok(tok) Then kind = "ret": pA = tok
+End Sub
+
+Private Function EsPeriodoTok(ByVal t As String) As Boolean
+    Select Case t
+        Case "MTD", "QTD", "YTD", "WTD", "1D", "DTD": EsPeriodoTok = True
+        Case Else
+            If Len(t) >= 2 And IsNumeric(Left(t, Len(t) - 1)) _
+               And (Right(t, 1) = "M" Or Right(t, 1) = "A") Then EsPeriodoTok = True
+    End Select
+End Function
+
+' Rentabilidad compuesta de una entidad para un periodo/ano, desde su Collection
+' de (dserial, 1+twr). Devuelve "" si no hay datos en ese tramo.
+Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, ByVal tok As String) As Variant
+    Dim prod As Double: prod = 1
+    Dim hay As Boolean, it As Variant
+    If kind = "year" Then
+        Dim y As Long: y = CLng(tok)
+        For Each it In coll
+            If it(0) > 0 Then If Year(CDate(it(0))) = y Then prod = prod * it(1): hay = True
+        Next it
+    Else
+        Dim dMax As Double: dMax = 0
+        For Each it In coll
+            If it(0) > dMax Then dMax = it(0)
+        Next it
+        If dMax = 0 Then ValorRet = "": Exit Function
+        Dim ini As Double: ini = CDbl(InicioVentana(CDate(dMax), tok, "mensual"))
+        Dim anchored As Boolean
+        anchored = (tok = "MTD" Or tok = "QTD" Or tok = "YTD" Or tok = "WTD" Or tok = "1D" Or tok = "DTD")
+        For Each it In coll
+            If it(0) <= dMax And ((anchored And it(0) >= ini) Or ((Not anchored) And it(0) > ini)) Then
+                prod = prod * it(1): hay = True
+            End If
+        Next it
+    End If
+    If hay Then ValorRet = prod - 1 Else ValorRet = ""
+End Function
+
+Private Function FormatoVar(ByVal kind As String, ByVal pA As String) As String
+    If kind = "risk" Then
+        If pA = "Duracion" Then FormatoVar = "0.000" Else FormatoVar = "0.00"
+    Else
+        FormatoVar = "0.00%"
+    End If
+End Function
+
+' Mapa de calor (escala 3 colores rojo-amarillo-verde) en las columnas de
+' rentabilidad/ano, si B3 = "Si". Se aplica columna a columna.
+Private Sub AplicarMapaCalorTabla(ByVal ws As Worksheet, ByRef kind() As String, _
+        ByRef vCol() As Long, ByVal nv As Long, ByVal r1 As Long, ByVal r2 As Long)
+    Dim b3 As String: b3 = Fold(ws.Range("B3").Value)
+    Dim j As Long
+    For j = 1 To nv
+        If kind(j) = "ret" Or kind(j) = "year" Then
+            Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
+            rng.FormatConditions.Delete
+            If b3 = "si" Then
+                Dim cs As ColorScale: Set cs = rng.FormatConditions.AddColorScale(ColorScaleType:=3)
+                cs.ColorScaleCriteria(1).Type = xlConditionValueLowestValue
+                cs.ColorScaleCriteria(1).FormatColor.Color = RGB(248, 105, 107)
+                cs.ColorScaleCriteria(2).Type = xlConditionValuePercentile
+                cs.ColorScaleCriteria(2).Value = 50
+                cs.ColorScaleCriteria(2).FormatColor.Color = RGB(255, 235, 132)
+                cs.ColorScaleCriteria(3).Type = xlConditionValueHighestValue
+                cs.ColorScaleCriteria(3).FormatColor.Color = RGB(99, 190, 123)
+            End If
+        End If
+    Next j
+End Sub
+
 ' =======================  INSTALADOR DE BOTONES  ===========================
 ' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
 ' las hojas Panel y Tablas con sus macros ya asignadas.
@@ -955,7 +1189,7 @@ Public Sub InstalarBotones()
     On Error GoTo 0
     If Not wt Is Nothing Then
         BorrarBotones wt
-        CrearBoton wt, "D3", "Formatear tabla", "FormatearTablas"
+        CrearBoton wt, "D3", ">> RELLENAR TABLA", "RellenarTabla"
     End If
     ' Deja el grafico en modo dinamico (rangos con nombre) desde el principio,
     ' asi se ajusta solo al cambiar periodo/dimension y no deja huecos.
