@@ -78,6 +78,12 @@ Private Const HLP_A2 As Long = 62          ' BJ: factor benchmark / valoracion (
 Private Const HLP_PID As Long = 63         ' BK: pid RECORTADO (Trim) -> el "=" de la formula no ignora espacios
 Private Const HLP_C1 As Long = 64          ' BL: criterio recortado (riesgo)
 Private Const HLP_C2 As Long = 65          ' BM: variable target recortada (riesgo)
+' Hoja "Tablas" (matriz entidades x variables) y hoja "Posiciones" (holdings):
+' fila de cabecera y primera fila de datos.
+Private Const TB_HDR As Long = 6           ' Tablas: cabecera de variables
+Private Const TB_ROW0 As Long = 7          ' Tablas: primera fila de entidades
+Private Const PS_HDR As Long = 6           ' Posiciones: cabecera de columnas
+Private Const PS_ROW0 As Long = 7          ' Posiciones: primera fila de holdings
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -941,8 +947,7 @@ End Sub
 '     Compuesta desde el inicio del periodo hasta la ultima fecha.
 '   - Ano natural: 2025, 2024...  (rentabilidad del ano completo).
 '   - Riesgo (ultimo valor): Duracion Modificada, Duracion Macaulay, TIR, VaR, CMR.
-Private Const TB_HDR As Long = 6
-Private Const TB_ROW0 As Long = 7
+'   (TB_HDR/TB_ROW0 declarados arriba, en la seccion de constantes del modulo.)
 
 Public Sub RellenarTabla()
     Dim ws As Worksheet
@@ -954,7 +959,7 @@ Public Sub RellenarTabla()
     ' --- Cabecera (variables) y columna A (entidades) ---
     Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
     Dim vName() As String, vCol() As Long
-    ReDim vName(1 To 64): ReDim vCol(1 To 64): nv = 0
+    ReDim vName(1 To 80): ReDim vCol(1 To 80): nv = 0
     nc = 2
     Do While nc <= 80 And Len(Trim(CStr(ws.Cells(TB_HDR, nc).Value))) > 0
         nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(TB_HDR, nc).Value)): vCol(nv) = nc
@@ -963,7 +968,7 @@ Public Sub RellenarTabla()
     If nv = 0 Then MsgBox "Escribe al menos una variable en la fila " & TB_HDR & " (desde la columna B).", vbExclamation, "Tablas": Exit Sub
 
     Dim eName() As String, eRow() As Long, eId() As String, ne As Long
-    ReDim eName(1 To 1000): ReDim eRow(1 To 1000): ReDim eId(1 To 1000): ne = 0
+    ReDim eName(1 To 5001): ReDim eRow(1 To 5001): ReDim eId(1 To 5001): ne = 0
     r = TB_ROW0
     Do While r <= 5000 And Len(Trim(CStr(ws.Cells(r, 1).Value))) > 0
         ne = ne + 1: eName(ne) = Trim(CStr(ws.Cells(r, 1).Value)): eRow(ne) = r
@@ -1041,11 +1046,14 @@ Public Sub RellenarTabla()
         Set rs = cn.Execute("SELECT PK_PORTFOLIO_ID, PK_CRITERIO_AGREGACION, PK_VARIABLE_TARGET," & _
             " FORMAT('%.10f', CAST(VALOR AS FLOAT64)) FROM " & Tbl(DS_PROD, T_RISK) & " " & wq & _
             " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS")
-        Dim kRisk As String
+        Dim kRisk As String, kIdCrit As String, valK As Double
         Do While Not rs.EOF
-            kRisk = UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value)) & "|" & Trim(CStr(rs.Fields(2).Value))
-            riskV(kRisk) = NumDbl(rs.Fields(3).Value)   ' ordenado ASC -> el ultimo (mas reciente) gana
-            rs.MoveNext
+            kIdCrit = UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value)) & "|"
+            valK = NumDbl(rs.Fields(3).Value)
+            kRisk = kIdCrit & Trim(CStr(rs.Fields(2).Value))
+            riskV(kRisk) = valK              ' clave exacta id|criterio|variable
+            riskV(kIdCrit) = valK            ' reserva id|criterio| (ultimo del criterio, sin filtrar variable)
+            rs.MoveNext                      ' ordenado ASC -> el ultimo (mas reciente) gana en ambas
         Loop
         rs.Close
     End If
@@ -1247,8 +1255,7 @@ End Sub
 ' (fila 6, desde B). Columnas soportadas de fabrica: Peso, Importe, Sector,
 ' Industria, Pais, Zona, Divisa, Tipo activo, Rating, TER. Y por config (maestro):
 ' ISIN, Ticker, Nombre, Yield, Duracion, Mercado, Dividendo, Plazo.
-Private Const PS_HDR As Long = 6
-Private Const PS_ROW0 As Long = 7
+' (PS_HDR/PS_ROW0 declarados arriba, en la seccion de constantes del modulo.)
 
 Public Sub RellenarPosiciones()
     Dim ws As Worksheet
@@ -1261,7 +1268,7 @@ Public Sub RellenarPosiciones()
     If Len(id) = 0 Then MsgBox "Elige un fondo/cartera en B3 (nombre_elemento o id_elemento).", vbExclamation, "Posiciones": Exit Sub
 
     Dim nv As Long, c As Long, vName() As String, vCol() As Long
-    ReDim vName(1 To 64): ReDim vCol(1 To 64): nv = 0
+    ReDim vName(1 To 80): ReDim vCol(1 To 80): nv = 0
     c = 2
     Do While c <= 80 And Len(Trim(CStr(ws.Cells(PS_HDR, c).Value))) > 0
         nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(PS_HDR, c).Value)): vCol(nv) = c
