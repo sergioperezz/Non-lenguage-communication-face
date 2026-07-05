@@ -57,8 +57,8 @@ ENTIDADES = {
 
 GRUPOS = {
     "Rendimiento": ["Rentabilidad", "Rentab. acum."],
-    "Riesgo": ["Duración Modificada", "Duración Macaulay", "TIR", "Spread",
-               "Volatilidad"],
+    "Riesgo": ["Duración Modificada", "Duración Macaulay", "TIR", "CMR", "VaR",
+               "Spread", "Volatilidad"],
     "Composicion": ["Peso", "Importe"],   # Peso = % sobre el total; Importe = valor absoluto (€)
     # Composicion APILADA en el tiempo: la "metrica" (B8) es la clasificacion y
     # la "dimension" (B9) es temporal (Semanal/Mensual/...), como en Rendimiento.
@@ -148,7 +148,8 @@ MAX_CATS = max(len(c) for c in CATEGORIAS.values())
 PARAMS = {
     "Rentabilidad": (9.0, 0.60, 0.90), "Rentab. acum.": (12.0, 1.20, 0.90),
     "Duración Modificada": (5.0, 0.30, 0.92), "Duración Macaulay": (5.2, 0.30, 0.92),
-    "TIR": (3.5, 0.20, 1.05), "Spread": (120.0, 15.0, 0.85),
+    "TIR": (3.5, 0.20, 1.05), "CMR": (0.85, 0.05, 1.00), "VaR": (2.5, 0.30, 1.05),
+    "Spread": (120.0, 15.0, 0.85),
     "Volatilidad": (12.0, 0.80, 1.10), "Beta": (1.0, 0.05, 1.00), "Peso": (18.0, 3.0, 1.00),
     "Importe": (5000000.0, 800000.0, 1.00),
     "TER": (0.85, 0.03, 1.00), "TER Look-through": (0.95, 0.03, 1.00),
@@ -420,6 +421,10 @@ def build_config(wb):
         ("PK_TIPOGAMAN1", "FONDO", "Fondo vs Benchmark en la tabla de riesgo"),
         ("PK_PORTFOLIO", "Total", "Nivel de agregación en riesgo (Total, no componentes)"),
         ("PK_LTLEVEL", "2", "Nivel look-through en riesgo (2 = con transparencia; vacío = sin filtro)"),
+        ("RISK_CRIT_CMR", "CMR", "PK_CRITERIO_AGREGACION del DWH para la métrica CMR"),
+        ("RISK_VAR_CMR", "", "PK_VARIABLE_TARGET para CMR (vacío = sin filtro de variable)"),
+        ("RISK_CRIT_VAR", "VaR", "PK_CRITERIO_AGREGACION del DWH para la métrica VaR"),
+        ("RISK_VAR_VAR", "", "PK_VARIABLE_TARGET para VaR (vacío = sin filtro; p.ej. VaR99 / VaR_1D)"),
         ("RET_ESC", "1.0", "Escala de los TWR al componer (1.0 = fracción, 100.0 = porcentaje)"),
         ("SECTOR_COL", "CLASSIFICATION_GICS", "Composición por Sector (maestro de valores)"),
         ("IND_COL", "CLASSIFICATION_GICS", "Composición por Industria (GICS por defecto; puede ser CLASSIFICATION_BICS)"),

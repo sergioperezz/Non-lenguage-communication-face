@@ -188,6 +188,13 @@ End Function
 Private Function CfgLtLevel() As String
     CfgLtLevel = Cfg("PK_LTLEVEL", "2")
 End Function
+' Lista (entrecomillada) de PK_CRITERIO_AGREGACION que baja el bloque RISK.
+' Duracion y TIR fijos + CMR y VaR (nombres de criterio configurables en 'config').
+Private Function CfgRiskCriterios() As String
+    CfgRiskCriterios = "'Duracion','TIR'" & _
+        ",'" & Esc(Cfg("RISK_CRIT_CMR", "CMR")) & "'" & _
+        ",'" & Esc(Cfg("RISK_CRIT_VAR", "VaR")) & "'"
+End Function
 Private Function CfgRetEsc() As String
     CfgRetEsc = Cfg("RET_ESC", RET_ESC)
 End Function
@@ -1383,7 +1390,7 @@ Private Function SQLBloqueRisk(ByVal ents As String) As String
     w = "WHERE " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & vbLf & _
         "  AND PK_PORTFOLIO = '" & Esc(CfgPortfolio()) & "'"
     If Len(CfgLtLevel()) > 0 Then w = w & vbLf & "  AND PK_LTLEVEL = " & CfgLtLevel()
-    w = w & vbLf & "  AND PK_CRITERIO_AGREGACION IN ('Duracion','TIR')"
+    w = w & vbLf & "  AND PK_CRITERIO_AGREGACION IN (" & CfgRiskCriterios() & ")"
     w = w & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
         "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
         "), INTERVAL " & CACHE_ANOS & " YEAR)"
@@ -1506,10 +1513,20 @@ End Function
 ' Fecha de inicio de la ventana (Anual alineada a ano natural; resto, movil).
 Private Function InicioVentana(ByVal dMax As Date, ByVal per As String, ByVal dimen As String) As Date
     Dim p As String, n As Long
+    p = UCase(Trim(per))
+    ' Periodos "a fecha" (independientes de la dimension): desde el inicio del
+    ' mes/trimestre/ano/semana en curso hasta hoy. YTD -> desde el 1-ene del ano
+    ' de dMax (NO un ano movil, que era el bug: YTD daba 12 meses hacia atras).
+    Select Case p
+        Case "MTD":      InicioVentana = DateSerial(Year(dMax), Month(dMax), 1): Exit Function
+        Case "QTD":      InicioVentana = DateSerial(Year(dMax), Int((Month(dMax) - 1) / 3) * 3 + 1, 1): Exit Function
+        Case "YTD":      InicioVentana = DateSerial(Year(dMax), 1, 1): Exit Function
+        Case "WTD":      InicioVentana = dMax - (Weekday(dMax, vbMonday) - 1): Exit Function
+        Case "1D", "DTD": InicioVentana = dMax: Exit Function
+    End Select
     If Fold(dimen) = "anual" Then
         InicioVentana = DateSerial(Year(dMax) - (AnyosPeriodo(per) - 1), 1, 1): Exit Function
     End If
-    p = UCase(Trim(per))
     If Len(p) >= 2 And IsNumeric(Left(p, Len(p) - 1)) Then
         n = CLng(Left(p, Len(p) - 1))
         If Right(p, 1) = "A" Then InicioVentana = DateAdd("yyyy", -n, dMax): Exit Function
@@ -1761,6 +1778,16 @@ Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
     ElseIf met = "TIR" Then
         varT = ""                           ' TIR es criterio, sin variable target
         crit = "TIR"
+    ElseIf Fold(met) = "cmr" Then
+        crit = Cfg("RISK_CRIT_CMR", "CMR")
+        varT = Cfg("RISK_VAR_CMR", "")
+    ElseIf Left(Fold(met), 3) = "var" Then  ' VaR (y variantes VaR 95 / VaR 99...)
+        crit = Cfg("RISK_CRIT_VAR", "VaR")
+        ' Variable target: si la metrica trae un sufijo (VaR 95) se busca en config
+        ' RISK_VAR_<sufijo>; si no, el generico RISK_VAR_VAR (por defecto sin filtro).
+        Dim suf As String: suf = Replace(Fold(met), "var", "", 1, 1)
+        suf = Trim(Replace(Replace(suf, "%", ""), " ", ""))
+        If Len(suf) > 0 Then varT = Cfg("RISK_VAR_VAR_" & suf, "") Else varT = Cfg("RISK_VAR_VAR", "")
     Else
         Exit Function
     End If
@@ -2322,7 +2349,8 @@ Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
     Dim met As String: met = Trim(CStr(ws.Range("B8").Value))
     If (met = "Rentabilidad" Or met = "Rentab. acum.") Then
         ResolverLocal = LocalRentabilidad(ws)
-    ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" Then
+    ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" _
+           Or Fold(met) = "cmr" Or Left(Fold(met), 3) = "var" Then
         ResolverLocal = LocalRiesgo(ws)
     ElseIf met = "Peso" Or met = "Importe" Then
         ResolverLocal = LocalComposicion(ws)      ' composicion (% o valor absoluto)
