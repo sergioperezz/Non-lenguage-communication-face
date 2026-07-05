@@ -1525,98 +1525,176 @@ Private Function InicioBucket(ByVal d As Date, ByVal dimen As String) As Date
     End Select
 End Function
 
+' ================  TABLAS COMO FORMULAS (calculo auditable)  ================
+' Las tablas D:H (y la matriz apilada) se escriben como FORMULAS de Excel que
+' leen el bloque descargado de BigQuery, para que el usuario VEA el calculo en
+' la celda y se recalcule solo. Solo hay UNA metrica en pantalla, asi que se
+' reutiliza una region de columnas auxiliares (se reescribe en cada calculo) y
+' unos rangos con nombre (f_pid, f_k1, f_a1, f_a2, f_crit, f_var, f_mes) que se
+' re-apuntan al bloque activo.
+Private Const HLP_K1 As Long = 60   ' BH: clave = bucket / etiqueta / categoria
+Private Const HLP_A1 As Long = 61   ' BI: factor(1+twr) / valor / valoracion / etiqueta(apiladas)
+Private Const HLP_A2 As Long = 62   ' BJ: factor benchmark / valoracion (apiladas)
+
+' Literal de cadena entrecomillado para meter dentro de una formula.
+Private Function Q(ByVal s As String) As String
+    Q = Chr(34) & Replace(CStr(s), Chr(34), Chr(34) & Chr(34)) & Chr(34)
+End Function
+
+' (Re)define un nombre de libro apuntando a Panel!col$2:col$lastR.
+Private Sub FijarNombre(ByVal nm As String, ByVal col As Long, ByVal lastR As Long)
+    Dim ws As Worksheet: Set ws = Panel()
+    Dim r2 As Long: r2 = lastR: If r2 < 2 Then r2 = 2
+    Dim ref As String
+    ref = "=Panel!" & ws.Cells(2, col).Address(True, True) & ":" & ws.Cells(r2, col).Address(True, True)
+    On Error Resume Next
+    ThisWorkbook.Names(nm).Delete
+    On Error GoTo 0
+    ThisWorkbook.Names.Add Name:=nm, RefersTo:=ref
+End Sub
+
+' Claves de un diccionario ordenadas ASCENDENTE (texto). Sirve para poner los
+' buckets temporales en orden cronologico (las etiquetas "yyyy-mm", "yyyy-Tn",
+' "yyyy" ordenan bien alfabeticamente).
+Private Function ClavesOrdenadas(ByVal d As Object) As Variant
+    Dim a() As String, i As Long, j As Long, t As String, k As Variant
+    ReDim a(0 To d.Count - 1)
+    i = 0
+    For Each k In d.Keys: a(i) = CStr(k): i = i + 1: Next k
+    For i = 0 To UBound(a) - 1
+        For j = i + 1 To UBound(a)
+            If a(j) < a(i) Then t = a(i): a(i) = a(j): a(j) = t
+        Next j
+    Next i
+    ClavesOrdenadas = a
+End Function
+
+' Escribe una columna de la tabla (E/F/G/H) con la formula de rentabilidad para
+' una entidad. acum -> compuesto acumulado desde el primer bucket; esBmk -> usa
+' el factor de benchmark (f_a2).
+Private Sub EscribirColRentab(ByVal ws As Worksheet, ByVal col As Long, ByVal id As String, _
+                              ByVal nb As Long, ByVal acum As Boolean, ByVal esBmk As Boolean)
+    If Len(id) = 0 Or nb < 1 Then Exit Sub
+    Dim fac As String: fac = IIf(esBmk, "f_a2", "f_a1")
+    Dim f As String
+    If acum Then
+        f = "=IFERROR(EXP(SUMPRODUCT((f_k1>=$D$3)*(f_k1<=$D3)*(f_pid=" & Q(id) & _
+            ")*LN(" & fac & ")))-1," & Q("") & ")"
+    Else
+        f = "=IFERROR(EXP(SUMPRODUCT((f_k1=$D3)*(f_pid=" & Q(id) & _
+            ")*LN(" & fac & ")))-1," & Q("") & ")"
+    End If
+    ws.Range(ws.Cells(3, col), ws.Cells(2 + nb, col)).Formula = f
+End Sub
+
+' Escribe una columna (E/F/G) con la formula de riesgo (ultimo valor del bucket/
+' etiqueta): LOOKUP(2,1/cond,valor) devuelve el ultimo match = fecha mas reciente
+' (el bloque viene ORDER BY pid, fecha).
+Private Sub EscribirColRiesgo(ByVal ws As Worksheet, ByVal col As Long, ByVal id As String, _
+                              ByVal crit As String, ByVal varT As String, ByVal nb As Long)
+    If Len(id) = 0 Or nb < 1 Then Exit Sub
+    Dim cond As String
+    cond = "(f_k1=$D3)*(f_pid=" & Q(id) & ")*(f_crit=" & Q(crit) & ")"
+    If Len(varT) > 0 Then cond = cond & "*(f_var=" & Q(varT) & ")"
+    ws.Range(ws.Cells(3, col), ws.Cells(2 + nb, col)).Formula = _
+        "=IFERROR(LOOKUP(2,1/(" & cond & "),f_a1)," & Q("") & ")"
+End Sub
+
+' Escribe una columna (E/F/G) con la formula de composicion. importe=False -> %
+' (peso = valor de la categoria / total de la cartera en su ultimo mes).
+Private Sub EscribirColComp(ByVal ws As Worksheet, ByVal col As Long, ByVal id As String, _
+                            ByVal mesLit As String, ByVal nb As Long, ByVal importe As Boolean)
+    If Len(id) = 0 Or nb < 1 Then Exit Sub
+    Dim num As String
+    num = "SUMIFS(f_a1,f_pid," & Q(id) & ",f_mes," & Q(mesLit) & ",f_k1,$D3)"
+    Dim f As String
+    If importe Then
+        f = "=IFERROR(" & num & "," & Q("") & ")"
+    Else
+        f = "=IFERROR(" & num & "/SUMIFS(f_a1,f_pid," & Q(id) & ",f_mes," & Q(mesLit) & ")," & Q("") & ")"
+    End If
+    ws.Range(ws.Cells(3, col), ws.Cells(2 + nb, col)).Formula = f
+End Sub
+
 ' Calcula Rentabilidad (compuesta por bucket) EN LOCAL desde el bloque RET de
-' la hoja Panel (columna W) y la vuelca a D:H. False si no hay datos utilizables.
+' la hoja Panel (columna W) y la vuelca a D:H COMO FORMULAS. False si no hay datos.
 Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
-    Dim c0 As Long, lastR As Long, r As Long
+    Dim c0 As Long, lastR As Long, i As Long, n As Long
     c0 = BLK_RET_COL
     lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
 
-    Dim per As String, dimen As String, conBmk As Boolean, anual As Boolean
+    Dim per As String, dimen As String, conBmk As Boolean, acum As Boolean
     per = Trim(CStr(ws.Range("B11").Value))
     dimen = Trim(CStr(ws.Range("B9").Value))
     conBmk = (ws.Range("B12").Value = "Con benchmark")
-    anual = (Fold(dimen) = "anual")
+    acum = (Trim(CStr(ws.Range("B8").Value)) = "Rentab. acum.")
 
-    Dim dMax As Date, dd As Date, ini As Date
-    For r = 2 To lastR
-        dd = FechaDe(ws.Cells(r, c0 + 1).Value)
+    Dim blk As Variant
+    blk = ws.Range(ws.Cells(2, c0), ws.Cells(lastR, c0 + 3)).Value   ' pid|fecha|twr|twr_bmk
+    n = lastR - 1
+
+    ' Fecha maxima y ventana alineada al inicio del bucket (mes/trim/etc.).
+    Dim dMax As Date, dd As Date
+    For i = 1 To n
+        dd = FechaDe(CStr(blk(i, 2)))
         If dd > dMax Then dMax = dd
-    Next r
-    ini = InicioBucket(InicioVentana(dMax, per, dimen), dimen)  ' alinear al inicio del bucket
+    Next i
+    If dMax = 0 Then Exit Function
+    Dim ini As Date: ini = InicioBucket(InicioVentana(dMax, per, dimen), dimen)
 
-    Dim prod As Object, prodB As Object, bkts As Object, vistoDia As Object
-    Set prod = CreateObject("Scripting.Dictionary")   ' clave slot|bucket -> producto
-    Set prodB = CreateObject("Scripting.Dictionary")
-    Set bkts = CreateObject("Scripting.Dictionary")   ' bucket -> fila destino (orden de aparicion)
-    Set vistoDia = CreateObject("Scripting.Dictionary") ' slot|fecha ya contada -> evita duplicados
-    Dim rowOut As Long: rowOut = 3
-    Dim pid As String, slot As Long, bkt As String, k As String, dentro As Boolean, kd As String
-
-    For r = 2 To lastR
-        dd = FechaDe(ws.Cells(r, c0 + 1).Value)
-        If dd = 0 Then GoTo seguir
-        dentro = (dd >= ini)   ' ini ya alineado al inicio del bucket -> primer mes completo
-        If Not dentro Or dd > dMax Then GoTo seguir
-        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
-        slot = SlotDe(pid)
-        If slot = 0 Then GoTo seguir
-        ' Un solo retorno por (entidad, dia): si la query trajera filas repetidas
-        ' del mismo dia, el compuesto NO las multiplica (evita inflar el mes).
-        kd = slot & "|" & Format(dd, "yyyy-mm-dd")
-        If vistoDia.Exists(kd) Then GoTo seguir
-        vistoDia.Add kd, 1
-        bkt = BucketLocal(dd, dimen)
-        If Not bkts.Exists(bkt) Then
-            If rowOut > 402 Then GoTo seguir
-            bkts.Add bkt, rowOut: rowOut = rowOut + 1
+    ' Columnas auxiliares (TODAS las filas): clave=bucket, factor(1+twr) y factor
+    ' benchmark. La formula compone el bucket ENTERO (por eso no hay que deduplicar
+    ' ni recortar aqui: SUMPRODUCT suma LN de todos los dias del bucket).
+    ReDim h1(1 To n, 1 To 1) As Variant
+    ReDim a1(1 To n, 1 To 1) As Variant
+    ReDim a2(1 To n, 1 To 1) As Variant
+    Dim shown As Object: Set shown = CreateObject("Scripting.Dictionary")
+    Dim bkt As String
+    For i = 1 To n
+        dd = FechaDe(CStr(blk(i, 2)))
+        If dd = 0 Then
+            h1(i, 1) = "": a1(i, 1) = 1#: a2(i, 1) = 1#
+        Else
+            bkt = BucketLocal(dd, dimen)
+            h1(i, 1) = bkt
+            a1(i, 1) = 1# + NumDbl(blk(i, 3))
+            a2(i, 1) = 1# + NumDbl(blk(i, 4))
+            ' Factor <= 0 (un dia de -100% o dato corrupto) romperia LN() y dejaria
+            ' TODA la tabla en blanco: lo acotamos a un positivo minusculo.
+            If a1(i, 1) <= 0 Then a1(i, 1) = 0.000001
+            If a2(i, 1) <= 0 Then a2(i, 1) = 0.000001
+            If dd >= ini And dd <= dMax Then
+                If Not shown.Exists(bkt) Then shown.Add bkt, 1
+            End If
         End If
-        k = slot & "|" & bkt
-        Dim r1 As Double: r1 = 1 + NumDbl(ws.Cells(r, c0 + 2).Value)   ' dia nulo -> 0 (sin movimiento)
-        If prod.Exists(k) Then prod(k) = prod(k) * r1 Else prod(k) = r1
-        If conBmk And slot = 1 Then
-            Dim rb As Double: rb = 1 + NumDbl(ws.Cells(r, c0 + 3).Value)
-            If prodB.Exists(k) Then prodB(k) = prodB(k) * rb Else prodB(k) = rb
-        End If
-seguir:
-    Next r
+    Next i
+    If shown.Count = 0 Then Exit Function
 
-    ' Rentabilidad (por periodo) = retorno de cada bucket.
-    ' Rentab. acum. = retorno COMPUESTO acumulado desde el inicio de la ventana
-    ' hasta cada bucket (curva creciente). Los buckets van en orden cronologico
-    ' (el bloque RET viene ORDER BY fecha), asi que basta un producto corriente.
-    Dim acum As Boolean: acum = (Trim(CStr(ws.Range("B8").Value)) = "Rentab. acum.")
-    Dim cum1 As Double, cum2 As Double, cum3 As Double, cumB As Double
-    cum1 = 1: cum2 = 1: cum3 = 1: cumB = 1
+    ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
+    ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
+    ws.Range(ws.Cells(2, HLP_A2), ws.Cells(lastR, HLP_A2)).Value = a2
+    FijarNombre "f_pid", c0, lastR
+    FijarNombre "f_k1", HLP_K1, lastR
+    FijarNombre "f_a1", HLP_A1, lastR
+    FijarNombre "f_a2", HLP_A2, lastR
+
+    Dim labs As Variant: labs = ClavesOrdenadas(shown)
+    Dim nb As Long: nb = UBound(labs) - LBound(labs) + 1
 
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
     LimpiarTablaNormal ws
-    Dim vb As Variant
-    For Each vb In bkts.Keys
-        Dim rr As Long: rr = bkts(vb)
-        ws.Cells(rr, 4).Value = vb
-        If prod.Exists("1|" & vb) Then
-            cum1 = cum1 * prod("1|" & vb)
-            ws.Cells(rr, 5).Value = IIf(acum, cum1, prod("1|" & vb)) - 1
-        End If
-        If prod.Exists("2|" & vb) Then
-            cum2 = cum2 * prod("2|" & vb)
-            ws.Cells(rr, 6).Value = IIf(acum, cum2, prod("2|" & vb)) - 1
-        End If
-        If prod.Exists("3|" & vb) Then
-            cum3 = cum3 * prod("3|" & vb)
-            ws.Cells(rr, 7).Value = IIf(acum, cum3, prod("3|" & vb)) - 1
-        End If
-        If prodB.Exists("1|" & vb) Then
-            cumB = cumB * prodB("1|" & vb)
-            ws.Cells(rr, 8).Value = IIf(acum, cumB, prodB("1|" & vb)) - 1
-        End If
-    Next vb
+    Dim dcol() As Variant: ReDim dcol(1 To nb, 1 To 1)
+    For i = 1 To nb: dcol(i, 1) = labs(i - 1): Next i
+    ws.Range(ws.Cells(3, 4), ws.Cells(2 + nb, 4)).Value = dcol
+    EscribirColRentab ws, 5, mId1, nb, acum, False
+    EscribirColRentab ws, 6, mId2, nb, acum, False
+    EscribirColRentab ws, 7, mId3, nb, acum, False
+    If conBmk Then EscribirColRentab ws, 8, mId1, nb, acum, True
     ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
     Application.EnableEvents = True
-    LocalRentabilidad = (bkts.Count > 0)
+    LocalRentabilidad = True
 End Function
 
 ' Restaura la tabla del grafico (D:H) y borra los restos de la vista apilada
@@ -1653,7 +1731,7 @@ End Sub
 ' Temporal (Diario..Anual): ultimo valor de cada bucket. Dimensional (Activo/
 ' Geografia/Divisa): ultimo valor por etiqueta a la fecha mas reciente.
 Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
-    Dim c0 As Long, lastR As Long, r As Long
+    Dim c0 As Long, lastR As Long, i As Long, n As Long
     c0 = BLK_RISK_COL                       ' fecha|PID|criterio|etiqueta|variable|valor
     lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
@@ -1675,59 +1753,78 @@ Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
     If Len(crit) = 0 Then Exit Function     ' dimension sin desglose -> que lo resuelva la consulta
 
     Dim per As String: per = Trim(CStr(ws.Range("B11").Value))
-    Dim anual As Boolean: anual = (Fold(dimen) = "anual")
+    Dim blk As Variant
+    blk = ws.Range(ws.Cells(2, c0), ws.Cells(lastR, c0 + 5)).Value   ' fecha|pid|crit|etiq|var|valor
+    n = lastR - 1
 
-    ' Fecha maxima (para ventana temporal y para el snapshot dimensional).
+    ' Fecha maxima (de las filas de este criterio/variable) y ventana alineada.
     Dim dMax As Date, dd As Date
-    For r = 2 To lastR
-        If Fold(CStr(ws.Cells(r, c0 + 2).Value)) = Fold(crit) Then
-            dd = FechaDe(ws.Cells(r, c0).Value)
-            If dd > dMax Then dMax = dd
+    For i = 1 To n
+        If Fold(CStr(blk(i, 3))) = Fold(crit) Then
+            If Len(varT) = 0 Or Fold(CStr(blk(i, 5))) = Fold(varT) Then
+                dd = FechaDe(CStr(blk(i, 1)))
+                If dd > dMax Then dMax = dd
+            End If
         End If
-    Next r
+    Next i
     If dMax = 0 Then Exit Function
     Dim ini As Date: ini = InicioBucket(InicioVentana(dMax, per, dimen), dimen)
 
-    Dim cats As Object, vals As Object, fmax As Object
-    Set cats = CreateObject("Scripting.Dictionary")   ' categoria -> fila
-    Set vals = CreateObject("Scripting.Dictionary")   ' slot|cat -> valor (ultimo)
-    Set fmax = CreateObject("Scripting.Dictionary")   ' slot|cat -> fecha del ultimo
-    Dim rowOut As Long: rowOut = 3
-    Dim pid As String, slot As Long, cat As String, k As String, dentro As Boolean
-
-    For r = 2 To lastR
-        If Fold(CStr(ws.Cells(r, c0 + 2).Value)) <> Fold(crit) Then GoTo seguir
-        If Len(varT) > 0 Then
-            If Fold(CStr(ws.Cells(r, c0 + 4).Value)) <> Fold(varT) Then GoTo seguir
-        End If
-        pid = UCase(Trim(CStr(ws.Cells(r, c0 + 1).Value)))
-        slot = SlotDe(pid)
-        If slot = 0 Then GoTo seguir
-        dd = FechaDe(ws.Cells(r, c0).Value)
-        If dd = 0 Then GoTo seguir
+    ' Auxiliares: clave (bucket temporal o etiqueta) y valor numerico, para TODAS
+    ' las filas. criterio/variable se comparan en la formula (rangos f_crit/f_var).
+    ReDim h1(1 To n, 1 To 1) As Variant
+    ReDim a1(1 To n, 1 To 1) As Variant
+    Dim shown As Object: Set shown = CreateObject("Scripting.Dictionary")
+    Dim cat As String, esta As Boolean
+    For i = 1 To n
+        a1(i, 1) = NumDbl(blk(i, 6))
+        esta = (Fold(CStr(blk(i, 3))) = Fold(crit))
+        If esta And Len(varT) > 0 Then esta = (Fold(CStr(blk(i, 5))) = Fold(varT))
         If esTiempo Then
-            dentro = (dd >= ini)   ' ini alineado al inicio del bucket
-            If Not dentro Or dd > dMax Then GoTo seguir
-            cat = BucketLocal(dd, dimen)
+            dd = FechaDe(CStr(blk(i, 1)))
+            If dd = 0 Then h1(i, 1) = "" Else h1(i, 1) = BucketLocal(dd, dimen)
+            If esta And dd >= ini And dd <= dMax And Len(CStr(h1(i, 1))) > 0 Then
+                If Not shown.Exists(CStr(h1(i, 1))) Then shown.Add CStr(h1(i, 1)), 1
+            End If
         Else
-            cat = Trim(CStr(ws.Cells(r, c0 + 3).Value))   ' etiqueta (Activo/Geo/Divisa)
-            If Len(cat) = 0 Then GoTo seguir
+            cat = Trim(CStr(blk(i, 4)))
+            h1(i, 1) = cat
+            If esta And Len(cat) > 0 Then
+                If Not shown.Exists(cat) Then shown.Add cat, 1
+            End If
         End If
-        If Not cats.Exists(cat) Then
-            If rowOut > 402 Then GoTo seguir
-            cats.Add cat, rowOut: rowOut = rowOut + 1
-        End If
-        k = slot & "|" & cat
-        ' Nos quedamos con el ultimo valor (fecha mayor) de cada slot|categoria.
-        If (Not fmax.Exists(k)) Or (dd >= fmax(k)) Then
-            fmax(k) = dd
-            vals(k) = NumDbl(ws.Cells(r, c0 + 5).Value)
-        End If
-seguir:
-    Next r
+    Next i
+    If shown.Count = 0 Then Exit Function
 
-    If cats.Count = 0 Then Exit Function
-    VolcarLocal ws, cats, vals
+    ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
+    ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
+    FijarNombre "f_pid", c0 + 1, lastR
+    FijarNombre "f_crit", c0 + 2, lastR
+    FijarNombre "f_var", c0 + 4, lastR
+    FijarNombre "f_k1", HLP_K1, lastR
+    FijarNombre "f_a1", HLP_A1, lastR
+
+    Dim labs As Variant, nb As Long, kk As Variant
+    If esTiempo Then
+        labs = ClavesOrdenadas(shown)          ' cronologico
+    Else
+        ReDim labs(0 To shown.Count - 1)        ' orden de aparicion
+        i = 0
+        For Each kk In shown.Keys: labs(i) = CStr(kk): i = i + 1: Next kk
+    End If
+    nb = UBound(labs) - LBound(labs) + 1
+
+    GuardarPreviewSiNoExiste ws
+    Application.EnableEvents = False
+    LimpiarTablaNormal ws
+    Dim dcol() As Variant: ReDim dcol(1 To nb, 1 To 1)
+    For i = 1 To nb: dcol(i, 1) = labs(i - 1): Next i
+    ws.Range(ws.Cells(3, 4), ws.Cells(2 + nb, 4)).Value = dcol
+    EscribirColRiesgo ws, 5, mId1, crit, varT, nb
+    EscribirColRiesgo ws, 6, mId2, crit, varT, nb
+    EscribirColRiesgo ws, 7, mId3, crit, varT, nb
+    ws.Range("E3:H402").NumberFormat = FormatoMetrica(met)
+    Application.EnableEvents = True
     LocalRiesgo = True
 End Function
 
@@ -1750,56 +1847,71 @@ End Function
 ' apilada (comparten datos): toma el ULTIMO mes de cada cartera y reparte el
 ' PESO (%) por la clasificacion elegida (B9), por slot (E/F/G).
 Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
-    Dim c0 As Long, lastR As Long, r As Long, colCat As Long, clas As String
+    Dim c0 As Long, lastR As Long, i As Long, n As Long, colCat As Long, clas As String
     c0 = BLK_APIL_COL                         ' PID | mes | gics|bics|geo|pais|divisa|activo | valor
     lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
     clas = Trim(CStr(ws.Range("B9").Value))   ' en Composicion, B9 = la clasificacion
     colCat = ColClasifApil(clas)
     If colCat = 0 Then Exit Function
+    Dim iCat As Long: iCat = colCat - c0 + 1  ' indice (1-based) de la clasificacion en el array
+    Dim importe As Boolean: importe = (Fold(Trim(CStr(ws.Range("B8").Value))) = "importe")
+
+    Dim blk As Variant
+    blk = ws.Range(ws.Cells(2, c0), ws.Cells(lastR, c0 + 8)).Value
+    n = lastR - 1
 
     ' Ultimo mes disponible por slot (los meses "YYYY-MM" ordenan cronologicamente).
-    Dim mesMax(1 To 3) As String, pid As String, slot As Long, mes As String
-    For r = 2 To lastR
-        slot = SlotDe(UCase(Trim(CStr(ws.Cells(r, c0).Value))))
+    Dim mesMax(1 To 3) As String, slot As Long, mes As String
+    For i = 1 To n
+        slot = SlotDe(UCase(Trim(CStr(blk(i, 1)))))
         If slot > 0 Then
-            mes = Trim(CStr(ws.Cells(r, c0 + 1).Value))
+            mes = Trim(CStr(blk(i, 2)))
             If mes > mesMax(slot) Then mesMax(slot) = mes
         End If
-    Next r
+    Next i
 
-    Dim cats As Object, vals As Object, tot As Object
-    Set cats = CreateObject("Scripting.Dictionary")
-    Set vals = CreateObject("Scripting.Dictionary")   ' slot|cat -> valoracion
-    Set tot = CreateObject("Scripting.Dictionary")    ' slot -> valoracion total
-    Dim rowOut As Long: rowOut = 3
-    Dim cat As String, k As String, v As Double
-    For r = 2 To lastR
-        slot = SlotDe(UCase(Trim(CStr(ws.Cells(r, c0).Value))))
-        If slot = 0 Then GoTo seguir
-        If Trim(CStr(ws.Cells(r, c0 + 1).Value)) <> mesMax(slot) Then GoTo seguir   ' solo el ultimo mes
-        cat = EtiquetaClasif(clas, CStr(ws.Cells(r, colCat).Value))
-        If Not cats.Exists(cat) Then
-            If rowOut > 402 Then GoTo seguir
-            cats.Add cat, rowOut: rowOut = rowOut + 1
+    ' Auxiliares: etiqueta de la categoria y valoracion (numerica), TODAS las filas.
+    ReDim h1(1 To n, 1 To 1) As Variant
+    ReDim a1(1 To n, 1 To 1) As Variant
+    Dim shown As Object: Set shown = CreateObject("Scripting.Dictionary")
+    Dim cat As String
+    For i = 1 To n
+        cat = EtiquetaClasif(clas, CStr(blk(i, iCat)))
+        h1(i, 1) = cat
+        a1(i, 1) = NumDbl(blk(i, 9))
+        slot = SlotDe(UCase(Trim(CStr(blk(i, 1)))))
+        If slot > 0 Then
+            If Trim(CStr(blk(i, 2))) = mesMax(slot) And Len(cat) > 0 Then
+                If Not shown.Exists(cat) Then shown.Add cat, 1
+            End If
         End If
-        v = NumDbl(ws.Cells(r, c0 + 8).Value)
-        k = slot & "|" & cat
-        If vals.Exists(k) Then vals(k) = vals(k) + v Else vals(k) = v
-        If tot.Exists(slot) Then tot(slot) = tot(slot) + v Else tot(slot) = v
-seguir:
-    Next r
-    If cats.Count = 0 Then Exit Function
-    ' Metrica "Peso" -> normaliza a % del total; "Importe" -> deja el valor
-    ' absoluto (euros). FormatoMetrica aplica el formato adecuado (% o #,##0).
-    If Fold(Trim(CStr(ws.Range("B8").Value))) <> "importe" Then
-        Dim kk As Variant, s As Long
-        For Each kk In vals.Keys
-            s = CLng(Split(CStr(kk), "|")(0))
-            If tot(s) <> 0 Then vals(kk) = vals(kk) / tot(s)
-        Next kk
-    End If
-    VolcarLocal ws, cats, vals
+    Next i
+    If shown.Count = 0 Then Exit Function
+
+    ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
+    ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
+    FijarNombre "f_pid", c0, lastR
+    FijarNombre "f_mes", c0 + 1, lastR
+    FijarNombre "f_k1", HLP_K1, lastR
+    FijarNombre "f_a1", HLP_A1, lastR
+
+    Dim labs() As String, nb As Long, kk As Variant
+    ReDim labs(0 To shown.Count - 1)
+    nb = 0
+    For Each kk In shown.Keys: labs(nb) = CStr(kk): nb = nb + 1: Next kk
+
+    GuardarPreviewSiNoExiste ws
+    Application.EnableEvents = False
+    LimpiarTablaNormal ws
+    Dim dcol() As Variant: ReDim dcol(1 To nb, 1 To 1)
+    For i = 1 To nb: dcol(i, 1) = labs(i - 1): Next i
+    ws.Range(ws.Cells(3, 4), ws.Cells(2 + nb, 4)).Value = dcol
+    EscribirColComp ws, 5, mId1, mesMax(1), nb, importe
+    EscribirColComp ws, 6, mId2, mesMax(2), nb, importe
+    EscribirColComp ws, 7, mId3, mesMax(3), nb, importe
+    ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
+    Application.EnableEvents = True
     LocalComposicion = True
 End Function
 
@@ -1942,7 +2054,7 @@ End Function
 ' granularidad (B11/B9) y agrupa por la clasificacion (B8), para la Entidad 1.
 ' Escribe la matriz en D2 y dibuja el grafico apilado. False si no hay datos.
 Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
-    Dim c0 As Long, lastR As Long, r As Long, colCat As Long
+    Dim c0 As Long, lastR As Long, i As Long, n As Long, colCat As Long
     c0 = BLK_APIL_COL
     lastR = UltFilaBloque(ws, c0)
     If lastR < 2 Then Exit Function
@@ -1952,74 +2064,106 @@ Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
     If Fold(gran) = "diario" Or Fold(gran) = "semanal" Or Not DimEsTiempo(gran) Then gran = "Mensual"
     colCat = ColClasifApil(clas)
     If colCat = 0 Then Exit Function
+    Dim iCat As Long: iCat = colCat - c0 + 1
     per = Trim(CStr(ws.Range("B11").Value))
 
+    Dim blk As Variant
+    blk = ws.Range(ws.Cells(2, c0), ws.Cells(lastR, c0 + 8)).Value
+    n = lastR - 1
+
     Dim dMax As Date, d As Date
-    For r = 2 To lastR
-        If IgualId(UCase(Trim(CStr(ws.Cells(r, c0).Value))), mId1) Then
-            d = FechaDeMes(CStr(ws.Cells(r, c0 + 1).Value))
+    For i = 1 To n
+        If IgualId(UCase(Trim(CStr(blk(i, 1)))), mId1) Then
+            d = FechaDeMes(CStr(blk(i, 2)))
             If d > dMax Then dMax = d
         End If
-    Next r
+    Next i
     If dMax = 0 Then Exit Function
     Dim ini As Date: ini = InicioBucket(InicioVentana(dMax, per, gran), gran)
 
-    Dim bkts As Object, sers As Object, mat As Object, totB As Object
-    Set bkts = CreateObject("Scripting.Dictionary")
-    Set sers = CreateObject("Scripting.Dictionary")
-    Set mat = CreateObject("Scripting.Dictionary")
-    Set totB = CreateObject("Scripting.Dictionary")
-    Dim rowOut As Long: rowOut = 3
-    Dim colOut As Long: colOut = TCMP_COL + 1
-    Dim pid As String, bk As String, se As String, v As Double, k As String
-    For r = 2 To lastR
-        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
-        If Not IgualId(pid, mId1) Then GoTo seguir
-        d = FechaDeMes(CStr(ws.Cells(r, c0 + 1).Value))
-        If d = 0 Then GoTo seguir
-        If d < ini Or d > dMax Then GoTo seguir   ' ini alineado al inicio del bucket
-        bk = BucketMes(CStr(ws.Cells(r, c0 + 1).Value), gran)
-        se = EtiquetaClasif(clas, CStr(ws.Cells(r, colCat).Value))
-        v = NumDbl(ws.Cells(r, c0 + 8).Value)
-        If Not bkts.Exists(bk) Then
-            If rowOut > 402 Then GoTo seguir
-            bkts.Add bk, rowOut: rowOut = rowOut + 1
+    ' Auxiliares (TODAS las filas): bucket (bmes), etiqueta (lbl) y valoracion.
+    ReDim h1(1 To n, 1 To 1) As Variant   ' bmes
+    ReDim a1(1 To n, 1 To 1) As Variant   ' lbl
+    ReDim a2(1 To n, 1 To 1) As Variant   ' valoracion
+    Dim bkD As Object: Set bkD = CreateObject("Scripting.Dictionary")   ' buckets a mostrar
+    Dim seD As Object: Set seD = CreateObject("Scripting.Dictionary")   ' series (orden aparicion)
+    Dim bk As String, se As String
+    For i = 1 To n
+        h1(i, 1) = BucketMes(CStr(blk(i, 2)), gran)
+        a1(i, 1) = EtiquetaClasif(clas, CStr(blk(i, iCat)))
+        a2(i, 1) = NumDbl(blk(i, 9))
+        If IgualId(UCase(Trim(CStr(blk(i, 1)))), mId1) Then
+            d = FechaDeMes(CStr(blk(i, 2)))
+            If d >= ini And d <= dMax And d > 0 Then
+                bk = CStr(h1(i, 1)): se = CStr(a1(i, 1))
+                If Not bkD.Exists(bk) Then bkD.Add bk, 1
+                If Len(se) > 0 And Not seD.Exists(se) Then seD.Add se, 1
+            End If
         End If
-        If Not sers.Exists(se) Then
-            If sers.Count >= MAXSER Then se = "Otros"
-            If Not sers.Exists(se) Then sers.Add se, colOut: colOut = colOut + 1
-        End If
-        k = bk & "|" & se
-        If mat.Exists(k) Then mat(k) = mat(k) + v Else mat(k) = v
-        If totB.Exists(bk) Then totB(bk) = totB(bk) + v Else totB(bk) = v
-seguir:
-    Next r
-    If bkts.Count = 0 Or sers.Count = 0 Then Exit Function
-    EscribirApiladas ws, bkts, sers, mat, totB
+    Next i
+    If bkD.Count = 0 Or seD.Count = 0 Then Exit Function
+
+    ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
+    ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
+    ws.Range(ws.Cells(2, HLP_A2), ws.Cells(lastR, HLP_A2)).Value = a2
+    FijarNombre "f_pid", c0, lastR
+    FijarNombre "f_k1", HLP_K1, lastR
+    FijarNombre "f_a1", HLP_A1, lastR
+    FijarNombre "f_a2", HLP_A2, lastR
+
+    ' Buckets en orden cronologico; series en orden de aparicion (con tope MAXSER;
+    ' el resto se agrupa en una columna residual "Otros" = 1 - suma del resto).
+    Dim bArr As Variant: bArr = ClavesOrdenadas(bkD)
+    Dim nb As Long: nb = UBound(bArr) - LBound(bArr) + 1
+    Dim sArr() As String, nSer As Long, hayOtros As Boolean, kk As Variant
+    Dim tope As Long: tope = seD.Count
+    If tope > MAXSER Then tope = MAXSER: hayOtros = True
+    ReDim sArr(0 To tope - 1)
+    nSer = 0
+    For Each kk In seD.Keys
+        If nSer < IIf(hayOtros, tope - 1, tope) Then sArr(nSer) = CStr(kk): nSer = nSer + 1
+    Next kk
+    If hayOtros Then sArr(nSer) = "Otros": nSer = nSer + 1
+
+    EscribirApiladas ws, bArr, nb, sArr, nSer, hayOtros
     LocalApiladas = True
 End Function
 
-' Escribe la matriz (fechas x categorias, en %) en la tabla del grafico desde D2
-' y dibuja el grafico apilado. 'sers' ya trae la columna destino de cada serie.
-Private Sub EscribirApiladas(ByVal ws As Worksheet, ByVal bkts As Object, _
-        ByVal sers As Object, ByVal mat As Object, ByVal totB As Object)
+' Escribe la matriz apilada (fechas x categorias, en %) COMO FORMULAS desde D2 y
+' dibuja el grafico apilado. Cada celda = valoracion(categoria)/valoracion(bucket)
+' de la Entidad 1. La ultima serie puede ser "Otros" (residual = 1 - resto).
+Private Sub EscribirApiladas(ByVal ws As Worksheet, ByVal bArr As Variant, ByVal nb As Long, _
+        ByRef sArr() As String, ByVal nSer As Long, ByVal hayOtros As Boolean)
     GuardarPreviewSiNoExiste ws
     Application.EnableEvents = False
     ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER)).ClearContents
-    Dim vb As Variant, vs As Variant, rr As Long, cc As Long, k As String
     ws.Cells(2, TCMP_COL).Value = "Fecha"
-    For Each vs In sers.Keys: ws.Cells(2, sers(vs)).Value = vs: Next vs
-    For Each vb In bkts.Keys
-        rr = bkts(vb): ws.Cells(rr, TCMP_COL).Value = vb
-        For Each vs In sers.Keys
-            cc = sers(vs)
-            k = CStr(vb) & "|" & CStr(vs)
-            If mat.Exists(k) And totB(vb) <> 0 Then ws.Cells(rr, cc).Value = mat(k) / totB(vb)
-        Next vs
-    Next vb
-    ws.Range(ws.Cells(3, TCMP_COL + 1), ws.Cells(2 + bkts.Count, TCMP_COL + sers.Count)).NumberFormat = "0.00%"
+    Dim i As Long, cc As Long, r0 As Long, r1 As Long
+    r0 = 3: r1 = 2 + nb
+    ' Etiquetas de fecha (columna D).
+    Dim dcol() As Variant: ReDim dcol(1 To nb, 1 To 1)
+    For i = 1 To nb: dcol(i, 1) = bArr(i - 1): Next i
+    ws.Range(ws.Cells(r0, TCMP_COL), ws.Cells(r1, TCMP_COL)).Value = dcol
+    ' Cabeceras de serie + formulas por columna.
+    Dim hdr As String, f As String, ultCol As Long
+    For i = 0 To nSer - 1
+        cc = TCMP_COL + 1 + i
+        ws.Cells(2, cc).Value = sArr(i)
+        If hayOtros And i = nSer - 1 Then
+            ' Residual: 1 - suma de las series explicitas de esa fila.
+            f = "=IFERROR(1-SUM(" & ws.Cells(r0, TCMP_COL + 1).Address(False, True) & ":" & _
+                ws.Cells(r0, cc - 1).Address(False, True) & ")," & Q("") & ")"
+        Else
+            hdr = ws.Cells(2, cc).Address(True, True)   ' cabecera de ESTA serie (categoria)
+            f = "=IFERROR(SUMIFS(f_a2,f_pid," & Q(mId1) & ",f_k1,$D" & r0 & ",f_a1," & hdr & ")/" & _
+                "SUMIFS(f_a2,f_pid," & Q(mId1) & ",f_k1,$D" & r0 & ")," & Q("") & ")"
+        End If
+        ws.Range(ws.Cells(r0, cc), ws.Cells(r1, cc)).Formula = f
+        ultCol = cc
+    Next i
+    ws.Range(ws.Cells(r0, TCMP_COL + 1), ws.Cells(r1, ultCol)).NumberFormat = "0.00%"
     Application.EnableEvents = True
-    DibujarApiladas ws, bkts.Count, sers.Count
+    DibujarApiladas ws, nb, nSer
 End Sub
 
 ' Dibuja columnas/barras apiladas: una serie por cada columna de categoria
