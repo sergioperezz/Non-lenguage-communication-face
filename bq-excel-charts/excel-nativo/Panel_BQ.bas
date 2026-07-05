@@ -1215,7 +1215,7 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
     prt = Split(f, " "): mn = MesNum(prt(0))
     If mn > 0 Then                                  ' columna por mes: "Ene", "Ene 2025"...
         kind = "month": pA = CStr(mn): pB = ""
-        If UBound(prt) >= 1 And IsNumeric(prt(1)) Then pB = prt(1)
+        If UBound(prt) >= 1 Then If IsNumeric(prt(1)) Then pB = prt(1)
         Exit Sub
     End If
     Dim tok As String: tok = f
@@ -1232,8 +1232,10 @@ Private Function EsPeriodoTok(ByVal t As String) As Boolean
     Select Case t
         Case "MTD", "QTD", "YTD", "WTD", "1D", "DTD": EsPeriodoTok = True
         Case Else
-            If Len(t) >= 2 And IsNumeric(Left(t, Len(t) - 1)) _
-               And (Right(t, 1) = "M" Or Right(t, 1) = "A") Then EsPeriodoTok = True
+            If Len(t) >= 2 Then
+                If IsNumeric(Left(t, Len(t) - 1)) _
+                   And (Right(t, 1) = "M" Or Right(t, 1) = "A") Then EsPeriodoTok = True
+            End If
     End Select
 End Function
 
@@ -1301,7 +1303,10 @@ Private Sub ExpandirPlantilla(ByVal ws As Worksheet, ByVal inlist As String)
             If ft = "meses" Or Left(ft, 6) = "meses " Then
                 Dim yr As String, cnt As Long, prts() As String, m As Long
                 prts = Split(ft, " ")
-                If UBound(prts) >= 1 And IsNumeric(prts(1)) Then yr = prts(1) Else yr = yData
+                yr = yData
+                If UBound(prts) >= 1 Then                 ' And de VBA no cortocircuita:
+                    If IsNumeric(prts(1)) Then yr = prts(1)   ' accede a prts(1) solo si existe
+                End If
                 If yr = yData Then cnt = mData Else cnt = 12
                 For m = 1 To cnt
                     nh = nh + 1
