@@ -1013,10 +1013,10 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Next i
     If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera' (nombre_elemento/id_elemento).", vbExclamation, "Tablas": Exit Sub
 
-    ' --- Plantilla de columnas (B5): si esta puesta, materializa la cabecera
-    ' (fila 6). La palabra "Meses" se expande a Ene..ULTIMO mes con datos, asi que
-    ' al llegar un mes nuevo aparece su columna sola. ---
-    ExpandirPlantilla ws, inlist
+    ' --- Genera la cabecera (fila 6) a partir de Metrica (B3) + Desglose (B4).
+    ' Meses -> Ene..ultimo con datos (columna nueva cada mes); Anos/Periodos/A la
+    ' fecha segun la metrica. ---
+    GenerarColumnas ws, inlist
 
     ' --- Cabecera (variables) ---
     Dim vName() As String, vCol() As Long
@@ -1044,7 +1044,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Next i
     ' Con fila de Total, se descarga patrimonio aunque no se muestre, para
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
-    If Fold(ws.Range("B4").Value) = "si" Then needPos = True
+    If Fold(ws.Range("E4").Value) = "si" Then needPos = True   ' Fila de Total
 
     Dim cn As Object, rs As Object
     On Error GoTo fallo
@@ -1166,7 +1166,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
                     Case "ret", "year", "month"
                         If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j), pB(j))
                     Case "vol"
-                        If retColl.Exists(eId(i)) Then cellVal = ValorVol(retColl(eId(i)), pA(j))
+                        If retColl.Exists(eId(i)) Then cellVal = ValorVol(retColl(eId(i)), pA(j), pB(j))
                     Case "risk"
                         Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
                         If riskV.Exists(kL) Then cellVal = riskV(kL)
@@ -1191,7 +1191,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     ' Fila de Total (opcional, B4="Si"): patrimonio/peso se SUMAN; el resto es
     ' media PONDERADA por patrimonio (si no hay patrimonio, media simple).
     Dim rTot As Long: rTot = TB_ROW0 + ne
-    If Fold(ws.Range("B4").Value) = "si" Then
+    If Fold(ws.Range("E4").Value) = "si" Then          ' Fila de Total
         ws.Cells(rTot, 1).Value = "Total"
         ws.Cells(rTot, 1).Font.Bold = True
         For j = 1 To nv
@@ -1254,7 +1254,17 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
     If f = "tir" Then kind = "risk": pA = "TIR": pB = "": Exit Sub
     If f = "cmr" Then kind = "risk": pA = Cfg("RISK_CRIT_CMR", "CMR"): pB = Cfg("RISK_VAR_CMR", ""): Exit Sub
     If Left(f, 3) = "var" Then kind = "risk": pA = Cfg("RISK_CRIT_VAR", "VaR"): pB = Cfg("RISK_VAR_VAR", ""): Exit Sub
-    If InStr(f, "volatil") = 1 Then kind = "vol": pA = IIf(InStr(f, "anual") > 0, "anual", "dia"): Exit Sub
+    If InStr(f, "volatil") = 1 Then     ' "Volatilidad [Anualizada|Diaria]" o "Volatilidad Ene|2025"
+        kind = "vol"
+        pA = IIf(InStr(f, "diaria") > 0, "dia", "anual")   ' por defecto anualizada
+        pB = ""
+        Dim vp() As String, wi As Long: vp = Split(f, " ")
+        For wi = 1 To UBound(vp)
+            If MesNum(vp(wi)) > 0 Then pB = "M" & MesNum(vp(wi))
+            If Len(vp(wi)) = 4 Then If IsNumeric(vp(wi)) Then pB = vp(wi)
+        Next wi
+        Exit Sub
+    End If
     Dim prt() As String, mn As Long
     prt = Split(f, " "): mn = MesNum(prt(0))
     If mn > 0 Then                                  ' columna por mes: "Ene", "Ene 2025"...
@@ -1383,6 +1393,83 @@ Private Sub ExpandirPlantilla(ByVal ws As Worksheet, ByVal inlist As String)
     Application.EnableEvents = True
 End Sub
 
+' Genera la cabecera (fila 6) desde Metrica (B3) + Desglose (B4). Las columnas se
+' crean solas: Meses -> Ene..ultimo mes; Anos -> ultimos 5; Periodos -> MTD/YTD/
+' 1M/3M/6M/1A/3A; A la fecha -> una columna. Cada celda es la metrica en ese tramo.
+Private Sub GenerarColumnas(ByVal ws As Worksheet, ByVal inlist As String)
+    Dim met As String, des As String
+    met = Trim(CStr(ws.Range("B3").Value)): If Len(met) = 0 Then met = "Rentabilidad"
+    des = Fold(CStr(ws.Range("B4").Value))
+    Dim mm As String: mm = UltimoMesPerf(inlist)
+    If Len(mm) < 7 Then mm = Format(Date, "yyyy-mm")
+    Dim yData As Long: yData = CLng(Val(Left(mm, 4)))
+    Dim mData As Long: mData = CLng(Val(Mid(mm, 6, 2)))
+
+    Dim hdrs As Object: Set hdrs = CreateObject("Scripting.Dictionary")
+    Dim nh As Long, h As String, k As Long: nh = 0
+    Select Case des
+        Case "meses"
+            For k = 1 To mData
+                h = HeaderMetrica(met, "mes", MesAbbr(k), yData)
+                If Len(h) > 0 Then nh = nh + 1: hdrs(nh) = h
+            Next k
+        Case "anos"                       ' Fold de "Anios" (con enye) da "anos"
+            For k = 0 To 4
+                h = HeaderMetrica(met, "ano", CStr(yData - k), yData)
+                If Len(h) > 0 Then nh = nh + 1: hdrs(nh) = h
+            Next k
+        Case "periodos"
+            Dim per As Variant: per = Array("MTD", "YTD", "1M", "3M", "6M", "1A", "3A")
+            For k = 0 To UBound(per)
+                h = HeaderMetrica(met, "periodo", CStr(per(k)), yData)
+                If Len(h) > 0 Then nh = nh + 1: hdrs(nh) = h
+            Next k
+    End Select
+    If nh = 0 Then                        ' "A la fecha" o combinacion aun no soportada
+        h = HeaderMetrica(met, "fecha", "", yData)
+        If Len(h) > 0 Then nh = nh + 1: hdrs(nh) = h
+    End If
+
+    Application.EnableEvents = False
+    ws.Range(ws.Cells(TB_HDR, 2), ws.Cells(TB_HDR, 80)).ClearContents
+    Dim c As Long
+    For c = 1 To nh: ws.Cells(TB_HDR, 1 + c).Value = hdrs(c): Next c
+    Application.EnableEvents = True
+End Sub
+
+' Texto de cabecera para (metrica, tipo de tramo, valor) que ClasificarVar sabe
+' interpretar. "" si esa combinacion no aplica (se omite la columna).
+Private Function HeaderMetrica(ByVal met As String, ByVal tipo As String, _
+                               ByVal val As String, ByVal curYear As Long) As String
+    Dim fm As String: fm = Fold(met)
+    Select Case True
+        Case fm = "rentabilidad"
+            Select Case tipo
+                Case "mes":     HeaderMetrica = val          ' "Ene"
+                Case "ano":     HeaderMetrica = val          ' "2025"
+                Case "periodo": HeaderMetrica = val          ' "YTD"
+                Case Else:      HeaderMetrica = "YTD"
+            End Select
+        Case fm = "volatilidad"
+            Select Case tipo
+                Case "mes":  HeaderMetrica = "Volatilidad " & val
+                Case "ano":  HeaderMetrica = "Volatilidad " & val
+                Case "periodo": HeaderMetrica = ""
+                Case Else:   HeaderMetrica = "Volatilidad Anualizada"
+            End Select
+        Case fm = "patrimonio"
+            Select Case tipo
+                Case "mes":   HeaderMetrica = "Patrimonio " & val & " " & curYear
+                Case "ano":   HeaderMetrica = "Patrimonio Dic " & val
+                Case "fecha": HeaderMetrica = "Patrimonio"
+            End Select
+        Case fm = "peso"
+            If tipo = "fecha" Then HeaderMetrica = "Peso"
+        Case Else                                            ' riesgo: VaR/TIR/CMR/Duracion
+            If tipo = "fecha" Then HeaderMetrica = met       ' por ahora, solo "a la fecha"
+    End Select
+End Function
+
 ' Ultima fecha (serial) de una Collection de (dserial, 1+twr). 0 si vacia.
 Private Function MaxSerial(ByVal coll As Collection) As Double
     Dim it As Variant
@@ -1426,14 +1513,23 @@ End Function
 
 ' Volatilidad de los retornos DIARIOS (desviacion tipica muestral) del ano en
 ' curso (YTD). modo="anual" -> anualizada (x raiz de 252). "" si <2 datos.
-Private Function ValorVol(ByVal coll As Collection, ByVal modo As String) As Variant
+' Volatilidad de los retornos diarios en una ventana: win="" -> ano en curso (YTD);
+' win="M<n>" -> mes n del ano en curso; win="YYYY" -> ese ano. modo="anual" -> x raiz(252).
+Private Function ValorVol(ByVal coll As Collection, ByVal modo As String, Optional ByVal win As String = "") As Variant
     Dim dMax As Double: dMax = MaxSerial(coll)
     If dMax = 0 Then ValorVol = "": Exit Function
     Dim yy As Long: yy = Year(CDate(dMax))
-    Dim n As Long, s As Double, s2 As Double, x As Double, it As Variant
+    Dim n As Long, s As Double, s2 As Double, x As Double, it As Variant, okd As Boolean
     For Each it In coll
-        If it(0) > 0 Then If Year(CDate(it(0))) = yy Then
-            x = it(1) - 1: n = n + 1: s = s + x: s2 = s2 + x * x
+        If it(0) > 0 Then
+            If Len(win) = 0 Then
+                okd = (Year(CDate(it(0))) = yy)
+            ElseIf Left(win, 1) = "M" Then
+                okd = (Year(CDate(it(0))) = yy And Month(CDate(it(0))) = CLng(Mid(win, 2)))
+            Else
+                okd = (Year(CDate(it(0))) = CLng(win))
+            End If
+            If okd Then x = it(1) - 1: n = n + 1: s = s + x: s2 = s2 + x * x
         End If
     Next it
     If n < 2 Then ValorVol = "": Exit Function
@@ -1457,7 +1553,7 @@ End Function
 ' 3 colores) o "Barras" (barras de datos en celda). Otro valor -> sin estilo.
 Private Sub EstiloTabla(ByVal ws As Worksheet, ByRef kind() As String, _
         ByRef vCol() As Long, ByVal nv As Long, ByVal r1 As Long, ByVal r2 As Long)
-    Dim est As String: est = Fold(ws.Range("B3").Value)
+    Dim est As String: est = Fold(ws.Range("E3").Value)   ' Estilo
     Dim j As Long
     For j = 1 To nv
         Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
@@ -1755,7 +1851,7 @@ Public Sub AutoRellenarTabla()
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("Tablas")
     If ws Is Nothing Then Exit Sub
     If mTablaAuto Then Exit Sub
-    If Fold(CStr(ws.Range("E4").Value)) <> "si" Then Exit Sub
+    If Fold(CStr(ws.Range("H3").Value)) <> "si" Then Exit Sub   ' Auto al abrir
     mTablaAuto = True
     RellenarTabla True
 End Sub
