@@ -68,6 +68,11 @@ Private Const BLK_APIL_COL As Long = 49    ' AW: bloque de composicion apilada (
 Private Const BLK_ULTFILA As Long = 200000 ' fila maxima para limpiar los bloques
 Private Const TCMP_COL As Long = 4         ' D: matriz de composicion apilada (junto al grafico)
 Private Const MAXSER As Long = 18          ' max series (D..V; los bloques empiezan en W=23)
+' Columnas auxiliares reutilizables para las TABLAS COMO FORMULAS (solo hay una
+' metrica en pantalla; se reescriben en cada calculo). Van despues del bloque APIL.
+Private Const HLP_K1 As Long = 60          ' BH: clave = bucket / etiqueta / categoria
+Private Const HLP_A1 As Long = 61          ' BI: factor(1+twr) / valor / valoracion / etiqueta(apiladas)
+Private Const HLP_A2 As Long = 62          ' BJ: factor benchmark / valoracion (apiladas)
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -1531,10 +1536,8 @@ End Function
 ' la celda y se recalcule solo. Solo hay UNA metrica en pantalla, asi que se
 ' reutiliza una region de columnas auxiliares (se reescribe en cada calculo) y
 ' unos rangos con nombre (f_pid, f_k1, f_a1, f_a2, f_crit, f_var, f_mes) que se
-' re-apuntan al bloque activo.
-Private Const HLP_K1 As Long = 60   ' BH: clave = bucket / etiqueta / categoria
-Private Const HLP_A1 As Long = 61   ' BI: factor(1+twr) / valor / valoracion / etiqueta(apiladas)
-Private Const HLP_A2 As Long = 62   ' BJ: factor benchmark / valoracion (apiladas)
+' re-apuntan al bloque activo. Las columnas auxiliares HLP_* estan declaradas
+' arriba, en la seccion de constantes del modulo.
 
 ' Literal de cadena entrecomillado para meter dentro de una formula.
 Private Function Q(ByVal s As String) As String
