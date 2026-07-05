@@ -197,6 +197,36 @@ End Function
 Private Function CfgLtLevel() As String
     CfgLtLevel = Cfg("PK_LTLEVEL", "2")
 End Function
+
+' ---- Fecha de referencia GLOBAL del documento (hoja "Portada") ----
+' Ultimo dia del mes elegido (Ano B2 + Mes B3). "" si no hay Portada o el mes es
+' "(ultimo)"/vacio -> entonces cada consulta usa la ultima fecha disponible.
+' Todas las consultas aplican este tope (fecha <= referencia) para que el
+' documento entero quede "a cierre" de ese mes.
+Private Function CfgAsOf() As String
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("Portada")
+    On Error GoTo 0
+    If ws Is Nothing Then Exit Function
+    Dim y As Long, m As Long
+    y = CLng(Val(CStr(ws.Range("B2").Value)))
+    m = MesNum(CStr(ws.Range("B3").Value))
+    If y < 1900 Or m < 1 Then Exit Function            ' "(ultimo)" o vacio -> sin tope
+    CfgAsOf = Format(DateSerial(y, m + 1, 0), "yyyy-mm-dd")   ' ultimo dia del mes
+End Function
+
+' " AND <col> <= DATE 'YYYY-MM-DD'" (o "" si no hay fecha de referencia).
+Private Function AndAsOf(ByVal col As String) As String
+    Dim d As String: d = CfgAsOf()
+    If Len(d) > 0 Then AndAsOf = " AND " & col & " <= DATE '" & d & "'"
+End Function
+
+' " WHERE PK_FECHA_DATOS <= DATE 'YYYY-MM-DD'" para acotar los subselect de MAX.
+Private Function MaxAsOf() As String
+    Dim d As String: d = CfgAsOf()
+    If Len(d) > 0 Then MaxAsOf = " WHERE PK_FECHA_DATOS <= DATE '" & d & "'"
+End Function
 ' Lista (entrecomillada) de PK_CRITERIO_AGREGACION que baja el bloque RISK.
 ' Duracion y TIR fijos + CMR y VaR (nombres de criterio configurables en 'config').
 Private Function CfgRiskCriterios() As String
@@ -542,7 +572,7 @@ Private Function SQLComposicion(ws As Worksheet, ByVal ents As String) As String
     End If
     sql = "SELECT p.PK_PORTFOLIO_ID, " & grp & " AS categoria, FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & TblPos() & " p" & vbLf & JoinValores & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID, " & grp & vbLf & "ORDER BY p.PK_PORTFOLIO_ID, valor DESC"
     SQLComposicion = sql
@@ -558,7 +588,7 @@ Private Function SQLSpread(ws As Worksheet, ByVal ents As String) As String
     sql = "SELECT p.PK_PORTFOLIO_ID" & selCat & "," & vbLf & _
           "       FORMAT('%.10f', CAST(SUM(p.SPREAD * p." & PosValor() & ") / NULLIF(SUM(p." & PosValor() & "), 0) AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & TblPos() & " p" & vbLf & joinV & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID" & grpBy & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
     SQLSpread = sql
@@ -569,7 +599,7 @@ Private Function SQLTerLookthrough(ws As Worksheet, ByVal ents As String) As Str
     sql = "SELECT p.PK_PORTFOLIO_ID," & vbLf & _
           "       FORMAT('%.10f', CAST(SUM(v." & TER_COL & " * p." & PosValor() & ") / NULLIF(SUM(p." & PosValor() & "), 0) AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & TblPos() & " p" & vbLf & JoinValores & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "GROUP BY p.PK_PORTFOLIO_ID" & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
     SQLTerLookthrough = sql
@@ -580,7 +610,7 @@ Private Function SQLTerFondo(ws As Worksheet, ByVal ents As String) As String
     sql = "SELECT DISTINCT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(" & TER_FONDO_EXPR & " AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & TblPos() & " p" & vbLf & _
           "JOIN " & Tbl(DS_PROD, T_FONDOS) & " f ON f.PK_PRODUCTO_DATANOW = p.FK_PRODUCTO_DATANOW" & vbLf & _
-          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & ")"
+          "WHERE p.PK_FECHA_DATOS = (SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & ")"
     If Len(ents) > 0 Then sql = sql & vbLf & "  AND p.PK_PORTFOLIO_ID IN (" & ents & ")"
     sql = sql & vbLf & "ORDER BY p.PK_PORTFOLIO_ID"
     SQLTerFondo = sql
@@ -1026,9 +1056,9 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
                " FORMAT('%.10f', CAST(TWR_1D AS FLOAT64))" & _
                " FROM " & Tbl(DS_PROD, T_PERF) & _
                " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & "'" & _
-               " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & _
+               " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
                " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
-               "), INTERVAL " & CACHE_ANOS & " YEAR)" & _
+               MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)" & _
                " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
         Set rs = cn.Execute(sqlR)
         Dim idc As String
@@ -1052,9 +1082,9 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
         wq = "WHERE " & RISK_COL_FONDOBMK & "='" & CfgFondo() & "' AND PK_PORTFOLIO='" & Esc(CfgPortfolio()) & "'"
         If Len(CfgLtLevel()) > 0 Then wq = wq & " AND PK_LTLEVEL=" & CfgLtLevel()
         wq = wq & " AND PK_CRITERIO_AGREGACION IN (" & inCrit & ")" & _
-             " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & _
+             " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
              " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
-             "), INTERVAL " & CACHE_ANOS & " YEAR)"
+             MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)"
         Set rs = cn.Execute("SELECT PK_PORTFOLIO_ID, PK_CRITERIO_AGREGACION, PK_VARIABLE_TARGET," & _
             " FORMAT('%.10f', CAST(VALOR AS FLOAT64)) FROM " & Tbl(DS_PROD, T_RISK) & " " & wq & _
             " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS")
@@ -1076,7 +1106,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     If needPos Then
         Dim sqlP As String
         sqlP = "WITH ult AS (SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS f FROM " & TblPos() & _
-               " WHERE PK_PORTFOLIO_ID IN (" & inlist & ") GROUP BY PK_PORTFOLIO_ID)" & _
+               " WHERE PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & " GROUP BY PK_PORTFOLIO_ID)" & _
                " SELECT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64))" & _
                " FROM " & TblPos() & " p JOIN ult ON ult.PK_PORTFOLIO_ID=p.PK_PORTFOLIO_ID" & _
                " AND p.PK_FECHA_DATOS=ult.f GROUP BY p.PK_PORTFOLIO_ID"
@@ -1238,7 +1268,7 @@ Private Function UltimoMesPerf(ByVal inlist As String) As String
     cn.CommandTimeout = 60: cn.CursorLocation = 3: cn.Open CfgConn()
     Set rs = cn.Execute("SELECT FORMAT_DATE('%Y-%m', MAX(PK_FECHA_DATOS)) FROM " & Tbl(DS_PROD, T_PERF) & _
         " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & _
-        "' AND PK_PORTFOLIO_ID IN (" & inlist & ")")
+        "' AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS"))
     If Not rs.EOF Then UltimoMesPerf = Trim(CStr(rs.Fields(0).Value))
 fin:
     On Error Resume Next
@@ -1395,7 +1425,7 @@ End Sub
 ' ISIN, Ticker, Nombre, Yield, Duracion, Mercado, Dividendo, Plazo.
 ' (PS_HDR/PS_ROW0 declarados arriba, en la seccion de constantes del modulo.)
 
-Public Sub RellenarPosiciones()
+Public Sub RellenarPosiciones(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Sheets("Posiciones")
@@ -1430,7 +1460,7 @@ Public Sub RellenarPosiciones()
     Dim kPos As String: kPos = Cfg("JOIN_KEY_POS", "PK_SECURITY_IK")
     Dim sql As String
     sql = "WITH ult AS (SELECT MAX(PK_FECHA_DATOS) AS f FROM " & TblPos() & _
-          " WHERE PK_PORTFOLIO_ID='" & Esc(id) & "')" & vbLf & _
+          " WHERE PK_PORTFOLIO_ID='" & Esc(id) & "'" & AndAsOf("PK_FECHA_DATOS") & ")" & vbLf & _
           "SELECT FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64)) AS valor" & selExtra & vbLf & _
           "FROM " & TblPos() & " p" & vbLf & JoinValores() & _
           "WHERE p.PK_PORTFOLIO_ID='" & Esc(id) & "' AND p.PK_FECHA_DATOS=(SELECT f FROM ult)" & vbLf & _
@@ -1499,7 +1529,7 @@ Public Sub RellenarPosiciones()
     Next j
     Application.ScreenUpdating = True
     Application.EnableEvents = True
-    MsgBox nr & " posiciones cargadas para '" & id & "'.", vbInformation, "Posiciones"
+    If Not quiet Then MsgBox nr & " posiciones cargadas para '" & id & "'.", vbInformation, "Posiciones"
     Exit Sub
 fallo:
     On Error Resume Next
@@ -1574,6 +1604,15 @@ Public Sub InstalarBotones()
     If Not wp Is Nothing Then
         BorrarBotones wp
         CrearBoton wp, "D3", ">> RELLENAR POSICIONES", "RellenarPosiciones"
+    End If
+    On Error Resume Next
+    Dim wportada As Worksheet: Set wportada = ThisWorkbook.Sheets("Portada")
+    On Error GoTo 0
+    If Not wportada Is Nothing Then
+        BorrarBotones wportada
+        CrearBoton wportada, "A7", "1. Actualizar Excel", "ActualizarTodoExcel"
+        CrearBoton wportada, "A9", "2. Actualizar PowerPoint", "ActualizarPowerPoint"
+        CrearBoton wportada, "A11", "3. Actualizar Excel y PowerPoint", "ActualizarExcelYPowerPoint"
     End If
     ' Deja el grafico en modo dinamico (rangos con nombre) desde el principio,
     ' asi se ajusta solo al cambiar periodo/dimension y no deja huecos.
@@ -1654,6 +1693,35 @@ Public Sub AutoRellenarTabla()
     If Fold(CStr(ws.Range("E4").Value)) <> "si" Then Exit Sub
     mTablaAuto = True
     RellenarTabla True
+End Sub
+
+' ===================  BOTONES DE LA PORTADA (documento)  ===================
+' Refresca TODO el Excel a la fecha de referencia global (Portada). Recalcula el
+' Panel y rellena Tablas y Posiciones (silenciosas). El tope de fecha lo aplican
+' las propias consultas via CfgAsOf().
+Public Sub ActualizarTodoExcel(Optional ByVal quiet As Boolean = False)
+    On Error Resume Next
+    Actualizar                                   ' Panel (con la config actual)
+    If Not ThisWorkbook.Sheets("Tablas") Is Nothing Then RellenarTabla True
+    If Not ThisWorkbook.Sheets("Posiciones") Is Nothing Then RellenarPosiciones True
+    On Error GoTo 0
+    If Not quiet Then
+        Dim d As String: d = CfgAsOf()
+        MsgBox "Excel actualizado (Panel, Tablas y Posiciones) a fecha " & _
+               IIf(Len(d) > 0, d, "ultima disponible") & ".", vbInformation, "Actualizar Excel"
+    End If
+End Sub
+
+' Actualiza el PowerPoint (por ahora, copia el grafico del Panel; el deck completo
+' es Fase 3). Usa el grafico ya actualizado a la fecha de referencia.
+Public Sub ActualizarPowerPoint()
+    CopiarAPowerPoint
+End Sub
+
+' Los dos: primero el Excel a la fecha de referencia, luego el PowerPoint.
+Public Sub ActualizarExcelYPowerPoint()
+    ActualizarTodoExcel True
+    ActualizarPowerPoint
 End Sub
 
 ' Inyecta el evento Worksheet_Activate en la hoja Tablas (auto-refresco al entrar
@@ -2032,9 +2100,9 @@ Private Function SQLBloqueRet(ByVal ents As String) As String
         "       FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64)) AS twr_1d_bmk" & vbLf & _
         "FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
         "WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
-        "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+        "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & AndAsOf("PK_FECHA_DATOS") & vbLf & _
         "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
-        "), INTERVAL " & CACHE_ANOS & " YEAR)" & vbLf & _
+        MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)" & vbLf & _
         "ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
 End Function
 
@@ -2044,9 +2112,9 @@ Private Function SQLBloqueRisk(ByVal ents As String) As String
         "  AND PK_PORTFOLIO = '" & Esc(CfgPortfolio()) & "'"
     If Len(CfgLtLevel()) > 0 Then w = w & vbLf & "  AND PK_LTLEVEL = " & CfgLtLevel()
     w = w & vbLf & "  AND PK_CRITERIO_AGREGACION IN (" & CfgRiskCriterios() & ")"
-    w = w & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
+    w = w & vbLf & "  AND PK_PORTFOLIO_ID IN (" & ents & ")" & AndAsOf("PK_FECHA_DATOS") & vbLf & _
         "  AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
-        "), INTERVAL " & CACHE_ANOS & " YEAR)"
+        MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)"
     SQLBloqueRisk = _
         "SELECT FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS) AS fecha," & vbLf & _
         "       PK_PORTFOLIO_ID," & vbLf & _
@@ -2080,7 +2148,7 @@ Private Function SQLBloquePos(ByVal ents As String) As String
         "FROM " & TblPos() & " p" & vbLf & JoinValores & _
         "WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
         "  AND p.PK_FECHA_DATOS = (SELECT MAX(sub.PK_FECHA_DATOS) FROM " & TblPos() & " sub" & vbLf & _
-        "                          WHERE sub.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID)" & vbLf & _
+        "                          WHERE sub.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & AndAsOf("sub.PK_FECHA_DATOS") & ")" & vbLf & _
         "ORDER BY p.PK_PORTFOLIO_ID"
 End Function
 
@@ -2713,8 +2781,8 @@ Private Function SQLBloqueApil(ByVal ents As String) As String
         "  SELECT p.PK_PORTFOLIO_ID, p.PK_FECHA_DATOS, FORMAT_DATE('%Y-%m', p.PK_FECHA_DATOS) AS mes," & vbLf & _
         "         p." & kPos & " AS seckey, p." & PosValor() & " AS valor" & vbLf & _
         "  FROM " & TblPos() & " p" & vbLf & _
-        "  WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & vbLf & _
-        "    AND p.PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & "), INTERVAL " & CACHE_ANOS & " YEAR))," & vbLf & _
+        "  WHERE p.PK_PORTFOLIO_ID IN (" & ents & ")" & AndAsOf("p.PK_FECHA_DATOS") & vbLf & _
+        "    AND p.PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR))," & vbLf & _
         " ult AS (SELECT PK_PORTFOLIO_ID, mes, MAX(PK_FECHA_DATOS) AS f FROM base GROUP BY PK_PORTFOLIO_ID, mes)" & vbLf & _
         "SELECT b.PK_PORTFOLIO_ID, b.mes," & vbLf & _
         "       v." & gics & " AS gics, v." & bics & " AS bics, v." & geo & " AS geo," & vbLf & _

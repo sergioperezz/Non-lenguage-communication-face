@@ -395,6 +395,7 @@ def build() -> Workbook:
 
     build_tablas(wb, n)
     build_posiciones(wb)
+    build_portada(wb)
     build_sectorial(wb)
     build_comparativa(wb)
     build_activos(wb)
@@ -830,6 +831,54 @@ def build_tablas(wb, n):
     ws.column_dimensions["A"].width = 28
     for j in range(NCOLS):
         ws.column_dimensions[get_column_letter(2 + j)].width = 13
+    return ws
+
+
+def build_portada(wb):
+    """Hoja 'Portada' (primera): fecha de referencia GLOBAL del documento (Año +
+    Mes de cierre) y 3 botones. La fecha manda sobre TODAS las hojas: las consultas
+    usan «fecha <= último día del mes elegido». Con Mes = «(último)» se usa la
+    última fecha disponible (comportamiento por defecto)."""
+    ws = wb.create_sheet("Portada", 0)
+    ws.sheet_view.showGridLines = False
+    ws["A1"] = "Portada — Control del documento"
+    ws["A1"].font = Font(bold=True, size=16)
+
+    ws["A2"] = "Año"
+    ws["A2"].font = BOLD
+    ws["B2"] = 2026
+    ws["B2"].fill = PatternFill("solid", fgColor=GRIS)
+    dv_y = DataValidation(type="list", formula1='"2023,2024,2025,2026,2027,2028"', allow_blank=True)
+    dv_y.showErrorMessage = False
+    ws.add_data_validation(dv_y)
+    dv_y.add(ws["B2"])
+
+    ws["A3"] = "Mes (cierre)"
+    ws["A3"].font = BOLD
+    ws["B3"] = "(último)"
+    ws["B3"].fill = PatternFill("solid", fgColor=GRIS)
+    dv_m = DataValidation(
+        type="list",
+        formula1='"(último),Ene,Feb,Mar,Abr,May,Jun,Jul,Ago,Sep,Oct,Nov,Dic"',
+        allow_blank=False)
+    ws.add_data_validation(dv_m)
+    dv_m.add(ws["B3"])
+
+    ws["A4"] = "Fecha de referencia"
+    ws["A4"].font = BOLD
+    ws["B4"] = ('=IF(OR($B$3="(último)",$B$3=""),"última disponible",'
+                'TEXT(EOMONTH(DATE($B$2,MATCH($B$3,'
+                '{"Ene";"Feb";"Mar";"Abr";"May";"Jun";"Jul";"Ago";"Sep";"Oct";"Nov";"Dic"},0),1),0),'
+                '"dd/mm/yyyy"))')
+    ws["B4"].font = Font(bold=True, color=AZUL[2:])
+
+    ws["A5"] = ("Elige el mes de cierre y pulsa un botón. La fecha manda sobre Panel, "
+                "Tablas y Posiciones: todo queda «a cierre» de ese mes.")
+    ws["A5"].font = Font(italic=True, size=9, color="808080")
+    ws.merge_cells("A5:G5")
+
+    ws.column_dimensions["A"].width = 24
+    ws.column_dimensions["B"].width = 24
     return ws
 
 
