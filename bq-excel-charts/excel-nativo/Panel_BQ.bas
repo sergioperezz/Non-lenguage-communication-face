@@ -1508,6 +1508,23 @@ Private Function InicioVentana(ByVal dMax As Date, ByVal per As String, ByVal di
     InicioVentana = DateAdd("yyyy", -1, dMax)
 End Function
 
+' Primer dia del bucket (mes/trimestre/etc.) que contiene la fecha d. Se usa para
+' alinear el inicio de la ventana al comienzo del periodo y NO cortar el primer
+' bucket por la mitad (si no, el mes inicial saldria parcial y con retorno erroneo).
+Private Function InicioBucket(ByVal d As Date, ByVal dimen As String) As Date
+    Dim y As Long, m As Long
+    y = Year(d): m = Month(d)
+    Select Case Fold(dimen)
+        Case "diario":     InicioBucket = d
+        Case "semanal":    InicioBucket = d - (Weekday(d, vbMonday) - 1)
+        Case "mensual":    InicioBucket = DateSerial(y, m, 1)
+        Case "trimestral": InicioBucket = DateSerial(y, Int((m - 1) / 3) * 3 + 1, 1)
+        Case "semestral":  InicioBucket = DateSerial(y, IIf(m <= 6, 1, 7), 1)
+        Case "anual":      InicioBucket = DateSerial(y, 1, 1)
+        Case Else:         InicioBucket = DateSerial(y, m, 1)
+    End Select
+End Function
+
 ' Calcula Rentabilidad (compuesta por bucket) EN LOCAL desde el bloque RET de
 ' la hoja Panel (columna W) y la vuelca a D:H. False si no hay datos utilizables.
 Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
@@ -1527,7 +1544,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
         dd = FechaDe(ws.Cells(r, c0 + 1).Value)
         If dd > dMax Then dMax = dd
     Next r
-    ini = InicioVentana(dMax, per, dimen)
+    ini = InicioBucket(InicioVentana(dMax, per, dimen), dimen)  ' alinear al inicio del bucket
 
     Dim prod As Object, prodB As Object, bkts As Object, vistoDia As Object
     Set prod = CreateObject("Scripting.Dictionary")   ' clave slot|bucket -> producto
@@ -1540,7 +1557,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     For r = 2 To lastR
         dd = FechaDe(ws.Cells(r, c0 + 1).Value)
         If dd = 0 Then GoTo seguir
-        dentro = IIf(anual, dd >= ini, dd > ini)
+        dentro = (dd >= ini)   ' ini ya alineado al inicio del bucket -> primer mes completo
         If Not dentro Or dd > dMax Then GoTo seguir
         pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
         slot = SlotDe(pid)
@@ -1669,7 +1686,7 @@ Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
         End If
     Next r
     If dMax = 0 Then Exit Function
-    Dim ini As Date: ini = InicioVentana(dMax, per, dimen)
+    Dim ini As Date: ini = InicioBucket(InicioVentana(dMax, per, dimen), dimen)
 
     Dim cats As Object, vals As Object, fmax As Object
     Set cats = CreateObject("Scripting.Dictionary")   ' categoria -> fila
@@ -1689,7 +1706,7 @@ Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
         dd = FechaDe(ws.Cells(r, c0).Value)
         If dd = 0 Then GoTo seguir
         If esTiempo Then
-            dentro = IIf(anual, dd >= ini, dd > ini)
+            dentro = (dd >= ini)   ' ini alineado al inicio del bucket
             If Not dentro Or dd > dMax Then GoTo seguir
             cat = BucketLocal(dd, dimen)
         Else
