@@ -96,6 +96,9 @@ Private mForzarSinBmk As Boolean
 ' al construir la query y los reutiliza VolcarResultado (asi lo que se consulta y
 ' lo que se vuelca usan exactamente el mismo id, sin re-traducir).
 Private mId1 As String, mId2 As String, mId3 As String
+' Marca para que el auto-refresco de la hoja Tablas se dispare solo UNA vez por
+' sesion (al entrar en la pestana), no cada vez que se activa.
+Private mTablaAuto As Boolean
 
 Private Function Panel() As Worksheet
     Set Panel = ThisWorkbook.Sheets("Panel")
@@ -949,7 +952,7 @@ End Sub
 '   - Riesgo (ultimo valor): Duracion Modificada, Duracion Macaulay, TIR, VaR, CMR.
 '   (TB_HDR/TB_ROW0 declarados arriba, en la seccion de constantes del modulo.)
 
-Public Sub RellenarTabla()
+Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Sheets("Tablas")
@@ -1152,7 +1155,7 @@ Public Sub RellenarTabla()
     EstiloTabla ws, kind, vCol, nv, TB_ROW0, TB_ROW0 + ne - 1
     Application.ScreenUpdating = True
     Application.EnableEvents = True
-    MsgBox "Tabla rellenada: " & ne & " entidades x " & nv & " variables.", vbInformation, "Tablas"
+    If Not quiet Then MsgBox "Tabla rellenada: " & ne & " entidades x " & nv & " variables.", vbInformation, "Tablas"
     Exit Sub
 fallo:
     On Error Resume Next
@@ -1581,6 +1584,7 @@ Public Sub InstalarBotones()
     ' a valores validos. Se intenta instalar el evento; si no hay acceso al
     ' proyecto VBA, se avisa (Actualizar tambien lo repara como red de seguridad).
     Dim casc As Boolean: casc = InstalarAutoRefresco()
+    InstalarAutoTabla   ' auto-refresco opcional de la hoja Tablas (si E4="Si")
     Dim m As String
     m = "Botones creados en 'Panel' y 'Tablas'." & vbLf & vbLf & _
         "Flujo: elige los desplegables y pulsa 'ACTUALIZAR QUERY Y GRAFICO'." & vbLf & _
@@ -1637,6 +1641,40 @@ Public Function InstalarAutoRefresco() As Boolean
     Exit Function
 sinacceso:
     InstalarAutoRefresco = False
+End Function
+
+' Auto-refresco de la hoja Tablas: lo llama el evento Worksheet_Activate. Solo
+' actua si E4 = "Si" y SOLO una vez por sesion (para no re-consultar cada vez que
+' se pincha la pestana). Silencioso (sin el MsgBox final de RellenarTabla).
+Public Sub AutoRellenarTabla()
+    On Error Resume Next
+    Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("Tablas")
+    If ws Is Nothing Then Exit Sub
+    If mTablaAuto Then Exit Sub
+    If Fold(CStr(ws.Range("E4").Value)) <> "si" Then Exit Sub
+    mTablaAuto = True
+    RellenarTabla True
+End Sub
+
+' Inyecta el evento Worksheet_Activate en la hoja Tablas (auto-refresco al entrar
+' en la pestana si E4="Si"). Requiere acceso al modelo de objetos VBA.
+Public Function InstalarAutoTabla() As Boolean
+    Dim cm As Object, cn As String, txt As String, s As String, wt As Worksheet
+    On Error GoTo sinacceso
+    Set wt = ThisWorkbook.Sheets("Tablas")
+    cn = wt.CodeName
+    Set cm = ThisWorkbook.VBProject.VBComponents(cn).CodeModule
+    If cm.CountOfLines > 0 Then txt = cm.Lines(1, cm.CountOfLines)
+    If InStr(txt, "Worksheet_Activate") > 0 Then InstalarAutoTabla = True: Exit Function
+    s = "Private Sub Worksheet_Activate()" & vbCrLf & _
+        "    On Error Resume Next" & vbCrLf & _
+        "    AutoRellenarTabla" & vbCrLf & _
+        "End Sub"
+    cm.AddFromString s
+    InstalarAutoTabla = True
+    Exit Function
+sinacceso:
+    InstalarAutoTabla = False
 End Function
 
 Private Sub BorrarBotones(ws As Worksheet)

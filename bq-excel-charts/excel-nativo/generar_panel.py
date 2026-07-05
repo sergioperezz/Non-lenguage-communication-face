@@ -751,6 +751,14 @@ def build_tablas(wb, n):
     dv_tot = DataValidation(type="list", formula1='"No,Sí"', allow_blank=False)
     ws.add_data_validation(dv_tot)
     dv_tot.add(ws["B4"])
+    # Auto-refresco al entrar en la pestaña (una vez por sesión). Por defecto No.
+    ws["D4"] = "Auto al abrir"
+    ws["D4"].font = BOLD
+    ws["E4"] = "No"
+    ws["E4"].fill = PatternFill("solid", fgColor=GRIS)
+    dv_auto = DataValidation(type="list", formula1='"No,Sí"', allow_blank=False)
+    ws.add_data_validation(dv_auto)
+    dv_auto.add(ws["E4"])
     # Plantilla de columnas: si se rellena, la macro construye la cabecera (fila 6).
     # "Meses" se expande a Ene..último mes con datos (una columna nueva cada mes).
     ws["A5"] = "Columnas (plantilla)"
