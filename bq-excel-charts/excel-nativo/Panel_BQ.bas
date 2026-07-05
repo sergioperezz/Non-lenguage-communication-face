@@ -1026,7 +1026,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
         nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(TB_HDR, nc).Value)): vCol(nv) = nc
         nc = nc + 1
     Loop
-    If nv = 0 Then MsgBox "Escribe al menos una variable en la fila " & TB_HDR & " (desde la columna B), o una plantilla en B5.", vbExclamation, "Tablas": Exit Sub
+    If nv = 0 Then MsgBox "Elige Metrica (B3) y Desglose (B4): las columnas se generan solas.", vbExclamation, "Tablas": Exit Sub
 
     ' --- Clasificar variables ---
     Dim kind() As String, pA() As String, pB() As String
@@ -1257,12 +1257,13 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
     If InStr(f, "volatil") = 1 Then     ' "Volatilidad [Anualizada|Diaria]" o "Volatilidad Ene|2025"
         kind = "vol"
         pA = IIf(InStr(f, "diaria") > 0, "dia", "anual")   ' por defecto anualizada
-        pB = ""
-        Dim vp() As String, wi As Long: vp = Split(f, " ")
+        Dim vp() As String, wi As Long, mtmp As Long, ytmp As String
+        vp = Split(f, " "): mtmp = 0: ytmp = ""
         For wi = 1 To UBound(vp)
-            If MesNum(vp(wi)) > 0 Then pB = "M" & MesNum(vp(wi))
-            If Len(vp(wi)) = 4 Then If IsNumeric(vp(wi)) Then pB = vp(wi)
+            If MesNum(vp(wi)) > 0 Then mtmp = MesNum(vp(wi))
+            If Len(vp(wi)) = 4 Then If IsNumeric(vp(wi)) Then ytmp = vp(wi)
         Next wi
+        If mtmp > 0 Then pB = "M" & mtmp Else pB = ytmp   ' el mes manda si hay ambos
         Exit Sub
     End If
     Dim prt() As String, mn As Long
@@ -1784,7 +1785,7 @@ Public Sub InstalarBotones()
     ' a valores validos. Se intenta instalar el evento; si no hay acceso al
     ' proyecto VBA, se avisa (Actualizar tambien lo repara como red de seguridad).
     Dim casc As Boolean: casc = InstalarAutoRefresco()
-    InstalarAutoTabla   ' auto-refresco opcional de la hoja Tablas (si E4="Si")
+    InstalarAutoTabla   ' auto-refresco opcional de la hoja Tablas (si H3="Si")
     Dim m As String
     m = "Botones creados en 'Panel' y 'Tablas'." & vbLf & vbLf & _
         "Flujo: elige los desplegables y pulsa 'ACTUALIZAR QUERY Y GRAFICO'." & vbLf & _
@@ -1886,7 +1887,7 @@ Public Sub ActualizarExcelYPowerPoint()
 End Sub
 
 ' Inyecta el evento Worksheet_Activate en la hoja Tablas (auto-refresco al entrar
-' en la pestana si E4="Si"). Requiere acceso al modelo de objetos VBA.
+' en la pestana si H3="Si"). Requiere acceso al modelo de objetos VBA.
 Public Function InstalarAutoTabla() As Boolean
     Dim cm As Object, cn As String, txt As String, s As String, wt As Worksheet
     On Error GoTo sinacceso
