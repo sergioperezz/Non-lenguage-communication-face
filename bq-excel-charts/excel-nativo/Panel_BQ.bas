@@ -956,17 +956,9 @@ Public Sub RellenarTabla()
     On Error GoTo 0
     If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
 
-    ' --- Cabecera (variables) y columna A (entidades) ---
     Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
-    Dim vName() As String, vCol() As Long
-    ReDim vName(1 To 80): ReDim vCol(1 To 80): nv = 0
-    nc = 2
-    Do While nc <= 80 And Len(Trim(CStr(ws.Cells(TB_HDR, nc).Value))) > 0
-        nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(TB_HDR, nc).Value)): vCol(nv) = nc
-        nc = nc + 1
-    Loop
-    If nv = 0 Then MsgBox "Escribe al menos una variable en la fila " & TB_HDR & " (desde la columna B).", vbExclamation, "Tablas": Exit Sub
 
+    ' --- Entidades (columna A) --- (se leen ANTES para poder expandir la plantilla)
     Dim eName() As String, eRow() As Long, eId() As String, ne As Long
     ReDim eName(1 To 5001): ReDim eRow(1 To 5001): ReDim eId(1 To 5001): ne = 0
     r = TB_ROW0
@@ -985,6 +977,21 @@ Public Sub RellenarTabla()
         End If
     Next i
     If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera' (nombre_elemento/id_elemento).", vbExclamation, "Tablas": Exit Sub
+
+    ' --- Plantilla de columnas (B5): si esta puesta, materializa la cabecera
+    ' (fila 6). La palabra "Meses" se expande a Ene..ULTIMO mes con datos, asi que
+    ' al llegar un mes nuevo aparece su columna sola. ---
+    ExpandirPlantilla ws, inlist
+
+    ' --- Cabecera (variables) ---
+    Dim vName() As String, vCol() As Long
+    ReDim vName(1 To 80): ReDim vCol(1 To 80): nv = 0
+    nc = 2
+    Do While nc <= 80 And Len(Trim(CStr(ws.Cells(TB_HDR, nc).Value))) > 0
+        nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(TB_HDR, nc).Value)): vCol(nv) = nc
+        nc = nc + 1
+    Loop
+    If nv = 0 Then MsgBox "Escribe al menos una variable en la fila " & TB_HDR & " (desde la columna B), o una plantilla en B5.", vbExclamation, "Tablas": Exit Sub
 
     ' --- Clasificar variables ---
     Dim kind() As String, pA() As String, pB() As String
@@ -1213,6 +1220,70 @@ Private Function MesNum(ByVal s As String) As Long
         Case Else:  MesNum = 0
     End Select
 End Function
+
+' Abreviatura de mes en espanol (1->Ene ... 12->Dic).
+Private Function MesAbbr(ByVal m As Long) As String
+    Dim a As Variant: a = Array("Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic")
+    If m >= 1 And m <= 12 Then MesAbbr = CStr(a(m - 1))
+End Function
+
+' Ultimo mes con datos de performance (YYYY-MM) para las entidades dadas. "" si falla.
+Private Function UltimoMesPerf(ByVal inlist As String) As String
+    Dim cn As Object, rs As Object
+    On Error GoTo fin
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 60: cn.CursorLocation = 3: cn.Open CfgConn()
+    Set rs = cn.Execute("SELECT FORMAT_DATE('%Y-%m', MAX(PK_FECHA_DATOS)) FROM " & Tbl(DS_PROD, T_PERF) & _
+        " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & _
+        "' AND PK_PORTFOLIO_ID IN (" & inlist & ")")
+    If Not rs.EOF Then UltimoMesPerf = Trim(CStr(rs.Fields(0).Value))
+fin:
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+End Function
+
+' Plantilla de columnas (celda B5): materializa la cabecera (fila 6). La palabra
+' "Meses" -> Ene..ULTIMO mes con datos del ano en curso (o "Meses 2025" -> Ene..Dic
+' de 2025). El resto de tokens (2026, Volatilidad..., TIR...) se copian tal cual.
+' Al re-ejecutar, si hay un mes nuevo con datos, su columna se anade sola.
+Private Sub ExpandirPlantilla(ByVal ws As Worksheet, ByVal inlist As String)
+    Dim tmpl As String: tmpl = Trim(CStr(ws.Range("B5").Value))
+    If Len(tmpl) = 0 Then Exit Sub
+    Dim mm As String: mm = UltimoMesPerf(inlist)
+    If Len(mm) < 7 Then mm = Format(Date, "yyyy-mm")
+    Dim yData As String: yData = Left(mm, 4)
+    Dim mData As Long: mData = CLng(Val(Mid(mm, 6, 2)))
+
+    Dim hdrs As Object: Set hdrs = CreateObject("Scripting.Dictionary")
+    Dim nh As Long: nh = 0
+    Dim toks() As String: toks = Split(tmpl, ",")
+    Dim k As Long, t As String, ft As String
+    For k = LBound(toks) To UBound(toks)
+        t = Trim(toks(k))
+        If Len(t) > 0 Then
+            ft = Fold(t)
+            If ft = "meses" Or Left(ft, 6) = "meses " Then
+                Dim yr As String, cnt As Long, prts() As String, m As Long
+                prts = Split(ft, " ")
+                If UBound(prts) >= 1 And IsNumeric(prts(1)) Then yr = prts(1) Else yr = yData
+                If yr = yData Then cnt = mData Else cnt = 12
+                For m = 1 To cnt
+                    nh = nh + 1
+                    If yr = yData Then hdrs(nh) = MesAbbr(m) Else hdrs(nh) = MesAbbr(m) & " " & yr
+                Next m
+            Else
+                nh = nh + 1: hdrs(nh) = t
+            End If
+        End If
+    Next k
+
+    Application.EnableEvents = False
+    ws.Range(ws.Cells(TB_HDR, 2), ws.Cells(TB_HDR, 80)).ClearContents
+    Dim c As Long
+    For c = 1 To nh: ws.Cells(TB_HDR, 1 + c).Value = hdrs(c): Next c
+    Application.EnableEvents = True
+End Sub
 
 ' Ultima fecha (serial) de una Collection de (dserial, 1+twr). 0 si vacia.
 Private Function MaxSerial(ByVal coll As Collection) As Double

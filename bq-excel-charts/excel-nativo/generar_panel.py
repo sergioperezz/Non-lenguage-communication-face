@@ -751,6 +751,16 @@ def build_tablas(wb, n):
     dv_tot = DataValidation(type="list", formula1='"No,Sí"', allow_blank=False)
     ws.add_data_validation(dv_tot)
     dv_tot.add(ws["B4"])
+    # Plantilla de columnas: si se rellena, la macro construye la cabecera (fila 6).
+    # "Meses" se expande a Ene..último mes con datos (una columna nueva cada mes).
+    ws["A5"] = "Columnas (plantilla)"
+    ws["A5"].font = BOLD
+    ws["B5"] = ""
+    ws["B5"].fill = PatternFill("solid", fgColor=GRIS)
+    ws["C5"] = ('Opcional. Ej: «Meses, 2026, Volatilidad Diaria, Volatilidad Anualizada». '
+                '«Meses» añade Ene..último mes solo. Vacío = usas la fila 6 a mano.')
+    ws["C5"].font = Font(italic=True, size=9, color="808080")
+    ws.merge_cells("C5:H5")
 
     # Catálogo de variables (columna oculta T) + rango con nombre para el dropdown.
     variables = ["Rentab MTD", "Rentab YTD", "Rentab QTD", "Rentab WTD", "Rentab 1D",
