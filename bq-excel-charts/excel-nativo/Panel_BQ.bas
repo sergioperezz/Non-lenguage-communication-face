@@ -993,9 +993,11 @@ Public Sub RellenarTabla()
     Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
     For i = 1 To nv
         ClasificarVar vName(i), kind(i), pA(i), pB(i)
-        If kind(i) = "ret" Or kind(i) = "year" Then needRet = True
-        If kind(i) = "risk" And Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
-        If kind(i) = "patrim" Or kind(i) = "peso" Then needPos = True
+        Select Case kind(i)
+            Case "ret", "year", "month", "vol": needRet = True
+            Case "patrim", "peso":              needPos = True
+            Case "risk":                        If Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
+        End Select
     Next i
     ' Con fila de Total, se descarga patrimonio aunque no se muestre, para
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
@@ -1090,8 +1092,10 @@ Public Sub RellenarTabla()
             Dim cellVal As Variant: cellVal = ""
             If Len(eId(i)) > 0 Then
                 Select Case kind(j)
-                    Case "ret", "year"
-                        If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j))
+                    Case "ret", "year", "month"
+                        If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j), pB(j))
+                    Case "vol"
+                        If retColl.Exists(eId(i)) Then cellVal = ValorVol(retColl(eId(i)), pA(j))
                     Case "risk"
                         Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
                         If riskV.Exists(kL) Then cellVal = riskV(kL)
@@ -1122,7 +1126,7 @@ Public Sub RellenarTabla()
                         If IsNumeric(valM(i, j)) Then sAcc = sAcc + CDbl(valM(i, j)): any1 = True
                     Next i
                     If any1 Then tv = sAcc
-                Case "ret", "year", "risk"
+                Case "ret", "year", "month", "vol", "risk"
                     Dim num As Double, wsum As Double, w As Double: num = 0: wsum = 0
                     For i = 1 To ne
                         If IsNumeric(valM(i, j)) Then
@@ -1164,6 +1168,14 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
     If f = "tir" Then kind = "risk": pA = "TIR": pB = "": Exit Sub
     If f = "cmr" Then kind = "risk": pA = Cfg("RISK_CRIT_CMR", "CMR"): pB = Cfg("RISK_VAR_CMR", ""): Exit Sub
     If Left(f, 3) = "var" Then kind = "risk": pA = Cfg("RISK_CRIT_VAR", "VaR"): pB = Cfg("RISK_VAR_VAR", ""): Exit Sub
+    If InStr(f, "volatil") = 1 Then kind = "vol": pA = IIf(InStr(f, "anual") > 0, "anual", "dia"): Exit Sub
+    Dim prt() As String, mn As Long
+    prt = Split(f, " "): mn = MesNum(prt(0))
+    If mn > 0 Then                                  ' columna por mes: "Ene", "Ene 2025"...
+        kind = "month": pA = CStr(mn): pB = ""
+        If UBound(prt) >= 1 And IsNumeric(prt(1)) Then pB = prt(1)
+        Exit Sub
+    End If
     Dim tok As String: tok = f
     If InStr(tok, "rent") = 1 Then
         Dim sp As Long: sp = InStr(tok, " ")
@@ -1183,9 +1195,37 @@ Private Function EsPeriodoTok(ByVal t As String) As Boolean
     End Select
 End Function
 
-' Rentabilidad compuesta de una entidad para un periodo/ano, desde su Collection
-' de (dserial, 1+twr). Devuelve "" si no hay datos en ese tramo.
-Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, ByVal tok As String) As Variant
+' Numero de mes (1-12) a partir del nombre en espanol (abreviado o completo). 0 si no.
+Private Function MesNum(ByVal s As String) As Long
+    Select Case Left(Fold(s), 3)
+        Case "ene": MesNum = 1
+        Case "feb": MesNum = 2
+        Case "mar": MesNum = 3
+        Case "abr": MesNum = 4
+        Case "may": MesNum = 5
+        Case "jun": MesNum = 6
+        Case "jul": MesNum = 7
+        Case "ago": MesNum = 8
+        Case "sep": MesNum = 9
+        Case "oct": MesNum = 10
+        Case "nov": MesNum = 11
+        Case "dic": MesNum = 12
+        Case Else:  MesNum = 0
+    End Select
+End Function
+
+' Ultima fecha (serial) de una Collection de (dserial, 1+twr). 0 si vacia.
+Private Function MaxSerial(ByVal coll As Collection) As Double
+    Dim it As Variant
+    For Each it In coll
+        If it(0) > MaxSerial Then MaxSerial = it(0)
+    Next it
+End Function
+
+' Rentabilidad compuesta de una entidad para un periodo/ano/mes, desde su
+' Collection de (dserial, 1+twr). Devuelve "" si no hay datos en ese tramo.
+Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, _
+                          ByVal tok As String, Optional ByVal pB As String = "") As Variant
     Dim prod As Double: prod = 1
     Dim hay As Boolean, it As Variant
     If kind = "year" Then
@@ -1193,11 +1233,15 @@ Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, ByVal 
         For Each it In coll
             If it(0) > 0 Then If Year(CDate(it(0))) = y Then prod = prod * it(1): hay = True
         Next it
-    Else
-        Dim dMax As Double: dMax = 0
+    ElseIf kind = "month" Then
+        Dim mn As Long: mn = CLng(tok)
+        Dim yy As Long
+        If Len(pB) = 4 And IsNumeric(pB) Then yy = CLng(pB) Else yy = Year(CDate(MaxSerial(coll)))
         For Each it In coll
-            If it(0) > dMax Then dMax = it(0)
+            If it(0) > 0 Then If Year(CDate(it(0))) = yy And Month(CDate(it(0))) = mn Then prod = prod * it(1): hay = True
         Next it
+    Else
+        Dim dMax As Double: dMax = MaxSerial(coll)
         If dMax = 0 Then ValorRet = "": Exit Function
         Dim ini As Double: ini = CDbl(InicioVentana(CDate(dMax), tok, "mensual"))
         Dim anchored As Boolean
@@ -1209,6 +1253,26 @@ Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, ByVal 
         Next it
     End If
     If hay Then ValorRet = prod - 1 Else ValorRet = ""
+End Function
+
+' Volatilidad de los retornos DIARIOS (desviacion tipica muestral) del ano en
+' curso (YTD). modo="anual" -> anualizada (x raiz de 252). "" si <2 datos.
+Private Function ValorVol(ByVal coll As Collection, ByVal modo As String) As Variant
+    Dim dMax As Double: dMax = MaxSerial(coll)
+    If dMax = 0 Then ValorVol = "": Exit Function
+    Dim yy As Long: yy = Year(CDate(dMax))
+    Dim n As Long, s As Double, s2 As Double, x As Double, it As Variant
+    For Each it In coll
+        If it(0) > 0 Then If Year(CDate(it(0))) = yy Then
+            x = it(1) - 1: n = n + 1: s = s + x: s2 = s2 + x * x
+        End If
+    Next it
+    If n < 2 Then ValorVol = "": Exit Function
+    Dim vv As Double: vv = (s2 - s * s / n) / (n - 1)
+    If vv < 0 Then vv = 0
+    Dim sd As Double: sd = Sqr(vv)
+    If Fold(modo) = "anual" Then sd = sd * Sqr(252)
+    ValorVol = sd
 End Function
 
 Private Function FormatoVar(ByVal kind As String, ByVal pA As String) As String
@@ -1229,7 +1293,7 @@ Private Sub EstiloTabla(ByVal ws As Worksheet, ByRef kind() As String, _
     For j = 1 To nv
         Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
         rng.FormatConditions.Delete
-        If kind(j) = "ret" Or kind(j) = "year" Then
+        If kind(j) = "ret" Or kind(j) = "year" Or kind(j) = "month" Then
             If InStr(est, "calor") > 0 Then
                 Dim cs As ColorScale: Set cs = rng.FormatConditions.AddColorScale(ColorScaleType:=3)
                 cs.ColorScaleCriteria(1).Type = xlConditionValueLowestValue

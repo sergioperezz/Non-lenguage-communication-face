@@ -756,7 +756,10 @@ def build_tablas(wb, n):
     variables = ["Rentab MTD", "Rentab YTD", "Rentab QTD", "Rentab WTD", "Rentab 1D",
                  "Rentab 1M", "Rentab 2M", "Rentab 3M", "Rentab 6M",
                  "Rentab 1A", "Rentab 2A", "Rentab 3A", "Rentab 5A",
+                 "Ene", "Feb", "Mar", "Abr", "May", "Jun",
+                 "Jul", "Ago", "Sep", "Oct", "Nov", "Dic",
                  "2025", "2024", "2023", "2022", "2021",
+                 "Volatilidad Diaria", "Volatilidad Anualizada",
                  "Duración Modificada", "Duración Macaulay", "TIR", "VaR", "CMR",
                  "Patrimonio", "Peso"]
     for i, v in enumerate(variables):
