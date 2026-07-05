@@ -992,6 +992,9 @@ Public Sub RellenarTabla()
         If kind(i) = "risk" And Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
         If kind(i) = "patrim" Or kind(i) = "peso" Then needPos = True
     Next i
+    ' Con fila de Total, se descarga patrimonio aunque no se muestre, para
+    ' PONDERAR el Total por patrimonio (si no, seria media simple).
+    If Fold(ws.Range("B4").Value) = "si" Then needPos = True
 
     Dim cn As Object, rs As Object
     On Error GoTo fallo
