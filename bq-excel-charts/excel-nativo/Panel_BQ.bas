@@ -813,6 +813,109 @@ fallo:
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
 End Sub
 
+' Diagnostico de rentabilidad de UN mes. Vuelca a la hoja "Diag_Rentab" TODOS
+' los dias que el panel usa para la entidad de B4 en el mes indicado, marca
+' fechas DUPLICADAS (la causa n.1 de un mes inflado) y muestra el compuesto y
+' la suma simple para poder cuadrarlo con tus rentabilidades diarias.
+Public Sub VerRentabMes()
+    Dim ws As Worksheet, c0 As Long, lastR As Long, r As Long
+    Set ws = Panel()
+    ListaEntidades ws
+    If Len(Trim(mId1)) = 0 Then MsgBox "Elige una cartera en B4.", vbExclamation, "Rentab. mes": Exit Sub
+    c0 = BLK_RET_COL
+    lastR = UltFilaBloque(ws, c0)
+    If lastR < 2 Then MsgBox "No hay bloque de rentabilidad descargado. Pulsa 'Actualizar query y grafico' con un grupo de Rendimiento.", vbExclamation, "Rentab. mes": Exit Sub
+
+    ' Mes objetivo: por defecto, el ultimo mes presente en el bloque para B4.
+    Dim mesMax As String, mesTmp As String, pid As String, dd As Date
+    For r = 2 To lastR
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        If SlotDe(pid) = 1 Then
+            dd = FechaDe(ws.Cells(r, c0 + 1).Value)
+            If dd > 0 Then
+                mesTmp = Format(dd, "yyyy-mm")
+                If mesTmp > mesMax Then mesMax = mesTmp
+            End If
+        End If
+    Next r
+    Dim mes As String
+    mes = InputBox("Mes a revisar (yyyy-mm) para la entidad de B4:", "Rentab. mes", mesMax)
+    If Len(Trim(mes)) = 0 Then Exit Sub
+    mes = Trim(mes)
+
+    ' Hoja de volcado.
+    Dim dg As Worksheet
+    On Error Resume Next
+    Set dg = ThisWorkbook.Worksheets("Diag_Rentab")
+    On Error GoTo 0
+    If dg Is Nothing Then
+        Set dg = ThisWorkbook.Worksheets.Add(After:=ws)
+        dg.Name = "Diag_Rentab"
+    End If
+    dg.Cells.Clear
+    dg.Range("A1").Value = "Entidad (B4)": dg.Range("B1").Value = mId1
+    dg.Range("A2").Value = "Mes":          dg.Range("B2").Value = mes
+    dg.Range("A4").Value = "fecha"
+    dg.Range("B4").Value = "twr_1d"
+    dg.Range("C4").Value = "1+twr_1d"
+    dg.Range("D4").Value = "compuesto acum."
+    dg.Range("E4").Value = "aviso"
+    dg.Range("A4:E4").Font.Bold = True
+
+    Dim vistos As Object: Set vistos = CreateObject("Scripting.Dictionary")
+    Dim prod As Double: prod = 1
+    Dim suma As Double: suma = 0
+    Dim nDias As Long, nDup As Long, outR As Long: outR = 5
+    Dim fkey As String, twr As Double, uno As Double
+    For r = 2 To lastR
+        pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
+        If SlotDe(pid) = 1 Then
+            dd = FechaDe(ws.Cells(r, c0 + 1).Value)
+            If dd > 0 Then
+                If Format(dd, "yyyy-mm") = mes Then
+                    fkey = Format(dd, "yyyy-mm-dd")
+                    twr = NumDbl(ws.Cells(r, c0 + 2).Value)
+                    uno = 1 + twr
+                    prod = prod * uno
+                    suma = suma + twr
+                    nDias = nDias + 1
+                    dg.Cells(outR, 1).Value = fkey
+                    dg.Cells(outR, 2).Value = twr
+                    dg.Cells(outR, 3).Value = uno
+                    dg.Cells(outR, 4).Value = prod - 1
+                    If vistos.Exists(fkey) Then
+                        dg.Cells(outR, 5).Value = "FECHA DUPLICADA"
+                        nDup = nDup + 1
+                    Else
+                        vistos.Add fkey, 1
+                    End If
+                    outR = outR + 1
+                End If
+            End If
+        End If
+    Next r
+    dg.Range(dg.Cells(5, 2), dg.Cells(outR, 4)).NumberFormat = "0.0000%"
+    dg.Columns("A:E").AutoFit
+
+    Dim msg As String
+    msg = "Mes " & mes & " - entidad " & mId1 & vbLf & vbLf & _
+          "Dias usados por el panel: " & nDias & vbLf & _
+          "Fechas DUPLICADAS: " & nDup & vbLf & vbLf & _
+          "Rentab. COMPUESTA (lo que muestra el panel): " & Format(prod - 1, "0.0000%") & vbLf & _
+          "Suma simple de diarias:                      " & Format(suma, "0.0000%") & vbLf & vbLf
+    If nDup > 0 Then
+        msg = msg & "*** Hay " & nDup & " fecha(s) duplicada(s): la query trae mas de una fila por dia " & _
+              "y el compuesto las multiplica, inflando el mes. Hay que deduplicar el bloque RET. ***"
+    ElseIf nDias = 0 Then
+        msg = msg & "No hay dias de ese mes en el bloque. Revisa el mes o descarga de nuevo."
+    Else
+        msg = msg & "Sin duplicados. Compara la columna 'fecha'/'twr_1d' de la hoja Diag_Rentab con tus " & _
+              "diarias: si coinciden dia a dia, el 3,33% es correcto; si te falta/sobra algun dia, ahi esta la diferencia."
+    End If
+    MsgBox msg, vbInformation, "Rentab. mes (diagnostico)"
+    dg.Activate
+End Sub
+
 ' =======================  INSTALADOR DE BOTONES  ===========================
 ' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
 ' las hojas Panel y Tablas con sus macros ya asignadas.
@@ -827,7 +930,8 @@ Public Sub InstalarBotones()
     CrearBoton ws, "A28", "Ver SQL", "VerSQL"
     CrearBoton ws, "A30", "Ver columnas (diagnostico)", "VerColumnas"
     CrearBoton ws, "A32", "Ver benchmark (diagnostico)", "VerBenchmark"
-    CrearBoton ws, "A34", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A34", "Ver rentab. mes (diagnostico)", "VerRentabMes"
+    CrearBoton ws, "A36", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -1425,12 +1529,13 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     Next r
     ini = InicioVentana(dMax, per, dimen)
 
-    Dim prod As Object, prodB As Object, bkts As Object
+    Dim prod As Object, prodB As Object, bkts As Object, vistoDia As Object
     Set prod = CreateObject("Scripting.Dictionary")   ' clave slot|bucket -> producto
     Set prodB = CreateObject("Scripting.Dictionary")
     Set bkts = CreateObject("Scripting.Dictionary")   ' bucket -> fila destino (orden de aparicion)
+    Set vistoDia = CreateObject("Scripting.Dictionary") ' slot|fecha ya contada -> evita duplicados
     Dim rowOut As Long: rowOut = 3
-    Dim pid As String, slot As Long, bkt As String, k As String, dentro As Boolean
+    Dim pid As String, slot As Long, bkt As String, k As String, dentro As Boolean, kd As String
 
     For r = 2 To lastR
         dd = FechaDe(ws.Cells(r, c0 + 1).Value)
@@ -1440,6 +1545,11 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
         pid = UCase(Trim(CStr(ws.Cells(r, c0).Value)))
         slot = SlotDe(pid)
         If slot = 0 Then GoTo seguir
+        ' Un solo retorno por (entidad, dia): si la query trajera filas repetidas
+        ' del mismo dia, el compuesto NO las multiplica (evita inflar el mes).
+        kd = slot & "|" & Format(dd, "yyyy-mm-dd")
+        If vistoDia.Exists(kd) Then GoTo seguir
+        vistoDia.Add kd, 1
         bkt = BucketLocal(dd, dimen)
         If Not bkts.Exists(bkt) Then
             If rowOut > 402 Then GoTo seguir
