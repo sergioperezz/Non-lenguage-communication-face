@@ -59,7 +59,9 @@ Private Const CACHE_ANOS As Long = 6              ' anos de historia diaria que 
 ' Luego cualquier metrica/dimension/periodo se calcula EN LOCAL (sin re-consultar).
 '   RET  (retornos diarios): PK_PORTFOLIO_ID | fecha | twr_1d | twr_1d_bmk
 '   RISK (riesgo diario):    fecha | PK_PORTFOLIO_ID | criterio | etiqueta | variable | valor
-'   POS  (posiciones hoy):   PK_PORTFOLIO_ID | gics | bics | geo | divisa | rating | valor | spread | ter
+'   POS  (posiciones hoy):   PK_PORTFOLIO_ID | gics | bics | geo | pais | divisa | rating | activo | valor
+'        (bloque LEGADO; hoy Composicion/apilada usan APIL. LocalSpread/LocalTerLT
+'         estan DORMIDAS: Spread/Volatilidad van por consulta directa, no por POS.)
 Private Const BLK_RET_COL As Long = 23     ' W  (ancho 4)
 Private Const BLK_RISK_COL As Long = 29    ' AC (ancho 6)
 Private Const BLK_POS_COL As Long = 37     ' AK (ancho 9)
