@@ -984,11 +984,13 @@ Public Sub RellenarTabla()
     ' --- Clasificar variables ---
     Dim kind() As String, pA() As String, pB() As String
     ReDim kind(1 To nv): ReDim pA(1 To nv): ReDim pB(1 To nv)
-    Dim needRet As Boolean, crits As Object: Set crits = CreateObject("Scripting.Dictionary")
+    Dim needRet As Boolean, needPos As Boolean
+    Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
     For i = 1 To nv
         ClasificarVar vName(i), kind(i), pA(i), pB(i)
         If kind(i) = "ret" Or kind(i) = "year" Then needRet = True
         If kind(i) = "risk" And Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
+        If kind(i) = "patrim" Or kind(i) = "peso" Then needPos = True
     Next i
 
     Dim cn As Object, rs As Object
@@ -1044,27 +1046,88 @@ Public Sub RellenarTabla()
         Loop
         rs.Close
     End If
+
+    ' --- PATRIMONIO en memoria: id -> valoracion total (ultima foto) ---
+    Dim patr As Object: Set patr = CreateObject("Scripting.Dictionary")
+    Dim totPatr As Double: totPatr = 0
+    If needPos Then
+        Dim sqlP As String
+        sqlP = "WITH ult AS (SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS f FROM " & TblPos() & _
+               " WHERE PK_PORTFOLIO_ID IN (" & inlist & ") GROUP BY PK_PORTFOLIO_ID)" & _
+               " SELECT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64))" & _
+               " FROM " & TblPos() & " p JOIN ult ON ult.PK_PORTFOLIO_ID=p.PK_PORTFOLIO_ID" & _
+               " AND p.PK_FECHA_DATOS=ult.f GROUP BY p.PK_PORTFOLIO_ID"
+        Set rs = cn.Execute(sqlP)
+        Do While Not rs.EOF
+            patr(UCase(Trim(CStr(rs.Fields(0).Value)))) = NumDbl(rs.Fields(1).Value)
+            rs.MoveNext
+        Loop
+        rs.Close
+        Dim kp As Variant
+        For Each kp In patr.Keys: totPatr = totPatr + patr(kp): Next kp
+    End If
     cn.Close
 
     ' --- Rellenar celdas ---
     Application.EnableEvents = False
     Application.ScreenUpdating = False
+    ' Limpia el bloque de valores (y restos de Total/estilos previos) antes de escribir.
+    ws.Range(ws.Cells(TB_ROW0, 2), ws.Cells(TB_ROW0 + 500, 1 + nv)).ClearContents
+    Dim valM() As Variant: ReDim valM(1 To ne, 1 To nv)
     For i = 1 To ne
         For j = 1 To nv
             Dim cellVal As Variant: cellVal = ""
             If Len(eId(i)) > 0 Then
-                If kind(j) = "ret" Or kind(j) = "year" Then
-                    If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j))
-                ElseIf kind(j) = "risk" Then
-                    Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
-                    If riskV.Exists(kL) Then cellVal = riskV(kL)
-                End If
+                Select Case kind(j)
+                    Case "ret", "year"
+                        If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j))
+                    Case "risk"
+                        Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
+                        If riskV.Exists(kL) Then cellVal = riskV(kL)
+                    Case "patrim"
+                        If patr.Exists(eId(i)) Then cellVal = patr(eId(i))
+                    Case "peso"
+                        If patr.Exists(eId(i)) And totPatr <> 0 Then cellVal = patr(eId(i)) / totPatr
+                End Select
             End If
+            valM(i, j) = cellVal
             ws.Cells(eRow(i), vCol(j)).Value = cellVal
             ws.Cells(eRow(i), vCol(j)).NumberFormat = FormatoVar(kind(j), pA(j))
         Next j
     Next i
-    AplicarMapaCalorTabla ws, kind, vCol, nv, TB_ROW0, TB_ROW0 + ne - 1
+
+    ' Fila de Total (opcional, B4="Si"): patrimonio/peso se SUMAN; el resto es
+    ' media PONDERADA por patrimonio (si no hay patrimonio, media simple).
+    Dim rTot As Long: rTot = TB_ROW0 + ne
+    If Fold(ws.Range("B4").Value) = "si" Then
+        ws.Cells(rTot, 1).Value = "Total"
+        ws.Cells(rTot, 1).Font.Bold = True
+        For j = 1 To nv
+            Dim tv As Variant: tv = ""
+            Select Case kind(j)
+                Case "patrim", "peso"
+                    Dim sAcc As Double, any1 As Boolean: sAcc = 0: any1 = False
+                    For i = 1 To ne
+                        If IsNumeric(valM(i, j)) Then sAcc = sAcc + CDbl(valM(i, j)): any1 = True
+                    Next i
+                    If any1 Then tv = sAcc
+                Case "ret", "year", "risk"
+                    Dim num As Double, wsum As Double, w As Double: num = 0: wsum = 0
+                    For i = 1 To ne
+                        If IsNumeric(valM(i, j)) Then
+                            w = 1: If patr.Exists(eId(i)) Then w = patr(eId(i))
+                            num = num + w * CDbl(valM(i, j)): wsum = wsum + w
+                        End If
+                    Next i
+                    If wsum <> 0 Then tv = num / wsum
+            End Select
+            ws.Cells(rTot, vCol(j)).Value = tv
+            ws.Cells(rTot, vCol(j)).NumberFormat = FormatoVar(kind(j), pA(j))
+            ws.Cells(rTot, vCol(j)).Font.Bold = True
+        Next j
+    End If
+
+    EstiloTabla ws, kind, vCol, nv, TB_ROW0, TB_ROW0 + ne - 1
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     MsgBox "Tabla rellenada: " & ne & " entidades x " & nv & " variables.", vbInformation, "Tablas"
@@ -1084,6 +1147,8 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
     Dim s As String, f As String
     s = Trim(v): f = Fold(s): kind = "": pA = "": pB = ""
     If Len(s) = 4 And IsNumeric(s) Then kind = "year": pA = s: Exit Sub
+    If f = "patrimonio" Or f = "patrim" Then kind = "patrim": Exit Sub
+    If f = "peso" Then kind = "peso": Exit Sub
     If InStr(f, "duraci") = 1 Then kind = "risk": pA = "Duracion": pB = VarTarget(s): Exit Sub
     If f = "tir" Then kind = "risk": pA = "TIR": pB = "": Exit Sub
     If f = "cmr" Then kind = "risk": pA = Cfg("RISK_CRIT_CMR", "CMR"): pB = Cfg("RISK_VAR_CMR", ""): Exit Sub
@@ -1136,24 +1201,25 @@ Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, ByVal 
 End Function
 
 Private Function FormatoVar(ByVal kind As String, ByVal pA As String) As String
-    If kind = "risk" Then
-        If pA = "Duracion" Then FormatoVar = "0.000" Else FormatoVar = "0.00"
-    Else
-        FormatoVar = "0.00%"
-    End If
+    Select Case kind
+        Case "risk":   FormatoVar = IIf(pA = "Duracion", "0.000", "0.00")
+        Case "patrim": FormatoVar = "#,##0"
+        Case "peso":   FormatoVar = "0.0%"
+        Case Else:     FormatoVar = "0.00%"
+    End Select
 End Function
 
-' Mapa de calor (escala 3 colores rojo-amarillo-verde) en las columnas de
-' rentabilidad/ano, si B3 = "Si". Se aplica columna a columna.
-Private Sub AplicarMapaCalorTabla(ByVal ws As Worksheet, ByRef kind() As String, _
+' Estilo de las columnas de rentabilidad/ano segun B3: "Mapa de calor" (escala
+' 3 colores) o "Barras" (barras de datos en celda). Otro valor -> sin estilo.
+Private Sub EstiloTabla(ByVal ws As Worksheet, ByRef kind() As String, _
         ByRef vCol() As Long, ByVal nv As Long, ByVal r1 As Long, ByVal r2 As Long)
-    Dim b3 As String: b3 = Fold(ws.Range("B3").Value)
+    Dim est As String: est = Fold(ws.Range("B3").Value)
     Dim j As Long
     For j = 1 To nv
+        Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
+        rng.FormatConditions.Delete
         If kind(j) = "ret" Or kind(j) = "year" Then
-            Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
-            rng.FormatConditions.Delete
-            If b3 = "si" Then
+            If InStr(est, "calor") > 0 Then
                 Dim cs As ColorScale: Set cs = rng.FormatConditions.AddColorScale(ColorScaleType:=3)
                 cs.ColorScaleCriteria(1).Type = xlConditionValueLowestValue
                 cs.ColorScaleCriteria(1).FormatColor.Color = RGB(248, 105, 107)
@@ -1162,6 +1228,11 @@ Private Sub AplicarMapaCalorTabla(ByVal ws As Worksheet, ByRef kind() As String,
                 cs.ColorScaleCriteria(2).FormatColor.Color = RGB(255, 235, 132)
                 cs.ColorScaleCriteria(3).Type = xlConditionValueHighestValue
                 cs.ColorScaleCriteria(3).FormatColor.Color = RGB(99, 190, 123)
+            ElseIf InStr(est, "barra") > 0 Then
+                Dim db As Databar: Set db = rng.FormatConditions.AddDatabar()
+                db.MinPoint.Modify newtype:=xlConditionValueLowestValue
+                db.MaxPoint.Modify newtype:=xlConditionValueHighestValue
+                db.BarColor.Color = RGB(99, 142, 198)
             End If
         End If
     Next j

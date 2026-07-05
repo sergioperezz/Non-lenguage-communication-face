@@ -728,19 +728,28 @@ def build_tablas(wb, n):
                 "(fila 6, desde B). Elige/escribe y pulsa «Rellenar tabla».")
     ws["A2"].font = Font(italic=True, size=9, color="808080")
 
-    ws["A3"] = "Mapa de calor"
+    ws["A3"] = "Estilo"
     ws["A3"].font = BOLD
-    ws["B3"] = "Sí"
+    ws["B3"] = "Mapa de calor"
     ws["B3"].fill = PatternFill("solid", fgColor=GRIS)
-    dv_hm = DataValidation(type="list", formula1='"Sí,No"', allow_blank=False)
+    dv_hm = DataValidation(type="list", formula1='"Mapa de calor,Barras,Ninguno"', allow_blank=False)
     ws.add_data_validation(dv_hm)
     dv_hm.add(ws["B3"])
+    ws["A4"] = "Fila de Total"
+    ws["A4"].font = BOLD
+    ws["B4"] = "No"
+    ws["B4"].fill = PatternFill("solid", fgColor=GRIS)
+    dv_tot = DataValidation(type="list", formula1='"No,Sí"', allow_blank=False)
+    ws.add_data_validation(dv_tot)
+    dv_tot.add(ws["B4"])
 
     # Catálogo de variables (columna oculta T) + rango con nombre para el dropdown.
-    variables = ["Rentab MTD", "Rentab YTD", "Rentab 1M", "Rentab 3M", "Rentab 6M",
-                 "Rentab 1A", "Rentab 2A", "Rentab 3A", "2025", "2024", "2023",
-                 "2022", "2021", "Duración Modificada", "Duración Macaulay",
-                 "TIR", "VaR", "CMR"]
+    variables = ["Rentab MTD", "Rentab YTD", "Rentab QTD", "Rentab WTD", "Rentab 1D",
+                 "Rentab 1M", "Rentab 2M", "Rentab 3M", "Rentab 6M",
+                 "Rentab 1A", "Rentab 2A", "Rentab 3A", "Rentab 5A",
+                 "2025", "2024", "2023", "2022", "2021",
+                 "Duración Modificada", "Duración Macaulay", "TIR", "VaR", "CMR",
+                 "Patrimonio", "Peso"]
     for i, v in enumerate(variables):
         ws.cell(2 + i, 20, v)          # T2..
     ws.column_dimensions["T"].hidden = True
