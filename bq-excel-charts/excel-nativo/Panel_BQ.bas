@@ -1962,8 +1962,7 @@ Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
         End If
     Next r
     If dMax = 0 Then Exit Function
-    Dim ini As Date: ini = InicioVentana(dMax, per, gran)
-    Dim anual As Boolean: anual = (Fold(gran) = "anual")
+    Dim ini As Date: ini = InicioBucket(InicioVentana(dMax, per, gran), gran)
 
     Dim bkts As Object, sers As Object, mat As Object, totB As Object
     Set bkts = CreateObject("Scripting.Dictionary")
@@ -1978,7 +1977,7 @@ Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
         If Not IgualId(pid, mId1) Then GoTo seguir
         d = FechaDeMes(CStr(ws.Cells(r, c0 + 1).Value))
         If d = 0 Then GoTo seguir
-        If Not IIf(anual, d >= ini, d > ini) Or d > dMax Then GoTo seguir
+        If d < ini Or d > dMax Then GoTo seguir   ' ini alineado al inicio del bucket
         bk = BucketMes(CStr(ws.Cells(r, c0 + 1).Value), gran)
         se = EtiquetaClasif(clas, CStr(ws.Cells(r, colCat).Value))
         v = NumDbl(ws.Cells(r, c0 + 8).Value)
