@@ -73,6 +73,9 @@ Private Const MAXSER As Long = 18          ' max series (D..V; los bloques empie
 Private Const HLP_K1 As Long = 60          ' BH: clave = bucket / etiqueta / categoria
 Private Const HLP_A1 As Long = 61          ' BI: factor(1+twr) / valor / valoracion / etiqueta(apiladas)
 Private Const HLP_A2 As Long = 62          ' BJ: factor benchmark / valoracion (apiladas)
+Private Const HLP_PID As Long = 63         ' BK: pid RECORTADO (Trim) -> el "=" de la formula no ignora espacios
+Private Const HLP_C1 As Long = 64          ' BL: criterio recortado (riesgo)
+Private Const HLP_C2 As Long = 65          ' BM: variable target recortada (riesgo)
 ' ===========================================================================
 
 ' Variables de modulo (deben ir aqui arriba, antes de la primera Sub/Function).
@@ -1579,12 +1582,13 @@ Private Sub EscribirColRentab(ByVal ws As Worksheet, ByVal col As Long, ByVal id
                               ByVal nb As Long, ByVal acum As Boolean, ByVal esBmk As Boolean)
     If Len(id) = 0 Or nb < 1 Then Exit Sub
     Dim fac As String: fac = IIf(esBmk, "f_a2", "f_a1")
+    Dim qid As String: qid = Q(UCase(Trim(id)))
     Dim f As String
     If acum Then
-        f = "=IFERROR(EXP(SUMPRODUCT((f_k1>=$D$3)*(f_k1<=$D3)*(f_pid=" & Q(id) & _
+        f = "=IFERROR(EXP(SUMPRODUCT((f_k1>=$D$3)*(f_k1<=$D3)*(f_pid=" & qid & _
             ")*LN(" & fac & ")))-1," & Q("") & ")"
     Else
-        f = "=IFERROR(EXP(SUMPRODUCT((f_k1=$D3)*(f_pid=" & Q(id) & _
+        f = "=IFERROR(EXP(SUMPRODUCT((f_k1=$D3)*(f_pid=" & qid & _
             ")*LN(" & fac & ")))-1," & Q("") & ")"
     End If
     ws.Range(ws.Cells(3, col), ws.Cells(2 + nb, col)).Formula = f
@@ -1597,8 +1601,8 @@ Private Sub EscribirColRiesgo(ByVal ws As Worksheet, ByVal col As Long, ByVal id
                               ByVal crit As String, ByVal varT As String, ByVal nb As Long)
     If Len(id) = 0 Or nb < 1 Then Exit Sub
     Dim cond As String
-    cond = "(f_k1=$D3)*(f_pid=" & Q(id) & ")*(f_crit=" & Q(crit) & ")"
-    If Len(varT) > 0 Then cond = cond & "*(f_var=" & Q(varT) & ")"
+    cond = "(f_k1=$D3)*(f_pid=" & Q(UCase(Trim(id))) & ")*(f_crit=" & Q(Trim(crit)) & ")"
+    If Len(varT) > 0 Then cond = cond & "*(f_var=" & Q(Trim(varT)) & ")"
     ws.Range(ws.Cells(3, col), ws.Cells(2 + nb, col)).Formula = _
         "=IFERROR(LOOKUP(2,1/(" & cond & "),f_a1)," & Q("") & ")"
 End Sub
@@ -1608,13 +1612,15 @@ End Sub
 Private Sub EscribirColComp(ByVal ws As Worksheet, ByVal col As Long, ByVal id As String, _
                             ByVal mesLit As String, ByVal nb As Long, ByVal importe As Boolean)
     If Len(id) = 0 Or nb < 1 Then Exit Sub
+    Dim qid As String: qid = Q(UCase(Trim(id)))
+    Dim qm As String: qm = Q(Trim(mesLit))
     Dim num As String
-    num = "SUMIFS(f_a1,f_pid," & Q(id) & ",f_mes," & Q(mesLit) & ",f_k1,$D3)"
+    num = "SUMIFS(f_a1,f_pid," & qid & ",f_mes," & qm & ",f_k1,$D3)"
     Dim f As String
     If importe Then
         f = "=IFERROR(" & num & "," & Q("") & ")"
     Else
-        f = "=IFERROR(" & num & "/SUMIFS(f_a1,f_pid," & Q(id) & ",f_mes," & Q(mesLit) & ")," & Q("") & ")"
+        f = "=IFERROR(" & num & "/SUMIFS(f_a1,f_pid," & qid & ",f_mes," & qm & ")," & Q("") & ")"
     End If
     ws.Range(ws.Cells(3, col), ws.Cells(2 + nb, col)).Formula = f
 End Sub
@@ -1652,9 +1658,11 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     ReDim h1(1 To n, 1 To 1) As Variant
     ReDim a1(1 To n, 1 To 1) As Variant
     ReDim a2(1 To n, 1 To 1) As Variant
+    ReDim pidC(1 To n, 1 To 1) As Variant
     Dim shown As Object: Set shown = CreateObject("Scripting.Dictionary")
     Dim bkt As String
     For i = 1 To n
+        pidC(i, 1) = UCase(Trim(CStr(blk(i, 1))))
         dd = FechaDe(CStr(blk(i, 2)))
         If dd = 0 Then
             h1(i, 1) = "": a1(i, 1) = 1#: a2(i, 1) = 1#
@@ -1677,7 +1685,8 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
     ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
     ws.Range(ws.Cells(2, HLP_A2), ws.Cells(lastR, HLP_A2)).Value = a2
-    FijarNombre "f_pid", c0, lastR
+    ws.Range(ws.Cells(2, HLP_PID), ws.Cells(lastR, HLP_PID)).Value = pidC
+    FijarNombre "f_pid", HLP_PID, lastR
     FijarNombre "f_k1", HLP_K1, lastR
     FijarNombre "f_a1", HLP_A1, lastR
     FijarNombre "f_a2", HLP_A2, lastR
@@ -1777,10 +1786,16 @@ Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
     ' las filas. criterio/variable se comparan en la formula (rangos f_crit/f_var).
     ReDim h1(1 To n, 1 To 1) As Variant
     ReDim a1(1 To n, 1 To 1) As Variant
+    ReDim pidC(1 To n, 1 To 1) As Variant
+    ReDim critC(1 To n, 1 To 1) As Variant
+    ReDim varC(1 To n, 1 To 1) As Variant
     Dim shown As Object: Set shown = CreateObject("Scripting.Dictionary")
     Dim cat As String, esta As Boolean
     For i = 1 To n
         a1(i, 1) = NumDbl(blk(i, 6))
+        pidC(i, 1) = UCase(Trim(CStr(blk(i, 2))))
+        critC(i, 1) = Trim(CStr(blk(i, 3)))
+        varC(i, 1) = Trim(CStr(blk(i, 5)))
         esta = (Fold(CStr(blk(i, 3))) = Fold(crit))
         If esta And Len(varT) > 0 Then esta = (Fold(CStr(blk(i, 5))) = Fold(varT))
         If esTiempo Then
@@ -1801,9 +1816,12 @@ Private Function LocalRiesgo(ByVal ws As Worksheet) As Boolean
 
     ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
     ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
-    FijarNombre "f_pid", c0 + 1, lastR
-    FijarNombre "f_crit", c0 + 2, lastR
-    FijarNombre "f_var", c0 + 4, lastR
+    ws.Range(ws.Cells(2, HLP_PID), ws.Cells(lastR, HLP_PID)).Value = pidC
+    ws.Range(ws.Cells(2, HLP_C1), ws.Cells(lastR, HLP_C1)).Value = critC
+    ws.Range(ws.Cells(2, HLP_C2), ws.Cells(lastR, HLP_C2)).Value = varC
+    FijarNombre "f_pid", HLP_PID, lastR
+    FijarNombre "f_crit", HLP_C1, lastR
+    FijarNombre "f_var", HLP_C2, lastR
     FijarNombre "f_k1", HLP_K1, lastR
     FijarNombre "f_a1", HLP_A1, lastR
 
@@ -1877,12 +1895,16 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
     ' Auxiliares: etiqueta de la categoria y valoracion (numerica), TODAS las filas.
     ReDim h1(1 To n, 1 To 1) As Variant
     ReDim a1(1 To n, 1 To 1) As Variant
+    ReDim pidC(1 To n, 1 To 1) As Variant
+    ReDim mesC(1 To n, 1 To 1) As Variant
     Dim shown As Object: Set shown = CreateObject("Scripting.Dictionary")
     Dim cat As String
     For i = 1 To n
         cat = EtiquetaClasif(clas, CStr(blk(i, iCat)))
         h1(i, 1) = cat
         a1(i, 1) = NumDbl(blk(i, 9))
+        pidC(i, 1) = UCase(Trim(CStr(blk(i, 1))))
+        mesC(i, 1) = Trim(CStr(blk(i, 2)))
         slot = SlotDe(UCase(Trim(CStr(blk(i, 1)))))
         If slot > 0 Then
             If Trim(CStr(blk(i, 2))) = mesMax(slot) And Len(cat) > 0 Then
@@ -1894,8 +1916,10 @@ Private Function LocalComposicion(ByVal ws As Worksheet) As Boolean
 
     ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
     ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
-    FijarNombre "f_pid", c0, lastR
-    FijarNombre "f_mes", c0 + 1, lastR
+    ws.Range(ws.Cells(2, HLP_PID), ws.Cells(lastR, HLP_PID)).Value = pidC
+    ws.Range(ws.Cells(2, HLP_C1), ws.Cells(lastR, HLP_C1)).Value = mesC
+    FijarNombre "f_pid", HLP_PID, lastR
+    FijarNombre "f_mes", HLP_C1, lastR
     FijarNombre "f_k1", HLP_K1, lastR
     FijarNombre "f_a1", HLP_A1, lastR
 
@@ -2088,6 +2112,7 @@ Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
     ReDim h1(1 To n, 1 To 1) As Variant   ' bmes
     ReDim a1(1 To n, 1 To 1) As Variant   ' lbl
     ReDim a2(1 To n, 1 To 1) As Variant   ' valoracion
+    ReDim pidC(1 To n, 1 To 1) As Variant
     Dim bkD As Object: Set bkD = CreateObject("Scripting.Dictionary")   ' buckets a mostrar
     Dim seD As Object: Set seD = CreateObject("Scripting.Dictionary")   ' series (orden aparicion)
     Dim bk As String, se As String
@@ -2095,6 +2120,7 @@ Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
         h1(i, 1) = BucketMes(CStr(blk(i, 2)), gran)
         a1(i, 1) = EtiquetaClasif(clas, CStr(blk(i, iCat)))
         a2(i, 1) = NumDbl(blk(i, 9))
+        pidC(i, 1) = UCase(Trim(CStr(blk(i, 1))))
         If IgualId(UCase(Trim(CStr(blk(i, 1)))), mId1) Then
             d = FechaDeMes(CStr(blk(i, 2)))
             If d >= ini And d <= dMax And d > 0 Then
@@ -2109,7 +2135,8 @@ Private Function LocalApiladas(ByVal ws As Worksheet) As Boolean
     ws.Range(ws.Cells(2, HLP_K1), ws.Cells(lastR, HLP_K1)).Value = h1
     ws.Range(ws.Cells(2, HLP_A1), ws.Cells(lastR, HLP_A1)).Value = a1
     ws.Range(ws.Cells(2, HLP_A2), ws.Cells(lastR, HLP_A2)).Value = a2
-    FijarNombre "f_pid", c0, lastR
+    ws.Range(ws.Cells(2, HLP_PID), ws.Cells(lastR, HLP_PID)).Value = pidC
+    FijarNombre "f_pid", HLP_PID, lastR
     FijarNombre "f_k1", HLP_K1, lastR
     FijarNombre "f_a1", HLP_A1, lastR
     FijarNombre "f_a2", HLP_A2, lastR
@@ -2149,6 +2176,7 @@ Private Sub EscribirApiladas(ByVal ws As Worksheet, ByVal bArr As Variant, ByVal
     ws.Range(ws.Cells(r0, TCMP_COL), ws.Cells(r1, TCMP_COL)).Value = dcol
     ' Cabeceras de serie + formulas por columna.
     Dim hdr As String, f As String, ultCol As Long
+    Dim qid As String: qid = Q(UCase(Trim(mId1)))
     For i = 0 To nSer - 1
         cc = TCMP_COL + 1 + i
         ws.Cells(2, cc).Value = sArr(i)
@@ -2158,8 +2186,8 @@ Private Sub EscribirApiladas(ByVal ws As Worksheet, ByVal bArr As Variant, ByVal
                 ws.Cells(r0, cc - 1).Address(False, True) & ")," & Q("") & ")"
         Else
             hdr = ws.Cells(2, cc).Address(True, True)   ' cabecera de ESTA serie (categoria)
-            f = "=IFERROR(SUMIFS(f_a2,f_pid," & Q(mId1) & ",f_k1,$D" & r0 & ",f_a1," & hdr & ")/" & _
-                "SUMIFS(f_a2,f_pid," & Q(mId1) & ",f_k1,$D" & r0 & ")," & Q("") & ")"
+            f = "=IFERROR(SUMIFS(f_a2,f_pid," & qid & ",f_k1,$D" & r0 & ",f_a1," & hdr & ")/" & _
+                "SUMIFS(f_a2,f_pid," & qid & ",f_k1,$D" & r0 & ")," & Q("") & ")"
         End If
         ws.Range(ws.Cells(r0, cc), ws.Cells(r1, cc)).Formula = f
         ultCol = cc
