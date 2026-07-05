@@ -475,6 +475,7 @@ Private Function SQLRiesgoTemporal(ws As Worksheet, ByVal ents As String, _
           "  FROM " & Tbl(DS_PROD, T_RISK) & vbLf & _
           "  WHERE PK_CRITERIO_AGREGACION = '" & Esc(crit) & "' AND " & RISK_COL_FONDOBMK & " = '" & CfgFondo() & "'" & wVarT
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & AndAsOf("PK_FECHA_DATOS")
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
           "SELECT p.PK_PORTFOLIO_ID, " & bucket & " AS categoria, FORMAT('%.10f', CAST(p.VALOR AS FLOAT64)) AS valor" & vbLf & _
           "FROM " & Tbl(DS_PROD, T_RISK) & " p" & vbLf & _
@@ -721,6 +722,7 @@ Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByV
           "  FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
           "  WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'"
     If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    sql = sql & AndAsOf("PK_FECHA_DATOS")
     sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
           "SELECT p.PK_PORTFOLIO_ID," & vbLf & selCat & _
           "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & ") AS valor" & colB & vbLf & _
