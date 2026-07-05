@@ -1238,6 +1238,164 @@ Private Sub EstiloTabla(ByVal ws As Worksheet, ByRef kind() As String, _
     Next j
 End Sub
 
+' ==================  TABLA DE POSICIONES (holdings)  =======================
+' Hoja "Posiciones": una foto (ultima fecha) de las posiciones de UN fondo/
+' cartera (B3), una fila por valor, con las columnas que pongas en la cabecera
+' (fila 6, desde B). Columnas soportadas de fabrica: Peso, Importe, Sector,
+' Industria, Pais, Zona, Divisa, Tipo activo, Rating, TER. Y por config (maestro):
+' ISIN, Ticker, Nombre, Yield, Duracion, Mercado, Dividendo, Plazo.
+Private Const PS_HDR As Long = 6
+Private Const PS_ROW0 As Long = 7
+
+Public Sub RellenarPosiciones()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("Posiciones")
+    On Error GoTo 0
+    If ws Is Nothing Then MsgBox "No encuentro la hoja 'Posiciones'.", vbExclamation, "Posiciones": Exit Sub
+
+    Dim id As String: id = UCase(Trim(IdEntidad(CStr(ws.Range("B3").Value))))
+    If Len(id) = 0 Then MsgBox "Elige un fondo/cartera en B3 (nombre_elemento o id_elemento).", vbExclamation, "Posiciones": Exit Sub
+
+    Dim nv As Long, c As Long, vName() As String, vCol() As Long
+    ReDim vName(1 To 64): ReDim vCol(1 To 64): nv = 0
+    c = 2
+    Do While c <= 80 And Len(Trim(CStr(ws.Cells(PS_HDR, c).Value))) > 0
+        nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(PS_HDR, c).Value)): vCol(nv) = c
+        c = c + 1
+    Loop
+    If nv = 0 Then MsgBox "Pon al menos una columna en la fila " & PS_HDR & " (desde B).", vbExclamation, "Posiciones": Exit Sub
+
+    Dim kindP() As String, gics() As String, fmt() As String, aliasIdx() As Long
+    ReDim kindP(1 To nv): ReDim gics(1 To nv): ReDim fmt(1 To nv): ReDim aliasIdx(1 To nv)
+    Dim selExtra As String, nAlias As Long: nAlias = 0
+    Dim j As Long, expr As String, g As String, ff As String
+    For j = 1 To nv
+        kindP(j) = MapaPos(vName(j), expr, g, ff)
+        gics(j) = g: fmt(j) = ff: aliasIdx(j) = 0
+        If (kindP(j) = "attr" Or kindP(j) = "attrnum") And Len(expr) > 0 Then
+            nAlias = nAlias + 1: aliasIdx(j) = nAlias
+            selExtra = selExtra & ", ANY_VALUE(" & expr & ") AS c" & nAlias
+        End If
+    Next j
+
+    Dim kPos As String: kPos = Cfg("JOIN_KEY_POS", "PK_SECURITY_IK")
+    Dim sql As String
+    sql = "WITH ult AS (SELECT MAX(PK_FECHA_DATOS) AS f FROM " & TblPos() & _
+          " WHERE PK_PORTFOLIO_ID='" & Esc(id) & "')" & vbLf & _
+          "SELECT FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64)) AS valor" & selExtra & vbLf & _
+          "FROM " & TblPos() & " p" & vbLf & JoinValores() & _
+          "WHERE p.PK_PORTFOLIO_ID='" & Esc(id) & "' AND p.PK_FECHA_DATOS=(SELECT f FROM ult)" & vbLf & _
+          "GROUP BY p." & kPos & vbLf & _
+          "ORDER BY SUM(p." & PosValor() & ") DESC" & vbLf & "LIMIT 1000"
+
+    Dim cn As Object, rs As Object, data As Variant
+    On Error GoTo fallo
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 120: cn.CursorLocation = 3: cn.Open CfgConn()
+    Set rs = cn.Execute(sql)
+    If Not rs.EOF Then data = rs.GetRows()
+    rs.Close: cn.Close
+    If IsEmpty(data) Then MsgBox "Sin posiciones para '" & id & "'.", vbInformation, "Posiciones": Exit Sub
+
+    Dim nr As Long: nr = UBound(data, 2) + 1
+    Dim total As Double, r As Long
+    For r = 0 To nr - 1: total = total + NumDbl(data(0, r)): Next r
+
+    Application.EnableEvents = False
+    Application.ScreenUpdating = False
+    ws.Range(ws.Cells(PS_ROW0, 1), ws.Cells(PS_ROW0 + 5000, 1 + nv)).ClearContents
+    Dim rr As Long, valp As Double, cellVal As Variant
+    For r = 0 To nr - 1
+        rr = PS_ROW0 + r: valp = NumDbl(data(0, r))
+        For j = 1 To nv
+            cellVal = ""
+            Select Case kindP(j)
+                Case "peso":    If total <> 0 Then cellVal = valp / total
+                Case "importe": cellVal = valp
+                Case "attr", "attrnum"
+                    If aliasIdx(j) > 0 Then
+                        cellVal = data(aliasIdx(j), r)
+                        If kindP(j) = "attrnum" Then cellVal = NumDbl(cellVal)
+                        If gics(j) = "sector" Then cellVal = EtiquetaClasif("Sector", CStr(data(aliasIdx(j), r)))
+                        If gics(j) = "ind" Then cellVal = EtiquetaClasif("Industria", CStr(data(aliasIdx(j), r)))
+                    End If
+            End Select
+            ws.Cells(rr, vCol(j)).Value = cellVal
+            ws.Cells(rr, vCol(j)).NumberFormat = fmt(j)
+        Next j
+    Next r
+
+    Dim rt As Long: rt = PS_ROW0 + nr
+    ws.Cells(rt, 1).Value = "Total": ws.Cells(rt, 1).Font.Bold = True
+    For j = 1 To nv
+        Dim tv As Variant: tv = ""
+        Select Case kindP(j)
+            Case "peso":    tv = 1
+            Case "importe": tv = total
+            Case "attrnum"
+                Dim num As Double, wsum As Double: num = 0: wsum = 0
+                If aliasIdx(j) > 0 Then
+                    For r = 0 To nr - 1
+                        If Len(Trim(CStr(data(aliasIdx(j), r)))) > 0 Then
+                            num = num + NumDbl(data(0, r)) * NumDbl(data(aliasIdx(j), r))
+                            wsum = wsum + NumDbl(data(0, r))
+                        End If
+                    Next r
+                End If
+                If wsum <> 0 Then tv = num / wsum
+        End Select
+        ws.Cells(rt, vCol(j)).Value = tv
+        ws.Cells(rt, vCol(j)).NumberFormat = fmt(j)
+        ws.Cells(rt, vCol(j)).Font.Bold = True
+    Next j
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    MsgBox nr & " posiciones cargadas para '" & id & "'.", vbInformation, "Posiciones"
+    Exit Sub
+fallo:
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+    MsgBox "Error al cargar posiciones:" & vbLf & Err.Description & vbLf & vbLf & _
+           "Las columnas del maestro (ISIN/Ticker/Yield/Duracion...) se configuran en 'config' (MSTR_*).", _
+           vbExclamation, "Posiciones"
+End Sub
+
+' Mapea una cabecera de columna de posiciones a (expr SQL, gics, formato) y
+' devuelve el tipo: peso/importe/attr/attrnum, o "" si no se reconoce/configura.
+Private Function MapaPos(ByVal h As String, ByRef expr As String, ByRef gics As String, ByRef fmt As String) As String
+    Dim f As String: f = Fold(h): expr = "": gics = "": fmt = "General"
+    Select Case True
+        Case f = "peso":                       MapaPos = "peso": fmt = "0.00%"
+        Case f = "importe":                    MapaPos = "importe": fmt = "#,##0"
+        Case f = "sector" Or f = "segmento":   expr = "v." & Cfg("SECTOR_COL", SECTOR_COL): gics = "sector": MapaPos = "attr"
+        Case f = "industria":                  expr = "v." & Cfg("IND_COL", IND_COL): gics = "ind": MapaPos = "attr"
+        Case f = "pais" Or f = "geografia":    expr = "v." & Cfg("PAIS_COL", "FCCOUNTRY"): MapaPos = "attr"
+        Case f = "zona" Or f = "continente":   expr = "v." & Cfg("GEO_COL", GEO_COL): MapaPos = "attr"
+        Case f = "divisa":                     expr = "v." & Cfg("DIV_COL", DIV_COL): MapaPos = "attr"
+        Case f = "tipo activo" Or f = "activo" Or f = "tipo de activo": expr = "v." & Cfg("ACTIVO_COL", "INSTRUMENT_TYPE"): MapaPos = "attr"
+        Case f = "rating":                     expr = "v." & Cfg("RATING_COL", RATING_COL): MapaPos = "attr"
+        Case f = "ter":                        expr = "v." & Cfg("TER_COL", TER_COL): fmt = "0.000": MapaPos = "attrnum"
+        Case f = "isin":                       expr = ExprCfg("MSTR_ISIN_COL"): MapaPos = IIf(Len(expr) > 0, "attr", "")
+        Case f = "ticker":                     expr = ExprCfg("MSTR_TICKER_COL"): MapaPos = IIf(Len(expr) > 0, "attr", "")
+        Case f = "nombre":                     expr = ExprCfg("MSTR_NAME_COL"): MapaPos = IIf(Len(expr) > 0, "attr", "")
+        Case f = "yield":                      expr = ExprCfg("MSTR_YIELD_COL"): fmt = "0.00": MapaPos = IIf(Len(expr) > 0, "attrnum", "")
+        Case f = "duracion":                   expr = ExprCfg("MSTR_DUR_COL"): fmt = "0.000": MapaPos = IIf(Len(expr) > 0, "attrnum", "")
+        Case f = "mercado":                    expr = ExprCfg("MSTR_MKT_COL"): MapaPos = IIf(Len(expr) > 0, "attr", "")
+        Case f = "dividendo":                  expr = ExprCfg("MSTR_DIV_COL"): MapaPos = IIf(Len(expr) > 0, "attr", "")
+        Case f = "plazo" Or f = "vencimiento": expr = ExprCfg("MSTR_PLAZO_COL"): MapaPos = IIf(Len(expr) > 0, "attr", "")
+        Case Else:                             MapaPos = ""
+    End Select
+End Function
+
+Private Function ExprCfg(ByVal clave As String) As String
+    Dim col As String: col = Cfg(clave, "")
+    If Len(col) > 0 Then ExprCfg = "v." & col Else ExprCfg = ""
+End Function
+
 ' =======================  INSTALADOR DE BOTONES  ===========================
 ' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
 ' las hojas Panel y Tablas con sus macros ya asignadas.
@@ -1261,6 +1419,13 @@ Public Sub InstalarBotones()
     If Not wt Is Nothing Then
         BorrarBotones wt
         CrearBoton wt, "D3", ">> RELLENAR TABLA", "RellenarTabla"
+    End If
+    On Error Resume Next
+    Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")
+    On Error GoTo 0
+    If Not wp Is Nothing Then
+        BorrarBotones wp
+        CrearBoton wp, "D3", ">> RELLENAR POSICIONES", "RellenarPosiciones"
     End If
     ' Deja el grafico en modo dinamico (rangos con nombre) desde el principio,
     ' asi se ajusta solo al cambiar periodo/dimension y no deja huecos.

@@ -394,6 +394,7 @@ def build() -> Workbook:
     sqlc.fill = PatternFill("solid", fgColor="F7F9FC")
 
     build_tablas(wb, n)
+    build_posiciones(wb)
     build_sectorial(wb)
     build_comparativa(wb)
     build_activos(wb)
@@ -442,6 +443,14 @@ def build_config(wb):
         ("JOIN_KEY_POS", "PK_SECURITY_IK", "Clave del JOIN posiciones->maestro (columna en posiciones)"),
         ("JOIN_KEY_VAL", "PK_SECURITY_IK", "Clave del JOIN posiciones->maestro (columna en el maestro)"),
         ("JOIN_FECHA", "0", "Unir también por fecha (1) o no (0). La vista es foto actual: 0"),
+        ("MSTR_ISIN_COL", "", "Columna ISIN en el maestro (hoja Posiciones). Vacío = no se muestra"),
+        ("MSTR_TICKER_COL", "", "Columna Ticker en el maestro (Posiciones)"),
+        ("MSTR_NAME_COL", "", "Columna Nombre del valor en el maestro (Posiciones)"),
+        ("MSTR_YIELD_COL", "", "Columna Yield/TIR del valor en el maestro (Posiciones)"),
+        ("MSTR_DUR_COL", "", "Columna Duración del valor en el maestro (Posiciones)"),
+        ("MSTR_MKT_COL", "", "Columna Mercado en el maestro (Posiciones)"),
+        ("MSTR_DIV_COL", "", "Columna Dividendo (Acum/Reparto) en el maestro (Posiciones)"),
+        ("MSTR_PLAZO_COL", "", "Columna Plazo/Vencimiento en el maestro (Posiciones)"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD
@@ -800,6 +809,74 @@ def build_tablas(wb, n):
     ws.column_dimensions["A"].width = 28
     for j in range(NCOLS):
         ws.column_dimensions[get_column_letter(2 + j)].width = 13
+    return ws
+
+
+def build_posiciones(wb):
+    """Hoja 'Posiciones': foto (última fecha) de las posiciones de UN fondo/
+    cartera (B3), una fila por valor, con las columnas de la cabecera (fila 6).
+    La macro `RellenarPosiciones` construye la consulta posiciones⨝maestro y la
+    rellena. Columnas de fábrica: Peso, Importe, Sector, Industria, País, Zona,
+    Divisa, Tipo activo, Rating, TER. Otras (ISIN/Ticker/Nombre/Yield/Duración/
+    Mercado/Dividendo/Plazo) se activan mapeando su columna del maestro en config
+    (MSTR_*)."""
+    HDR, ROW0, NROWS, NCOLS = 6, 7, 60, 13
+
+    ws = wb.create_sheet("Posiciones")
+    ws.sheet_view.showGridLines = False
+    ws["A1"] = "Posiciones de una cartera (holdings)"
+    ws["A1"].font = Font(bold=True, size=14)
+    ws["A2"] = ("Elige la cartera en B3, pon las columnas en la fila 6 (desde B) y pulsa "
+                "«Rellenar posiciones». Columnas del maestro (ISIN/Ticker/…) se activan en config (MSTR_*).")
+    ws["A2"].font = Font(italic=True, size=9, color="808080")
+
+    ws["A3"] = "Cartera"
+    ws["A3"].font = BOLD
+    ws["B3"] = "Cartera RF Gobierno"
+    ws["B3"].fill = PatternFill("solid", fgColor=GRIS)
+    dv_ent = DataValidation(type="list", formula1="=EntLista", allow_blank=True)
+    dv_ent.showErrorMessage = False
+    ws.add_data_validation(dv_ent)
+    dv_ent.add(ws["B3"])
+
+    # Catálogo de columnas de posiciones (columna oculta T) + named range.
+    cols = ["Peso", "Importe", "Nombre", "ISIN", "Ticker", "Sector", "Industria",
+            "País", "Zona", "Divisa", "Tipo activo", "Rating", "Yield", "TER",
+            "Duración", "Dividendo", "Plazo", "Mercado"]
+    for i, v in enumerate(cols):
+        ws.cell(2 + i, 20, v)
+    ws.column_dimensions["T"].hidden = True
+    wb.defined_names.add(DefinedName(
+        "ColsPosiciones", attr_text=f"Posiciones!$T$2:$T${1 + len(cols)}"))
+
+    ws.cell(HDR, 1, "#").font = BOLD_WHITE
+    ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
+    defaults_hdr = ["Peso", "Sector", "País", "Divisa", "Tipo activo", "Rating", "TER"]
+    for j in range(NCOLS):
+        c = ws.cell(HDR, 2 + j)
+        if j < len(defaults_hdr):
+            c.value = defaults_hdr[j]
+        c.font = BOLD_WHITE
+        c.fill = PatternFill("solid", fgColor=AZUL)
+        c.alignment = Alignment(horizontal="center")
+    dv_col = DataValidation(type="list", formula1="=ColsPosiciones", allow_blank=True)
+    dv_col.showErrorMessage = False
+    ws.add_data_validation(dv_col)
+    dv_col.add(f"B{HDR}:{get_column_letter(1 + NCOLS)}{HDR}")
+
+    thin = Side(style="thin", color="D6DEE8")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for i in range(NROWS):
+        r = ROW0 + i
+        ws.cell(r, 1, i + 1).font = Font(size=9, color="808080")
+        for j in range(NCOLS):
+            cell = ws.cell(r, 2 + j)
+            cell.border = border
+            cell.alignment = Alignment(horizontal="center")
+
+    ws.column_dimensions["A"].width = 5
+    for j in range(NCOLS):
+        ws.column_dimensions[get_column_letter(2 + j)].width = 14
     return ws
 
 
