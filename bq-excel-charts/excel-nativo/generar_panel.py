@@ -400,6 +400,14 @@ def build() -> Workbook:
     build_comparativa(wb)
     build_activos(wb)
     build_config(wb)
+
+    # Oculta las hojas de apoyo: deja visibles solo Portada, Panel, Tablas,
+    # cartera y config (+ las hojas que genere el usuario con "Crear hoja").
+    visibles = {"Portada", "Panel", "Tablas", "cartera", "config"}
+    for hoja in wb.worksheets:
+        if hoja.title not in visibles:
+            hoja.sheet_state = "hidden"
+    wb.active = wb.sheetnames.index("Portada")
     return wb
 
 
