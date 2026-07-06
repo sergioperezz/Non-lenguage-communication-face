@@ -460,6 +460,9 @@ def build_config(wb):
         ("MSTR_MKT_COL", "", "Columna Mercado en el maestro (Posiciones)"),
         ("MSTR_DIV_COL", "", "Columna Dividendo (Acum/Reparto) en el maestro (Posiciones)"),
         ("MSTR_PLAZO_COL", "", "Columna Plazo/Vencimiento en el maestro (Posiciones)"),
+        ("PPT_CARPETA", "", "Carpeta de salida del informe mensual (ej. C:\\Informes). Vacío = pide configurarla"),
+        ("PPT_NOMBRE", "Informe", "Nombre base de los archivos del mes (Informe 2026-06.xlsm/.pptx)"),
+        ("PPT_PLANTILLA", "", "Ruta a la plantilla .pptx (layout del deck). Vacío = crea una presentación nueva"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD

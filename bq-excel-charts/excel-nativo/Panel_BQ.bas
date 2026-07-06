@@ -2016,6 +2016,94 @@ limp:
     MsgBox "No se pudo crear la hoja:" & vbLf & Err.Description, vbExclamation, "Crear hoja"
 End Sub
 
+' "Crear hoja con grafica": como "Crear hoja con tabla" pero ademas anade un
+' GRAFICO NATIVO que representa la tabla (categorias = entidades, series = columnas).
+' El grafico apunta al rango de ESTA hoja (no a rangos con nombre del Panel), asi
+' es autonomo: se refresca con la tabla y se exporta como imagen a PowerPoint.
+Public Sub CrearHojaGrafica()
+    Dim src As Worksheet
+    On Error Resume Next
+    Set src = ThisWorkbook.Sheets("Tablas")
+    On Error GoTo 0
+    If src Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation: Exit Sub
+
+    Dim nom As String: nom = NombreHojaLibre("Grafica")
+    On Error GoTo limp
+    Application.ScreenUpdating = False
+    src.Copy After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count)
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    ws.Name = nom
+    ws.Visible = xlSheetVisible
+    BorrarBotones ws
+    ws.Cells(1, 30).Value = "GRAFICA"                ' AD1: marca de tipo de hoja
+    ws.Cells(1, 1).Value = "Grafica: " & nom
+    PanelExportar ws
+    ws.Rows(1).RowHeight = 30
+
+    Dim lastRow As Long, lastCol As Long
+    UltimaCeldaTabla ws, lastRow, lastCol
+    Dim co As ChartObject
+    Dim topPt As Double: topPt = ws.Cells(IIf(lastRow >= TB_ROW0, lastRow + 2, 12), 1).Top
+    Set co = ws.ChartObjects.Add(ws.Cells(1, 1).Left, topPt, 520, 280)
+    Dim rng As Range: Set rng = RangoGrafica(ws)
+    If Not rng Is Nothing Then
+        co.Chart.SetSourceData Source:=rng
+        co.Chart.ChartType = 51                       ' xlColumnClustered
+        co.Chart.HasTitle = False
+    End If
+
+    CrearBoton ws, "A1", ">> ACTUALIZAR", "HojaActualizar"
+    CrearBoton ws, "E1", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
+    CrearBoton ws, "I1", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+    Application.ScreenUpdating = True
+    ws.Activate
+    MsgBox "Creada la hoja '" & nom & "' con grafica. Actualizala y exportala a " & _
+           "PowerPoint desde sus botones.", vbInformation, "Crear hoja"
+    Exit Sub
+limp:
+    Application.ScreenUpdating = True
+    MsgBox "No se pudo crear la hoja:" & vbLf & Err.Description, vbExclamation, "Crear hoja"
+End Sub
+
+' Ultima fila (col A desde TB_ROW0) y ultima columna (fila TB_HDR desde B) con datos.
+Private Sub UltimaCeldaTabla(ByVal ws As Worksheet, ByRef lastRow As Long, ByRef lastCol As Long)
+    Dim r As Long, c As Long
+    lastRow = TB_ROW0 - 1
+    r = TB_ROW0
+    Do While r <= 20000
+        If Len(Trim(CStr(ws.Cells(r, 1).Value))) = 0 Then Exit Do
+        lastRow = r: r = r + 1
+    Loop
+    lastCol = 1
+    c = 2
+    Do While c <= 200
+        If Len(Trim(CStr(ws.Cells(TB_HDR, c).Value))) = 0 Then Exit Do
+        lastCol = c: c = c + 1
+    Loop
+End Sub
+
+' Rango que alimenta el grafico: fila de Periodo (cabecera) + entidades + datos.
+Private Function RangoGrafica(ByVal ws As Worksheet) As Range
+    Dim lastRow As Long, lastCol As Long
+    UltimaCeldaTabla ws, lastRow, lastCol
+    If lastRow < TB_ROW0 Or lastCol < 2 Then Exit Function
+    Set RangoGrafica = ws.Range(ws.Cells(TB_HDR, 1), ws.Cells(lastRow, lastCol))
+End Function
+
+' Reajusta el origen de datos del grafico de una hoja "GRAFICA" tras actualizar.
+Private Sub AjustarGrafica(ByVal ws As Worksheet)
+    On Error Resume Next
+    Dim co As ChartObject: Set co = ws.ChartObjects(1)
+    On Error GoTo 0
+    If co Is Nothing Then Exit Sub
+    Dim rng As Range: Set rng = RangoGrafica(ws)
+    If Not rng Is Nothing Then
+        On Error Resume Next
+        co.Chart.SetSourceData Source:=rng
+        On Error GoTo 0
+    End If
+End Sub
+
 ' Siguiente nombre de hoja libre "Base N".
 Private Function NombreHojaLibre(ByVal base As String) As String
     Dim k As Long: k = 1
@@ -2053,6 +2141,7 @@ Public Sub HojaActualizar()          ' ultima fecha disponible (ignora la Portad
     On Error GoTo limp
     RellenarTablaEn ws, True
     mSinAsOf = False
+    If Fold(CStr(ws.Cells(1, 30).Value)) = "grafica" Then AjustarGrafica ws
     MsgBox "Actualizado a la ultima fecha disponible.", vbInformation, ws.Name
     Exit Sub
 limp:
@@ -2064,6 +2153,7 @@ Public Sub HojaActualizarFecha()     ' a cierre de la fecha global de Portada
     Dim ws As Worksheet: Set ws = ActiveSheet
     mSinAsOf = False
     RellenarTablaEn ws, True
+    If Fold(CStr(ws.Cells(1, 30).Value)) = "grafica" Then AjustarGrafica ws
     Dim d As String: d = CfgAsOf()
     If Len(d) = 0 Then d = "ultima disponible"
     MsgBox "Actualizado a la fecha de Portada (" & d & ").", vbInformation, ws.Name
@@ -2071,65 +2161,187 @@ End Sub
 
 ' Rango imagen de una tabla (cabeceras Metrica/Periodo + datos + columna Entidad).
 Private Function RangoTabla(ByVal ws As Worksheet) As Range
-    Dim lastRow As Long, lastCol As Long, r As Long, c As Long
-    lastRow = TB_ROW0 - 1
-    r = TB_ROW0
-    Do While r <= 20000
-        If Len(Trim(CStr(ws.Cells(r, 1).Value))) = 0 Then Exit Do
-        lastRow = r: r = r + 1
-    Loop
-    lastCol = 1
-    c = 2
-    Do While c <= 200
-        If Len(Trim(CStr(ws.Cells(TB_HDR, c).Value))) = 0 Then Exit Do
-        lastCol = c: c = c + 1
-    Loop
+    Dim lastRow As Long, lastCol As Long
+    UltimaCeldaTabla ws, lastRow, lastCol
     If lastRow < TB_ROW0 Or lastCol < 2 Then Exit Function
     Set RangoTabla = ws.Range(ws.Cells(TB_MET, 1), ws.Cells(lastRow, lastCol))
 End Function
 
-' Exporta la tabla de la hoja activa como imagen EMF a una slide de PowerPoint,
-' en la posicion/tamano (cm) de la fila 2. Idempotente: reemplaza su imagen previa.
-Public Sub HojaExportarPPT()
-    Dim ws As Worksheet: Set ws = ActiveSheet
-    Dim rng As Range: Set rng = RangoTabla(ws)
-    If rng Is Nothing Then MsgBox "No hay tabla que exportar en esta hoja.", vbExclamation, ws.Name: Exit Sub
+' Pega el objeto (tabla o grafico) de 'ws' en 'pres' en la slide/posicion/tamano
+' (cm) de su fila 2. Idempotente: borra su imagen previa (misma hoja) en esa slide.
+' Devuelve "" si OK, o el texto del error (para el resumen del lote).
+Private Function PegarObjeto(ByVal ws As Worksheet, ByVal pres As Object) As String
+    On Error GoTo limp
+    Dim esGrafica As Boolean: esGrafica = (Fold(CStr(ws.Cells(1, 30).Value)) = "grafica")
+    Dim rng As Range, co As ChartObject
+    If esGrafica Then
+        On Error Resume Next
+        Set co = ws.ChartObjects(1)
+        On Error GoTo limp
+        If co Is Nothing Then PegarObjeto = "sin grafico": Exit Function
+        co.Chart.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    Else
+        Set rng = RangoTabla(ws)
+        If rng Is Nothing Then PegarObjeto = "sin tabla": Exit Function
+        rng.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+    End If
 
     Dim slideN As Long, izq As Double, arr As Double, anc As Double, alt As Double
     slideN = CLng(Val(CStr(ws.Range("D2").Value))): If slideN < 1 Then slideN = 1
     izq = NumDbl(ws.Range("F2").Value): arr = NumDbl(ws.Range("H2").Value)
     anc = NumDbl(ws.Range("J2").Value): alt = NumDbl(ws.Range("L2").Value)
 
-    On Error GoTo limp
-    rng.CopyPicture Appearance:=xlScreen, Format:=xlPicture
-
-    Dim ppt As Object, pres As Object, sld As Object, shp As Object
-    On Error Resume Next
-    Set ppt = GetObject(, "PowerPoint.Application")
-    On Error GoTo limp
-    If ppt Is Nothing Then Set ppt = CreateObject("PowerPoint.Application")
-    ppt.Visible = True
-    If ppt.Presentations.Count = 0 Then Set pres = ppt.Presentations.Add Else Set pres = ppt.ActivePresentation
     Do While pres.Slides.Count < slideN
-        pres.Slides.Add pres.Slides.Count + 1, 12        ' 12 = ppLayoutBlank
+        pres.Slides.Add pres.Slides.Count + 1, 12            ' 12 = ppLayoutBlank
     Loop
-    Set sld = pres.Slides(slideN)
+    Dim sld As Object: Set sld = pres.Slides(slideN)
     Dim nm As String: nm = "XLS_" & ws.Name
     Dim i As Long
     For i = sld.Shapes.Count To 1 Step -1
         If sld.Shapes(i).Name = nm Then sld.Shapes(i).Delete
     Next i
-    Set shp = sld.Shapes.PasteSpecial(DataType:=2)(1)    ' 2 = EMF
+    Dim shp As Object: Set shp = sld.Shapes.PasteSpecial(DataType:=2)(1)   ' 2 = EMF
     shp.Name = nm
-    Dim KP As Double: KP = 28.3465                        ' cm -> puntos
+    Dim KP As Double: KP = 28.3465                            ' cm -> puntos
     shp.LockAspectRatio = False
     shp.Left = izq * KP: shp.Top = arr * KP
     If anc > 0 Then shp.Width = anc * KP
     If alt > 0 Then shp.Height = alt * KP
-    MsgBox "Exportado a la slide " & slideN & ".", vbInformation, ws.Name
-    Exit Sub
+    PegarObjeto = ""
+    Exit Function
 limp:
-    MsgBox "No se pudo exportar a PowerPoint:" & vbLf & Err.Description, vbExclamation, ws.Name
+    PegarObjeto = Err.Description
+End Function
+
+' PowerPoint + presentacion activa (o nueva). Nothing si no hay PowerPoint.
+Private Function PowerPointPres() As Object
+    Dim ppt As Object
+    On Error Resume Next
+    Set ppt = GetObject(, "PowerPoint.Application")
+    If ppt Is Nothing Then Set ppt = CreateObject("PowerPoint.Application")
+    On Error GoTo 0
+    If ppt Is Nothing Then Exit Function
+    ppt.Visible = True
+    If ppt.Presentations.Count = 0 Then Set PowerPointPres = ppt.Presentations.Add Else Set PowerPointPres = ppt.ActivePresentation
+End Function
+
+' Boton de la hoja generada: exporta su objeto a la presentacion ABIERTA.
+Public Sub HojaExportarPPT()
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    Dim pres As Object: Set pres = PowerPointPres()
+    If pres Is Nothing Then MsgBox "No se pudo abrir PowerPoint.", vbExclamation, ws.Name: Exit Sub
+    Dim e As String: e = PegarObjeto(ws, pres)
+    If Len(e) = 0 Then
+        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range("D2").Value))) & ".", vbInformation, ws.Name
+    Else
+        MsgBox "No se pudo exportar:" & vbLf & e, vbExclamation, ws.Name
+    End If
+End Sub
+
+' "YYYY-MM" del informe: el mes de la Portada, o el mes actual si es "(ultimo)".
+Private Function MesInforme() As String
+    Dim ws As Worksheet, y As Long, m As Long
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("Portada")
+    On Error GoTo 0
+    If Not ws Is Nothing Then
+        y = CLng(Val(CStr(ws.Range("B2").Value)))
+        m = MesNum(CStr(ws.Range("B3").Value))
+    End If
+    If y < 1900 Or m < 1 Then MesInforme = Format(Date, "yyyy-mm") Else MesInforme = Format(DateSerial(y, m, 1), "yyyy-mm")
+End Function
+
+' ORQUESTADOR MENSUAL (boton de Portada): actualiza todas las hojas generadas a la
+' fecha de Portada, guarda una copia .xlsm del mes (auditable) y monta el .pptx del
+' mes pegando cada objeto (imagen EMF) en su slide. Robusto: si algo falla sigue y
+' lo reporta al final. Degrada sin PowerPoint (la copia .xlsm se guarda igual).
+Public Sub GenerarInformeMes()
+    Dim carpeta As String, base As String, plantilla As String, mesTxt As String
+    carpeta = Cfg("PPT_CARPETA", "")
+    base = Cfg("PPT_NOMBRE", "Informe")
+    plantilla = Cfg("PPT_PLANTILLA", "")
+    mesTxt = MesInforme()
+    If Len(carpeta) = 0 Then MsgBox "Configura la carpeta de salida en la hoja 'config' (PPT_CARPETA).", vbExclamation, "Informe": Exit Sub
+    If Right(carpeta, 1) <> "\" Then carpeta = carpeta & "\"
+
+    Dim sh As Worksheet, tipo As String
+    Dim n As Long, okR As Long, okP As Long, fallos As String: n = 0: okR = 0: okP = 0: fallos = ""
+
+    ' 1) Actualiza todas las hojas generadas a la fecha de Portada.
+    Application.StatusBar = "Informe: actualizando hojas..."
+    mSinAsOf = False
+    For Each sh In ThisWorkbook.Worksheets
+        tipo = Fold(CStr(sh.Cells(1, 30).Value))
+        If tipo = "tabla" Or tipo = "grafica" Then
+            n = n + 1
+            On Error Resume Next
+            Err.Clear
+            RellenarTablaEn sh, True
+            If tipo = "grafica" Then AjustarGrafica sh
+            If Err.Number <> 0 Then fallos = fallos & vbLf & " - " & sh.Name & " (actualizar): " & Err.Description Else okR = okR + 1
+            On Error GoTo 0
+        End If
+    Next sh
+    If n = 0 Then
+        Application.StatusBar = False
+        MsgBox "No hay hojas generadas (Tabla/Grafica) que incluir en el informe.", vbExclamation, "Informe": Exit Sub
+    End If
+
+    ' 2) Copia .xlsm del mes (congelada a la Portada actual).
+    Dim rutaXls As String: rutaXls = carpeta & base & " " & mesTxt & ".xlsm"
+    Dim errXls As String
+    On Error Resume Next
+    ThisWorkbook.SaveCopyAs rutaXls
+    If Err.Number <> 0 Then errXls = Err.Description
+    On Error GoTo 0
+
+    ' 3) PPTX del mes (a partir de plantilla si hay).
+    Dim rutaPpt As String, errPpt As String
+    rutaPpt = carpeta & base & " " & mesTxt & ".pptx"
+    Application.StatusBar = "Informe: generando PowerPoint..."
+    Dim ppt As Object, pres As Object
+    On Error Resume Next
+    Set ppt = GetObject(, "PowerPoint.Application")
+    If ppt Is Nothing Then Set ppt = CreateObject("PowerPoint.Application")
+    On Error GoTo 0
+    If ppt Is Nothing Then
+        errPpt = "PowerPoint no disponible (se guardo solo el Excel)"
+    Else
+        ppt.Visible = True
+        On Error Resume Next
+        If Len(plantilla) > 0 Then
+            FileCopy plantilla, rutaPpt
+            Set pres = ppt.Presentations.Open(rutaPpt)
+        Else
+            Set pres = ppt.Presentations.Add
+        End If
+        On Error GoTo 0
+        If pres Is Nothing Then
+            errPpt = "no se pudo abrir la presentacion (o la plantilla)"
+        Else
+            For Each sh In ThisWorkbook.Worksheets
+                tipo = Fold(CStr(sh.Cells(1, 30).Value))
+                If tipo = "tabla" Or tipo = "grafica" Then
+                    Dim e As String: e = PegarObjeto(sh, pres)
+                    If Len(e) = 0 Then okP = okP + 1 Else fallos = fallos & vbLf & " - " & sh.Name & " (export): " & e
+                End If
+            Next sh
+            On Error Resume Next
+            If Len(plantilla) > 0 Then pres.Save Else pres.SaveAs rutaPpt
+            If Err.Number <> 0 Then errPpt = "no se pudo guardar: " & Err.Description
+            On Error GoTo 0
+        End If
+    End If
+    Application.StatusBar = False
+
+    ' 4) Resumen.
+    Dim msg As String
+    msg = "Informe " & mesTxt & vbLf & _
+          " - Hojas: " & n & " (actualizadas " & okR & ")" & vbLf
+    If Len(errXls) = 0 Then msg = msg & " - Excel: " & rutaXls & vbLf Else msg = msg & " - Excel FALLO: " & errXls & vbLf
+    If Len(errPpt) = 0 Then msg = msg & " - PowerPoint: " & okP & " objetos -> " & rutaPpt & vbLf Else msg = msg & " - PowerPoint: " & errPpt & vbLf
+    If Len(fallos) > 0 Then msg = msg & vbLf & "Incidencias:" & fallos
+    MsgBox msg, IIf(Len(fallos) > 0 Or Len(errXls) > 0, vbExclamation, vbInformation), "Generar informe del mes"
 End Sub
 
 Public Sub InstalarBotones()
@@ -2145,6 +2357,7 @@ Public Sub InstalarBotones()
     CrearBoton ws, "A32", "Ver benchmark (diagnostico)", "VerBenchmark"
     CrearBoton ws, "A34", "Ver rentab. mes (diagnostico)", "VerRentabMes"
     CrearBoton ws, "A36", "> A PowerPoint (Fase 3)", "CopiarAPowerPoint"
+    CrearBoton ws, "A38", "+ CREAR HOJA CON GRAFICA", "CrearHojaGrafica"
 
     On Error Resume Next
     Dim wt As Worksheet: Set wt = ThisWorkbook.Sheets("Tablas")
@@ -2153,6 +2366,7 @@ Public Sub InstalarBotones()
         BorrarBotones wt
         CrearBoton wt, "J1", ">> RELLENAR TABLA", "RellenarTabla"
         CrearBoton wt, "J4", "+ CREAR HOJA CON TABLA", "CrearHojaTabla"
+        CrearBoton wt, "J6", "+ CREAR HOJA CON GRAFICA", "CrearHojaGrafica"
     End If
     On Error Resume Next
     Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")
@@ -2169,6 +2383,7 @@ Public Sub InstalarBotones()
         CrearBoton wportada, "A7", "1. Actualizar Excel", "ActualizarTodoExcel"
         CrearBoton wportada, "A9", "2. Actualizar PowerPoint", "ActualizarPowerPoint"
         CrearBoton wportada, "A11", "3. Actualizar Excel y PowerPoint", "ActualizarExcelYPowerPoint"
+        CrearBoton wportada, "A13", "4. Generar informe del mes (xlsm + pptx)", "GenerarInformeMes"
     End If
     ' Deja el grafico en modo dinamico (rangos con nombre) desde el principio,
     ' asi se ajusta solo al cambiar periodo/dimension y no deja huecos.
