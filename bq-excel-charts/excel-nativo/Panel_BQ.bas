@@ -1052,6 +1052,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
 
     Dim cn As Object, rs As Object      ' (para el manejador 'fallo')
     On Error GoTo fallo
+    Application.StatusBar = "Tablas: consultando BigQuery..."
     ' --- Descarga (RET/RISK/PATRIM/PATMES) a diccionarios en memoria ---
     Dim retColl As Object, difColl As Object, bmkColl As Object, riskV As Object
     Dim patr As Object, patMes As Object, totPatr As Double, defYear As String
@@ -1107,12 +1108,16 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     End If
 
     EstiloTabla ws, kind, vCol, nv, TB_ROW0, TB_ROW0 + ne - 1
+    Dim nBad As Long: nBad = MarcarEntidades(ws, eName, eId, eRow, ne)
+    EstadoTabla ws, ne & " entidades x " & nv & " variables", nBad
+    Application.StatusBar = False
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     If Not quiet Then MsgBox "Tabla rellenada: " & ne & " entidades x " & nv & " variables.", vbInformation, "Tablas"
     Exit Sub
 fallo:
     On Error Resume Next
+    Application.StatusBar = False
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
@@ -1310,13 +1315,21 @@ Private Sub RellenarSerie(ByVal ws As Worksheet, ByVal quiet As Boolean)
     ' Filas: Entidad (A) + Metrica (B), desde la fila 7.
     Dim eName() As String, eRow() As Long, eId() As String, eMet() As String, ne As Long
     ReDim eName(1 To 5001): ReDim eRow(1 To 5001): ReDim eId(1 To 5001): ReDim eMet(1 To 5001): ne = 0
+    ' Si dejas la columna A vacia, HEREDA la entidad de la fila de arriba (asi
+    ' escribes la cartera una vez y debajo solo eliges mas metricas). El bloque
+    ' termina cuando una fila tiene A y B vacias a la vez.
     r = TB_ROW0
-    Do While r <= 5000 And Len(Trim(CStr(ws.Cells(r, 1).Value))) > 0
-        ne = ne + 1: eName(ne) = Trim(CStr(ws.Cells(r, 1).Value)): eRow(ne) = r
-        eId(ne) = UCase(Trim(IdEntidad(eName(ne))))
-        Dim mt As String: mt = Trim(CStr(ws.Cells(r, 2).Value))
-        If Len(mt) = 0 Then mt = "Rentabilidad"
-        eMet(ne) = mt
+    Dim lastEnt As String: lastEnt = ""
+    Do While r <= 5000
+        Dim aVal As String, bVal As String
+        aVal = Trim(CStr(ws.Cells(r, 1).Value))
+        bVal = Trim(CStr(ws.Cells(r, 2).Value))
+        If Len(aVal) = 0 And Len(bVal) = 0 Then Exit Do
+        If Len(aVal) = 0 Then aVal = lastEnt Else lastEnt = aVal
+        If Len(bVal) = 0 Then bVal = "Rentabilidad"
+        ne = ne + 1: eName(ne) = aVal: eRow(ne) = r
+        eId(ne) = UCase(Trim(IdEntidad(aVal)))
+        eMet(ne) = bVal
         r = r + 1
     Loop
     If ne = 0 Then MsgBox "Escribe entidades en la columna A y su metrica en la B (desde la fila " & TB_ROW0 & ").", vbExclamation, "Tablas": Exit Sub
@@ -1383,6 +1396,7 @@ Private Sub RellenarSerie(ByVal ws As Worksheet, ByVal quiet As Boolean)
     Dim retColl As Object, difColl As Object, bmkColl As Object, riskV As Object
     Dim patr As Object, patMes As Object, totPatr As Double, defYear As String
     On Error GoTo fallo
+    Application.StatusBar = "Tablas (series): consultando BigQuery..."
     TablaDescarga inlist, needRet, needBmk, needPos, needPatMes, crits, _
         retColl, difColl, bmkColl, riskV, patr, totPatr, patMes, defYear
 
@@ -1412,13 +1426,19 @@ Private Sub RellenarSerie(ByVal ws As Worksheet, ByVal quiet As Boolean)
             ws.Cells(eRow(i), 2 + j).Value = cv
         Next j
     Next i
+    ' Anchos de las columnas de periodo (legibilidad).
+    ws.Range(ws.Cells(TB_HDR, 3), ws.Cells(TB_HDR, 2 + np)).EntireColumn.ColumnWidth = 11
 
+    Dim nBad As Long: nBad = MarcarEntidades(ws, eName, eId, eRow, ne)
+    EstadoTabla ws, ne & " filas x " & np & " periodos", nBad
+    Application.StatusBar = False
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     If Not quiet Then MsgBox "Serie rellenada: " & ne & " filas x " & np & " periodos.", vbInformation, "Tablas"
     Exit Sub
 fallo:
     On Error Resume Next
+    Application.StatusBar = False
     Application.ScreenUpdating = True
     Application.EnableEvents = True
     MsgBox "Error al rellenar la serie:" & vbLf & Err.Description, vbExclamation, "Tablas"
@@ -1442,6 +1462,32 @@ Private Function MetSerie(ByVal s As String) As String
         MetSerie = "Rentabilidad"
     End If
 End Function
+
+' Resalta en rojo claro las entidades de la columna A que NO se encontraron en la
+' hoja 'cartera' (id vacio); limpia el resto. Devuelve cuantas no se encontraron.
+Private Function MarcarEntidades(ByVal ws As Worksheet, ByRef eName() As String, _
+        ByRef eId() As String, ByRef eRow() As Long, ByVal ne As Long) As Long
+    Dim i As Long, nBad As Long: nBad = 0
+    For i = 1 To ne
+        If Len(eName(i)) > 0 And Len(eId(i)) = 0 Then
+            ws.Cells(eRow(i), 1).Interior.Color = RGB(255, 199, 206)   ' rojo claro: no encontrada
+            nBad = nBad + 1
+        Else
+            ws.Cells(eRow(i), 1).Interior.ColorIndex = xlNone
+        End If
+    Next i
+    MarcarEntidades = nBad
+End Function
+
+' Escribe en H3 una linea de estado: cuando y que se actualizo (y avisos).
+Private Sub EstadoTabla(ByVal ws As Worksheet, ByVal resumen As String, ByVal nBad As Long)
+    Dim t As String
+    t = "Actualizado " & Format(Now, "dd/mm HH:mm") & "  -  " & resumen
+    If nBad > 0 Then t = t & "  -  " & nBad & " entidad(es) no encontrada(s) (en rojo)"
+    On Error Resume Next
+    ws.Range("H3").Value = t
+    On Error GoTo 0
+End Sub
 
 ' Clasifica el texto de una cabecera de variable en (kind, pA, pB):
 '  kind="year" pA=ano | kind="ret" pA=periodo | kind="risk" pA=criterio pB=variable

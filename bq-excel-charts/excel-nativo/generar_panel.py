@@ -747,7 +747,9 @@ def build_tablas(wb, n):
         ws.add_data_validation(dv)
         dv.add(ws[cell])
 
-    ws["A3"] = "Estilo"
+    # Panel de control (filas 3-4): cada control con su etiqueta clara. Se mantienen
+    # las celdas que lee la macro (B3 Estilo, B4 Total, E3 Auto, E4 Orientación, H4 Periodo).
+    ws["A3"] = "Estilo (color)"
     ws["A3"].font = BOLD
     sel("B3", "Ninguno", "Ninguno,Mapa de calor,Barras")   # sin colores por defecto
     ws["A4"] = "Fila de Total"
@@ -760,15 +762,23 @@ def build_tablas(wb, n):
     ws["D4"].font = BOLD
     sel("E4", "Matriz (metricas en columnas)",
         "Matriz (metricas en columnas),Series (periodos en columnas)")
-    ws["G4"] = "Periodo (series)"
+    ws["G4"] = "Periodo (Series)"
     ws["G4"].font = BOLD
     sel("H4", "Meses", "Meses,Trimestres,Años")
 
-    ws["A5"] = ("Elige en cada columna (fila 6) la métrica: VaR, Volatilidad Anualizada, "
-                "Patrimonio… o un marcador «… (se actualiza)» que crece solo (un mes/trim/año "
-                "más a la derecha, empujando las columnas siguientes).")
+    # Estado / última actualización (lo escribe la macro).
+    ws["G3"] = "Última actualización"
+    ws["G3"].font = BOLD
+    ws["H3"] = "(sin actualizar)"
+    ws["H3"].font = Font(italic=True, size=9, color="808080")
+    ws.merge_cells("H3:M3")
+
+    ws["A5"] = ("Modo Matriz: filas = entidades (A), columnas = métricas (fila 6). "
+                "Modo Series: filas = Entidad (A) + Métrica (B), columnas = periodos (deja "
+                "A vacía para repetir la cartera de arriba). Los marcadores «… (se actualiza)» "
+                "crecen solos cada mes/trim/año. Pulsa «Rellenar tabla».")
     ws["A5"].font = Font(italic=True, size=9, color="808080")
-    ws.merge_cells("A5:J5")
+    ws.merge_cells("A5:M5")
 
     # Catálogo de variables (columna oculta T) para el desplegable de la cabecera.
     variables = [
@@ -848,6 +858,9 @@ def build_tablas(wb, n):
     ws.column_dimensions["A"].width = 28
     for j in range(NCOLS):
         ws.column_dimensions[get_column_letter(2 + j)].width = 13
+    # Inmoviliza cabecera (fila 6) y las columnas A/B, para que al crecer la tabla
+    # (más meses o más filas) sigan visibles la entidad/métrica y las cabeceras.
+    ws.freeze_panes = "C7"
     return ws
 
 
