@@ -2369,7 +2369,7 @@ Public Sub InstalarBotones()
     If Not wt Is Nothing Then
         BorrarBotones wt
         CrearBoton wt, "J1", ">> RELLENAR TABLA", "RellenarTabla"
-        CrearBoton wt, "J4", "+ CREAR HOJA CON TABLA", "CrearHojaTabla"
+        CrearBoton wt, "J3", "+ CREAR HOJA CON TABLA", "CrearHojaTabla"
     End If
     On Error Resume Next
     Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")
