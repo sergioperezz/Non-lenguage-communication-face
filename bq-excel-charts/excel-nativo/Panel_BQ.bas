@@ -1992,6 +1992,7 @@ Public Sub CrearHojaTabla()
     If src Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation: Exit Sub
 
     Dim nom As String: nom = NombreHojaLibre("Tabla")
+    On Error GoTo limp
     Application.ScreenUpdating = False
     src.Copy After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count)
     Dim ws As Worksheet: Set ws = ActiveSheet
@@ -2009,6 +2010,10 @@ Public Sub CrearHojaTabla()
     ws.Activate
     MsgBox "Creada la hoja '" & nom & "'. Editala/actualizala y exportala a " & _
            "PowerPoint desde sus botones.", vbInformation, "Crear hoja"
+    Exit Sub
+limp:
+    Application.ScreenUpdating = True
+    MsgBox "No se pudo crear la hoja:" & vbLf & Err.Description, vbExclamation, "Crear hoja"
 End Sub
 
 ' Siguiente nombre de hoja libre "Base N".
