@@ -984,6 +984,89 @@ End Sub
 '   - Riesgo (ultimo valor): Duracion Modificada, Duracion Macaulay, TIR, VaR, CMR.
 '   (TB_HDR/TB_ROW0 declarados arriba, en la seccion de constantes del modulo.)
 
+' Asistente: crea una tabla lista a partir de una plantilla (deja la estructura
+' montada: orientacion, periodo, cabeceras/metricas y 2 carteras de ejemplo).
+' El usuario solo cambia las carteras (columna A) y pulsa "Rellenar tabla".
+Public Sub NuevaTabla()
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = ThisWorkbook.Sheets("Tablas")
+    On Error GoTo 0
+    If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
+
+    Dim msg As String
+    msg = "Elige una plantilla (escribe el numero):" & vbLf & vbLf & _
+          "1 = Rentabilidades mensuales (los meses del ano, crecen solos)" & vbLf & _
+          "2 = Riesgo: VaR, TIR, Duracion, CMR" & vbLf & _
+          "3 = Serie: rentabilidad + volatilidad de una cartera (una debajo de otra)" & vbLf & _
+          "4 = Retorno absoluto: meses + YTD + volatilidad" & vbLf & _
+          "5 = Patrimonio mensual (evolucion)"
+    Dim r As String: r = Trim(InputBox(msg, "Nueva tabla", "1"))
+    If r = "" Then Exit Sub
+
+    Application.EnableEvents = False
+    LimpiarZonaTabla ws
+    ' Controles por defecto (los sobreescribe la plantilla si hace falta).
+    ws.Range("B3").Value = "Ninguno"                          ' Estilo
+    ws.Range("B4").Value = "No"                               ' Fila de Total
+    ws.Range("E4").Value = "Matriz (metricas en columnas)"    ' Orientacion
+    ws.Range("H4").Value = "Meses"                            ' Periodo (series)
+
+    Dim ej1 As String, ej2 As String
+    ej1 = "Cartera RF Gobierno": ej2 = "Cartera RF Credito"
+
+    Select Case r
+        Case "1"
+            ws.Cells(TB_HDR, 2).Value = "Rentabilidad mensual (se actualiza)"
+            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
+        Case "2"
+            ws.Cells(TB_HDR, 2).Value = "VaR"
+            ws.Cells(TB_HDR, 3).Value = "TIR"
+            ws.Cells(TB_HDR, 4).Value = "Duracion Modificada"
+            ws.Cells(TB_HDR, 5).Value = "CMR"
+            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
+        Case "3"
+            ws.Range("E4").Value = "Series (periodos en columnas)"
+            ws.Cells(TB_ROW0, 1).Value = ej1
+            ws.Cells(TB_ROW0, 2).Value = "Rentabilidad"
+            ws.Cells(TB_ROW0 + 1, 2).Value = "Volatilidad"   ' A vacio -> hereda la cartera de arriba
+        Case "4"
+            ws.Cells(TB_HDR, 2).Value = "Rentabilidad mensual (se actualiza)"
+            ws.Cells(TB_HDR, 3).Value = "Rentab YTD"
+            ws.Cells(TB_HDR, 4).Value = "Volatilidad Anualizada"
+            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
+        Case "5"
+            ws.Cells(TB_HDR, 2).Value = "Patrimonio mensual (se actualiza)"
+            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
+        Case Else
+            Application.EnableEvents = True
+            MsgBox "Opcion no valida. Escribe un numero del 1 al 5.", vbExclamation, "Nueva tabla": Exit Sub
+    End Select
+
+    ws.Range("H3").Value = "(sin actualizar)"
+    Application.EnableEvents = True
+    ws.Activate
+    MsgBox "Tabla creada. Cambia las carteras (columna A) por las tuyas y pulsa '>> RELLENAR TABLA'.", _
+           vbInformation, "Nueva tabla"
+End Sub
+
+' Limpia la zona de una tabla (cabeceras fila 5-6 y cuerpo A7 en adelante) para
+' empezar de cero, SIN tocar los controles (filas 3-4) ni el catalogo oculto de la
+' columna T (col 20, que alimenta los desplegables): por eso se salta esa columna.
+Private Sub LimpiarZonaTabla(ByVal ws As Worksheet)
+    Const HDRR As Long = 5      ' fila de marcas (TB_HDR-1)
+    Dim zc As Range, zd As Range
+    ' Cabeceras (filas 5-6): cols B..S y U..BB (se salta la T = catalogo).
+    Set zc = ws.Range(ws.Cells(HDRR, 2), ws.Cells(TB_HDR, 19))
+    Set zd = ws.Range(ws.Cells(HDRR, 21), ws.Cells(TB_HDR, 80))
+    Application.Union(zc, zd).ClearContents
+    ' Cuerpo (entidades + metricas + valores): cols A..S y U..BB.
+    Set zc = ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 19))
+    Set zd = ws.Range(ws.Cells(TB_ROW0, 21), ws.Cells(TB_ROW0 + 600, 80))
+    Application.Union(zc, zd).ClearContents
+    ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 1)).Interior.ColorIndex = xlNone   ' quita rojos
+End Sub
+
 Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet
     On Error Resume Next
@@ -2158,7 +2241,8 @@ Public Sub InstalarBotones()
     On Error GoTo 0
     If Not wt Is Nothing Then
         BorrarBotones wt
-        CrearBoton wt, "D3", ">> RELLENAR TABLA", "RellenarTabla"
+        CrearBoton wt, "J1", "+ NUEVA TABLA (plantillas)", "NuevaTabla"
+        CrearBoton wt, "J4", ">> RELLENAR TABLA", "RellenarTabla"
     End If
     On Error Resume Next
     Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")

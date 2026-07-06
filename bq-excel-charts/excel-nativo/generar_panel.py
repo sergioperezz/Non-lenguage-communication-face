@@ -734,9 +734,10 @@ def build_tablas(wb, n):
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Tabla configurable"
     ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"] = ("Dos orientaciones (E4): «Matriz» = filas entidades, columnas métricas (fila 6); "
-                "«Series» = columnas periodos (E5) y filas = Entidad (A) + Métrica (B). "
-                "Pulsa «Rellenar tabla».")
+    ws["A2"] = ("¿Primera vez? Pulsa «+ Nueva tabla» y elige una plantilla; monta la "
+                "estructura y solo cambias las carteras. Manual: «Matriz» = filas entidades, "
+                "columnas métricas (fila 6); «Series» = columnas periodos y filas = Entidad (A) "
+                "+ Métrica (B). Luego «Rellenar tabla».")
     ws["A2"].font = Font(italic=True, size=9, color="808080")
 
     def sel(cell, value, opts):
