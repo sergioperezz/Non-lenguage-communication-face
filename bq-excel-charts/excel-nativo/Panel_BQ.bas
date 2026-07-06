@@ -1015,6 +1015,8 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Next i
     If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera' (nombre_elemento/id_elemento).", vbExclamation, "Tablas": Exit Sub
 
+    Dim cn As Object, rs As Object      ' (para el manejador 'fallo')
+    On Error GoTo fallo
     ' --- Expande los grupos que "crecen" (Periodo = Meses/Trimestres/Anos (crece)):
     ' cada uno genera sus columnas de periodo concretas a la derecha y empuja las
     ' siguientes. Reescribe las filas 4 (marcas), 5 (Metrica) y 6 (Periodo). ---
@@ -1053,8 +1055,6 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
     If Fold(ws.Range("B4").Value) = "si" Then needPos = True   ' Fila de Total
 
-    Dim cn As Object, rs As Object      ' (para el manejador 'fallo')
-    On Error GoTo fallo
     Application.StatusBar = "Tablas: consultando BigQuery..."
     ' --- Descarga (RET/RISK/PATRIM/PATMES) a diccionarios en memoria ---
     Dim retColl As Object, difColl As Object, bmkColl As Object, riskV As Object
@@ -1469,65 +1469,6 @@ fin:
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
 End Function
 
-' Plantilla de columnas (celda B5): materializa la cabecera (fila 6). La palabra
-' "Meses" -> Ene..ULTIMO mes con datos del ano en curso (o "Meses 2025" -> Ene..Dic
-' de 2025). El resto de tokens (2026, Volatilidad..., TIR...) se copian tal cual.
-' Al re-ejecutar, si hay un mes nuevo con datos, su columna se anade sola.
-Private Sub ExpandirPlantilla(ByVal ws As Worksheet, ByVal inlist As String)
-    Dim tmpl As String: tmpl = Trim(CStr(ws.Range("B5").Value))
-    If Len(tmpl) = 0 Then Exit Sub
-    Dim mm As String: mm = UltimoMesPerf(inlist)
-    If Len(mm) < 7 Then mm = Format(Date, "yyyy-mm")
-    Dim yData As String: yData = Left(mm, 4)
-    Dim mData As Long: mData = CLng(Val(Mid(mm, 6, 2)))
-
-    Dim hdrs As Object: Set hdrs = CreateObject("Scripting.Dictionary")
-    Dim nh As Long: nh = 0
-    Dim toks() As String: toks = Split(tmpl, ",")
-    Dim k As Long, t As String, ft As String
-    For k = LBound(toks) To UBound(toks)
-        t = Trim(toks(k))
-        If Len(t) > 0 Then
-            ft = Fold(t)
-            ' Bloque de meses: "Meses" (rentabilidad), "Meses de Patrimonio",
-            ' "Patrimonio mensual" / "Patrimonio meses".
-            Dim esMeses As Boolean, metric As String
-            esMeses = (ft = "meses" Or Left(ft, 6) = "meses ")
-            metric = ""
-            If esMeses And InStr(ft, "patrim") > 0 Then metric = "patmes"
-            If Left(ft, 6) = "patrim" And (InStr(ft, "mensual") > 0 Or InStr(ft, "meses") > 0) Then _
-                esMeses = True: metric = "patmes"
-            If esMeses Then
-                Dim yr As String, cnt As Long, prts() As String, m As Long, ip As Long
-                prts = Split(ft, " ")
-                yr = yData
-                For ip = 1 To UBound(prts)
-                    If Len(prts(ip)) = 4 Then If IsNumeric(prts(ip)) Then yr = prts(ip)
-                Next ip
-                If yr = yData Then cnt = mData Else cnt = 12
-                For m = 1 To cnt
-                    nh = nh + 1
-                    If metric = "patmes" Then
-                        hdrs(nh) = "Patrimonio " & MesAbbr(m) & " " & yr
-                    ElseIf yr = yData Then
-                        hdrs(nh) = MesAbbr(m)
-                    Else
-                        hdrs(nh) = MesAbbr(m) & " " & yr
-                    End If
-                Next m
-            Else
-                nh = nh + 1: hdrs(nh) = t
-            End If
-        End If
-    Next k
-
-    Application.EnableEvents = False
-    ws.Range(ws.Cells(TB_HDR, 2), ws.Cells(TB_HDR, 80)).ClearContents
-    Dim c As Long
-    For c = 1 To nh: ws.Cells(TB_HDR, 1 + c).Value = hdrs(c): Next c
-    Application.EnableEvents = True
-End Sub
-
 ' Ano de la ultima fecha con datos de performance (para las cabeceras que llevan ano).
 Private Function AnoDatos(ByVal inlist As String) As Long
     Dim mm As String: mm = UltimoMesPerf(inlist)
@@ -1607,12 +1548,12 @@ Private Sub ExpandirTabla(ByVal ws As Worksheet, ByVal inlist As String)
     ReDim oMet(1 To 200): ReDim oPer(1 To 200): ReDim oMk(1 To 200): no = 0
     Dim i As Long, k As Long
     For i = 1 To ns
-        If no >= 180 Then Exit For          ' tope de seguridad (arrays 1..200)
+        If no >= 88 Then Exit For          ' tope de seguridad (arrays 1..200)
         If Len(sGran(i)) > 0 Then
             Dim pers() As String, np As Long
             PeriodosCrece sGran(i), yData, mData, pers, np
             For k = 1 To np
-                If no >= 180 Then Exit For
+                If no >= 88 Then Exit For
                 no = no + 1: oMet(no) = sMet(i): oPer(no) = pers(k)
                 oMk(no) = IIf(k = 1, "CRECE:" & sGran(i), "AUTO")
             Next k
