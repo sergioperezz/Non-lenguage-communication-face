@@ -732,10 +732,10 @@ def build_tablas(wb, n):
 
     ws = wb.create_sheet("Tablas")
     ws.sheet_view.showGridLines = False
-    ws["A1"] = "Tabla — elige Métrica y Desglose"
+    ws["A1"] = "Tabla configurable"
     ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"] = ("Elige la Métrica y el Desglose: las columnas se generan solas. Filas = "
-                "entidades (columna A, desde la fila 7). Pulsa «Rellenar tabla».")
+    ws["A2"] = ("Filas = entidades (columna A). Columnas = las métricas que elijas en la "
+                "fila 6 (desplegable). Pulsa «Rellenar tabla».")
     ws["A2"].font = Font(italic=True, size=9, color="808080")
 
     def sel(cell, value, opts):
@@ -746,37 +746,58 @@ def build_tablas(wb, n):
         ws.add_data_validation(dv)
         dv.add(ws[cell])
 
-    ws["A3"] = "Métrica"
+    ws["A3"] = "Estilo"
     ws["A3"].font = BOLD
-    sel("B3", "Rentabilidad",
-        "Rentabilidad,Volatilidad,Patrimonio,Peso,VaR,TIR,Duración Modificada,Duración Macaulay,CMR")
-    ws["A4"] = "Desglose (columnas)"
+    sel("B3", "Ninguno", "Ninguno,Mapa de calor,Barras")   # sin colores por defecto
+    ws["A4"] = "Fila de Total"
     ws["A4"].font = BOLD
-    sel("B4", "Meses", "Meses,Años,Periodos,A la fecha")
-
-    ws["D3"] = "Estilo"
+    sel("B4", "No", "No,Sí")
+    ws["D3"] = "Auto al abrir"
     ws["D3"].font = BOLD
-    sel("E3", "Mapa de calor", "Mapa de calor,Barras,Ninguno")
-    ws["D4"] = "Fila de Total"
-    ws["D4"].font = BOLD
-    sel("E4", "No", "No,Sí")
-    ws["G3"] = "Auto al abrir"
-    ws["G3"].font = BOLD
-    sel("H3", "No", "No,Sí")
+    sel("E3", "No", "No,Sí")
 
-    ws["A5"] = ("Métrica × Desglose: p.ej. Rentabilidad×Meses (tu retorno absoluto), "
-                "Patrimonio×Meses (evolución), Volatilidad×Años. Riesgo/Peso: usa «A la fecha».")
+    ws["A5"] = ("Elige en cada columna (fila 6) la métrica: VaR, Volatilidad Anualizada, "
+                "Patrimonio… o un marcador «… (se actualiza)» que crece solo (un mes/trim/año "
+                "más a la derecha, empujando las columnas siguientes).")
     ws["A5"].font = Font(italic=True, size=9, color="808080")
     ws.merge_cells("A5:J5")
 
-    # Cabecera: A6 = "Entidad"; B6.. las genera la macro según Métrica+Desglose.
+    # Catálogo de variables (columna oculta T) para el desplegable de la cabecera.
+    variables = [
+        # Marcadores que CRECEN solos (una columna nueva por periodo, a la derecha):
+        "Rentabilidad mensual (se actualiza)", "Rentabilidad trimestral (se actualiza)",
+        "Rentabilidad anual (se actualiza)", "Patrimonio mensual (se actualiza)",
+        "Patrimonio anual (se actualiza)",
+        # Métricas sueltas (una columna cada una):
+        "Rentab MTD", "Rentab YTD", "Rentab 1M", "Rentab 3M", "Rentab 6M",
+        "Rentab 1A", "Rentab 3A", "Volatilidad Anualizada", "Volatilidad Diaria",
+        "Duración Modificada", "Duración Macaulay", "TIR", "VaR", "CMR",
+        "Patrimonio", "Peso",
+        "2025", "2024", "2023", "2022", "2021"]
+    for i, v in enumerate(variables):
+        ws.cell(2 + i, 20, v)          # T2..
+    ws.column_dimensions["T"].hidden = True
+    wb.defined_names.add(DefinedName(
+        "VariablesTabla", attr_text=f"Tablas!$T$2:$T${1 + len(variables)}"))
+
+    # Fila 5 = marcas ocultas (AUTO) de las columnas que genera un marcador.
+    ws.row_dimensions[HDR - 1].hidden = True
+
+    # Cabecera (fila 6): A6 = "Entidad"; B6.. = desplegable de métricas, con ejemplos.
     ws.cell(HDR, 1, "Entidad").font = BOLD_WHITE
     ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
+    defaults_hdr = ["Rentabilidad mensual (se actualiza)", "VaR", "Volatilidad Anualizada"]
     for j in range(NCOLS):
         c = ws.cell(HDR, 2 + j)
+        if j < len(defaults_hdr):
+            c.value = defaults_hdr[j]
         c.font = BOLD_WHITE
         c.fill = PatternFill("solid", fgColor=AZUL)
         c.alignment = Alignment(horizontal="center")
+    dv_var = DataValidation(type="list", formula1="=VariablesTabla", allow_blank=True)
+    dv_var.showErrorMessage = False
+    ws.add_data_validation(dv_var)
+    dv_var.add(f"B{HDR}:{get_column_letter(1 + NCOLS)}{HDR}")
 
     # Entidades: columna A, dropdown de la lista de carteras (EntLista); 2 ejemplos.
     dv_ent = DataValidation(type="list", formula1="=EntLista", allow_blank=True)
