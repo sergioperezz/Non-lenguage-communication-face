@@ -766,7 +766,11 @@ def build_tablas(wb, n):
     variables = [
         # Marcadores que CRECEN solos (una columna nueva por periodo, a la derecha):
         "Rentabilidad mensual (se actualiza)", "Rentabilidad trimestral (se actualiza)",
-        "Rentabilidad anual (se actualiza)", "Patrimonio mensual (se actualiza)",
+        "Rentabilidad anual (se actualiza)", "Rentabilidad acumulada (se actualiza)",
+        "Exceso vs benchmark mensual (se actualiza)",
+        "Volatilidad mensual (se actualiza)", "Volatilidad anual (se actualiza)",
+        "Tracking Error mensual (se actualiza)", "Tracking Error anual (se actualiza)",
+        "Patrimonio mensual (se actualiza)", "Patrimonio trimestral (se actualiza)",
         "Patrimonio anual (se actualiza)",
         # Métricas sueltas (una columna cada una):
         "Rentab MTD", "Rentab YTD", "Rentab 1M", "Rentab 3M", "Rentab 6M",

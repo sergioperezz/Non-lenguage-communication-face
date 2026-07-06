@@ -1031,12 +1031,13 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     ' --- Clasificar variables ---
     Dim kind() As String, pA() As String, pB() As String
     ReDim kind(1 To nv): ReDim pA(1 To nv): ReDim pB(1 To nv)
-    Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean
+    Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean, needBmk As Boolean
     Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
     For i = 1 To nv
         ClasificarVar vName(i), kind(i), pA(i), pB(i)
         Select Case kind(i)
-            Case "ret", "year", "month", "quarter", "vol": needRet = True
+            Case "ret", "year", "month", "quarter", "vol", "acum": needRet = True
+            Case "te", "exc":                   needRet = True: needBmk = True
             Case "patrim", "peso":              needPos = True
             Case "patmes":                      needPatMes = True
             Case "risk":                        If Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
@@ -1053,22 +1054,36 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
 
     ' --- RET en memoria: id -> Collection de Array(dserial, factor) ---
     Dim retColl As Object: Set retColl = CreateObject("Scripting.Dictionary")
+    Dim difColl As Object: Set difColl = CreateObject("Scripting.Dictionary")  ' id -> diarios (twr-bmk) para Tracking Error
+    Dim bmkColl As Object: Set bmkColl = CreateObject("Scripting.Dictionary")  ' id -> (dserial, 1+twr_bmk) para Exceso
     If needRet Then
         Dim sqlR As String
         sqlR = "SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS)," & _
-               " FORMAT('%.10f', CAST(TWR_1D AS FLOAT64))" & _
-               " FROM " & Tbl(DS_PROD, T_PERF) & _
+               " FORMAT('%.10f', CAST(TWR_1D AS FLOAT64))"
+        If needBmk Then sqlR = sqlR & ", FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64))"
+        sqlR = sqlR & " FROM " & Tbl(DS_PROD, T_PERF) & _
                " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & "'" & _
                " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
                " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
                MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)" & _
                " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
         Set rs = cn.Execute(sqlR)
-        Dim idc As String
+        Dim idc As String, dser As Double, tw1 As Double, bm1 As Double
         Do While Not rs.EOF
             idc = UCase(Trim(CStr(rs.Fields(0).Value)))
+            dser = CDbl(FechaDe(CStr(rs.Fields(1).Value)))
+            tw1 = NumDbl(rs.Fields(2).Value)
             If Not retColl.Exists(idc) Then retColl.Add idc, New Collection
-            retColl(idc).Add Array(CDbl(FechaDe(CStr(rs.Fields(1).Value))), 1 + NumDbl(rs.Fields(2).Value))
+            retColl(idc).Add Array(dser, 1 + tw1)
+            If needBmk Then
+                If Not IsNull(rs.Fields(3).Value) Then
+                    bm1 = NumDbl(rs.Fields(3).Value)
+                    If Not difColl.Exists(idc) Then difColl.Add idc, New Collection
+                    difColl(idc).Add Array(dser, tw1 - bm1)
+                    If Not bmkColl.Exists(idc) Then bmkColl.Add idc, New Collection
+                    bmkColl(idc).Add Array(dser, 1 + bm1)
+                End If
+            End If
             rs.MoveNext
         Loop
         rs.Close
@@ -1167,6 +1182,17 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
                         If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j), pB(j))
                     Case "vol"
                         If retColl.Exists(eId(i)) Then cellVal = ValorVol(retColl(eId(i)), pA(j), pB(j))
+                    Case "acum"
+                        If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), "acum", pA(j), pB(j))
+                    Case "te"
+                        If difColl.Exists(eId(i)) Then cellVal = ValorTE(difColl(eId(i)), pB(j))
+                    Case "exc"
+                        If retColl.Exists(eId(i)) And bmkColl.Exists(eId(i)) Then
+                            Dim rf As Variant, rb As Variant
+                            rf = ValorRet(retColl(eId(i)), "month", pA(j), pB(j))
+                            rb = ValorRet(bmkColl(eId(i)), "month", pA(j), pB(j))
+                            If IsNumeric(rf) And IsNumeric(rb) Then cellVal = CDbl(rf) - CDbl(rb)
+                        End If
                     Case "risk"
                         Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
                         If riskV.Exists(kL) Then cellVal = riskV(kL)
@@ -1203,7 +1229,7 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
                         If IsNumeric(valM(i, j)) Then sAcc = sAcc + CDbl(valM(i, j)): any1 = True
                     Next i
                     If any1 Then tv = sAcc
-                Case "ret", "year", "month", "quarter", "vol", "risk"
+                Case "ret", "year", "month", "quarter", "vol", "risk", "acum", "te", "exc"
                     Dim num As Double, wsum As Double, w As Double: num = 0: wsum = 0
                     For i = 1 To ne
                         If IsNumeric(valM(i, j)) Then
@@ -1262,6 +1288,39 @@ Private Sub ClasificarVar(ByVal v As String, ByRef kind As String, ByRef pA As S
         Exit Sub
     End If
     If f = "peso" Then kind = "peso": Exit Sub
+    If InStr(f, "tracking") = 1 Then    ' "Tracking Error Ene" (mes) o "Tracking Error 2025" (ano)
+        kind = "te"
+        Dim tep() As String, tw As Long, tmm As Long, tyy As String
+        tep = Split(f, " "): tmm = 0: tyy = ""
+        For tw = 1 To UBound(tep)
+            If MesNum(tep(tw)) > 0 Then tmm = MesNum(tep(tw))
+            If Len(tep(tw)) = 4 Then If IsNumeric(tep(tw)) Then tyy = tep(tw)
+        Next tw
+        If tmm > 0 Then pB = "M" & tmm Else pB = tyy
+        Exit Sub
+    End If
+    If InStr(f, "acum") = 1 Then         ' "Acum Ene 2026" -> rentabilidad acumulada a cierre de mes
+        kind = "acum"
+        Dim ap() As String, aw As Long, amm As Long, ayy As String
+        ap = Split(f, " "): amm = 0: ayy = ""
+        For aw = 1 To UBound(ap)
+            If MesNum(ap(aw)) > 0 Then amm = MesNum(ap(aw))
+            If Len(ap(aw)) = 4 Then If IsNumeric(ap(aw)) Then ayy = ap(aw)
+        Next aw
+        pA = CStr(amm): pB = ayy
+        Exit Sub
+    End If
+    If InStr(f, "exceso") = 1 Then       ' "Exceso Ene 2026" -> fondo - benchmark del mes
+        kind = "exc"
+        Dim ep() As String, ew As Long, emm As Long, eyy As String
+        ep = Split(f, " "): emm = 0: eyy = ""
+        For ew = 1 To UBound(ep)
+            If MesNum(ep(ew)) > 0 Then emm = MesNum(ep(ew))
+            If Len(ep(ew)) = 4 Then If IsNumeric(ep(ew)) Then eyy = ep(ew)
+        Next ew
+        pA = CStr(emm): pB = eyy
+        Exit Sub
+    End If
     If InStr(f, "duraci") = 1 Then kind = "risk": pA = "Duracion": pB = VarTarget(s): Exit Sub
     If f = "tir" Then kind = "risk": pA = "TIR": pB = "": Exit Sub
     If f = "cmr" Then kind = "risk": pA = Cfg("RISK_CRIT_CMR", "CMR"): pB = Cfg("RISK_VAR_CMR", ""): Exit Sub
@@ -1436,8 +1495,26 @@ Private Sub ExpandirMarcadores(ByVal ws As Worksheet, ByVal inlist As String)
         f = Fold(CStr(spec(i)))
         no = no + 1: outH(no) = spec(i): outA(no) = ""     ' el propio texto (ancla o normal)
         If InStr(f, "se actualiza") > 0 Then
-            metr = IIf(InStr(f, "patrim") > 0, "Patrimonio", "Rentabilidad")
-            If InStr(f, "trimestr") > 0 Then gran = "T" ElseIf InStr(f, "anual") > 0 Then gran = "A" Else gran = "M"
+            If InStr(f, "patrim") > 0 Then
+                metr = "Patrimonio"
+            ElseIf InStr(f, "volatil") > 0 Then
+                metr = "Volatilidad"
+            ElseIf InStr(f, "tracking") > 0 Then
+                metr = "Tracking Error"
+            ElseIf InStr(f, "acum") > 0 Then
+                metr = "Acumulada"
+            ElseIf InStr(f, "exceso") > 0 Then
+                metr = "Exceso"
+            Else
+                metr = "Rentabilidad"
+            End If
+            If InStr(f, "trimestr") > 0 Then
+                gran = "T"
+            ElseIf InStr(f, "anual") > 0 Then
+                gran = "A"
+            Else
+                gran = "M"
+            End If
             AgregarPeriodos outH, outA, no, metr, gran, yData, mData
         End If
     Next i
@@ -1507,6 +1584,16 @@ Private Function HeaderMetrica(ByVal met As String, ByVal tipo As String, _
             End Select
         Case fm = "peso"
             If tipo = "fecha" Then HeaderMetrica = "Peso"
+        Case fm = "tracking error"
+            Select Case tipo
+                Case "mes":  HeaderMetrica = "Tracking Error " & val
+                Case "ano":  HeaderMetrica = "Tracking Error " & val
+                Case Else:   HeaderMetrica = ""
+            End Select
+        Case fm = "acumulada"                                ' rentabilidad acumulada a cierre de mes
+            If tipo = "mes" Then HeaderMetrica = "Acum " & val & " " & curYear
+        Case fm = "exceso"                                   ' rentabilidad fondo - benchmark del mes
+            If tipo = "mes" Then HeaderMetrica = "Exceso " & val & " " & curYear
         Case Else                                            ' riesgo: VaR/TIR/CMR/Duracion
             If tipo = "fecha" Then HeaderMetrica = met       ' por ahora, solo "a la fecha"
     End Select
@@ -1545,6 +1632,13 @@ Private Function ValorRet(ByVal coll As Collection, ByVal kind As String, _
         m1 = 3 * q - 2: m2 = 3 * q
         For Each it In coll
             If it(0) > 0 Then If Year(CDate(it(0))) = yq And Month(CDate(it(0))) >= m1 And Month(CDate(it(0))) <= m2 Then prod = prod * it(1): hay = True
+        Next it
+    ElseIf kind = "acum" Then                     ' acumulada a cierre de mes: meses 1..tok del ano
+        Dim am As Long: am = CLng(tok)
+        Dim ay As Long
+        If Len(pB) = 4 And IsNumeric(pB) Then ay = CLng(pB) Else ay = Year(CDate(MaxSerial(coll)))
+        For Each it In coll
+            If it(0) > 0 Then If Year(CDate(it(0))) = ay And Month(CDate(it(0))) <= am Then prod = prod * it(1): hay = True
         Next it
     Else
         Dim dMax As Double: dMax = MaxSerial(coll)
@@ -1590,6 +1684,32 @@ Private Function ValorVol(ByVal coll As Collection, ByVal modo As String, Option
     ValorVol = sd
 End Function
 
+' Tracking Error: desviacion tipica muestral de los diferenciales diarios
+' (fondo - benchmark) en la ventana, anualizada (x raiz de 252). win="" -> ano en
+' curso; win="M<n>" -> mes n del ano en curso; win="YYYY" -> ese ano. "" si <2.
+Private Function ValorTE(ByVal coll As Collection, Optional ByVal win As String = "") As Variant
+    Dim dMax As Double: dMax = MaxSerial(coll)
+    If dMax = 0 Then ValorTE = "": Exit Function
+    Dim yy As Long: yy = Year(CDate(dMax))
+    Dim n As Long, s As Double, s2 As Double, x As Double, it As Variant, okd As Boolean
+    For Each it In coll
+        If it(0) > 0 Then
+            If Len(win) = 0 Then
+                okd = (Year(CDate(it(0))) = yy)
+            ElseIf Left(win, 1) = "M" Then
+                okd = (Year(CDate(it(0))) = yy And Month(CDate(it(0))) = CLng(Mid(win, 2)))
+            Else
+                okd = (Year(CDate(it(0))) = CLng(win))
+            End If
+            If okd Then x = it(1): n = n + 1: s = s + x: s2 = s2 + x * x
+        End If
+    Next it
+    If n < 2 Then ValorTE = "": Exit Function
+    Dim vv As Double: vv = (s2 - s * s / n) / (n - 1)
+    If vv < 0 Then vv = 0
+    ValorTE = Sqr(vv) * Sqr(252)
+End Function
+
 Private Function FormatoVar(ByVal kind As String, ByVal pA As String) As String
     Select Case kind
         Case "risk":             FormatoVar = IIf(pA = "Duracion", "0.000", "0.00")
@@ -1608,7 +1728,8 @@ Private Sub EstiloTabla(ByVal ws As Worksheet, ByRef kind() As String, _
     For j = 1 To nv
         Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
         rng.FormatConditions.Delete
-        If kind(j) = "ret" Or kind(j) = "year" Or kind(j) = "month" Or kind(j) = "quarter" Then
+        If kind(j) = "ret" Or kind(j) = "year" Or kind(j) = "month" Or kind(j) = "quarter" _
+           Or kind(j) = "acum" Or kind(j) = "exc" Then
             If InStr(est, "calor") > 0 Then
                 Dim cs As ColorScale: Set cs = rng.FormatConditions.AddColorScale(ColorScaleType:=3)
                 cs.ColorScaleCriteria(1).Type = xlConditionValueLowestValue
