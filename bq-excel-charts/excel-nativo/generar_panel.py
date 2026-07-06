@@ -734,8 +734,9 @@ def build_tablas(wb, n):
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Tabla configurable"
     ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"] = ("Filas = entidades (columna A). Columnas = las métricas que elijas en la "
-                "fila 6 (desplegable). Pulsa «Rellenar tabla».")
+    ws["A2"] = ("Dos orientaciones (E4): «Matriz» = filas entidades, columnas métricas (fila 6); "
+                "«Series» = columnas periodos (E5) y filas = Entidad (A) + Métrica (B). "
+                "Pulsa «Rellenar tabla».")
     ws["A2"].font = Font(italic=True, size=9, color="808080")
 
     def sel(cell, value, opts):
@@ -755,6 +756,13 @@ def build_tablas(wb, n):
     ws["D3"] = "Auto al abrir"
     ws["D3"].font = BOLD
     sel("E3", "No", "No,Sí")
+    ws["D4"] = "Orientación"
+    ws["D4"].font = BOLD
+    sel("E4", "Matriz (metricas en columnas)",
+        "Matriz (metricas en columnas),Series (periodos en columnas)")
+    ws["G4"] = "Periodo (series)"
+    ws["G4"].font = BOLD
+    sel("H4", "Meses", "Meses,Trimestres,Años")
 
     ws["A5"] = ("Elige en cada columna (fila 6) la métrica: VaR, Volatilidad Anualizada, "
                 "Patrimonio… o un marcador «… (se actualiza)» que crece solo (un mes/trim/año "
@@ -808,6 +816,15 @@ def build_tablas(wb, n):
     dv_ent.showErrorMessage = False    # permite escribir/pegar nombres o ids libremente
     ws.add_data_validation(dv_ent)
     dv_ent.add(f"A{ROW0}:A{ROW0 + NROWS - 1}")
+    # Modo «Series»: desplegable de Métrica por fila (columna B). En modo «Matriz»
+    # la columna B lleva datos; el desplegable es solo cosmético (no bloquea nada).
+    dv_met = DataValidation(
+        type="list",
+        formula1='"Rentabilidad,Rentabilidad acumulada,Exceso vs benchmark,Volatilidad,Tracking Error,Patrimonio"',
+        allow_blank=True)
+    dv_met.showErrorMessage = False
+    ws.add_data_validation(dv_met)
+    dv_met.add(f"B{ROW0}:B{ROW0 + NROWS - 1}")
     ejemplos = ["Cartera RF Gobierno", "Cartera RF Crédito"]
     thin = Side(style="thin", color="D6DEE8")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)

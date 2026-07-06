@@ -991,6 +991,9 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     On Error GoTo 0
     If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
 
+    ' Orientacion (E4): "Series" -> periodos en columnas, (entidad+metrica) en filas.
+    If InStr(Fold(CStr(ws.Range("E4").Value)), "serie") > 0 Then RellenarSerie ws, quiet: Exit Sub
+
     Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
 
     ' --- Entidades (columna A) --- (se leen ANTES para poder expandir la plantilla)
@@ -1047,125 +1050,13 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
     If Fold(ws.Range("B4").Value) = "si" Then needPos = True   ' Fila de Total
 
-    Dim cn As Object, rs As Object
+    Dim cn As Object, rs As Object      ' (para el manejador 'fallo')
     On Error GoTo fallo
-    Set cn = CreateObject("ADODB.Connection")
-    cn.CommandTimeout = 120: cn.CursorLocation = 3: cn.Open CfgConn()
-
-    ' --- RET en memoria: id -> Collection de Array(dserial, factor) ---
-    Dim retColl As Object: Set retColl = CreateObject("Scripting.Dictionary")
-    Dim difColl As Object: Set difColl = CreateObject("Scripting.Dictionary")  ' id -> diarios (twr-bmk) para Tracking Error
-    Dim bmkColl As Object: Set bmkColl = CreateObject("Scripting.Dictionary")  ' id -> (dserial, 1+twr_bmk) para Exceso
-    If needRet Then
-        Dim sqlR As String
-        sqlR = "SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS)," & _
-               " FORMAT('%.10f', CAST(TWR_1D AS FLOAT64))"
-        If needBmk Then sqlR = sqlR & ", FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64))"
-        sqlR = sqlR & " FROM " & Tbl(DS_PROD, T_PERF) & _
-               " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & "'" & _
-               " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
-               " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
-               MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)" & _
-               " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
-        Set rs = cn.Execute(sqlR)
-        Dim idc As String, dser As Double, tw1 As Double, bm1 As Double
-        Do While Not rs.EOF
-            idc = UCase(Trim(CStr(rs.Fields(0).Value)))
-            dser = CDbl(FechaDe(CStr(rs.Fields(1).Value)))
-            tw1 = NumDbl(rs.Fields(2).Value)
-            If Not retColl.Exists(idc) Then retColl.Add idc, New Collection
-            retColl(idc).Add Array(dser, 1 + tw1)
-            If needBmk Then
-                If Not IsNull(rs.Fields(3).Value) Then
-                    bm1 = NumDbl(rs.Fields(3).Value)
-                    If Not difColl.Exists(idc) Then difColl.Add idc, New Collection
-                    difColl(idc).Add Array(dser, tw1 - bm1)
-                    If Not bmkColl.Exists(idc) Then bmkColl.Add idc, New Collection
-                    bmkColl(idc).Add Array(dser, 1 + bm1)
-                End If
-            End If
-            rs.MoveNext
-        Loop
-        rs.Close
-    End If
-
-    ' --- RISK en memoria: "id|crit|var" -> ultimo valor ---
-    Dim riskV As Object: Set riskV = CreateObject("Scripting.Dictionary")
-    If crits.Count > 0 Then
-        Dim inCrit As String, kc As Variant
-        For Each kc In crits.Keys
-            inCrit = inCrit & IIf(Len(inCrit) > 0, ",", "") & "'" & Esc(CStr(kc)) & "'"
-        Next kc
-        Dim wq As String
-        wq = "WHERE " & RISK_COL_FONDOBMK & "='" & CfgFondo() & "' AND PK_PORTFOLIO='" & Esc(CfgPortfolio()) & "'"
-        If Len(CfgLtLevel()) > 0 Then wq = wq & " AND PK_LTLEVEL=" & CfgLtLevel()
-        wq = wq & " AND PK_CRITERIO_AGREGACION IN (" & inCrit & ")" & _
-             " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
-             " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
-             MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)"
-        Set rs = cn.Execute("SELECT PK_PORTFOLIO_ID, PK_CRITERIO_AGREGACION, PK_VARIABLE_TARGET," & _
-            " FORMAT('%.10f', CAST(VALOR AS FLOAT64)) FROM " & Tbl(DS_PROD, T_RISK) & " " & wq & _
-            " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS")
-        Dim kRisk As String, kIdCrit As String, valK As Double
-        Do While Not rs.EOF
-            kIdCrit = UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value)) & "|"
-            valK = NumDbl(rs.Fields(3).Value)
-            kRisk = kIdCrit & Trim(CStr(rs.Fields(2).Value))
-            riskV(kRisk) = valK              ' clave exacta id|criterio|variable
-            riskV(kIdCrit) = valK            ' reserva id|criterio| (ultimo del criterio, sin filtrar variable)
-            rs.MoveNext                      ' ordenado ASC -> el ultimo (mas reciente) gana en ambas
-        Loop
-        rs.Close
-    End If
-
-    ' --- PATRIMONIO en memoria: id -> valoracion total (ultima foto) ---
-    Dim patr As Object: Set patr = CreateObject("Scripting.Dictionary")
-    Dim totPatr As Double: totPatr = 0
-    If needPos Then
-        Dim sqlP As String
-        sqlP = "WITH ult AS (SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS f FROM " & TblPos() & _
-               " WHERE PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & " GROUP BY PK_PORTFOLIO_ID)" & _
-               " SELECT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64))" & _
-               " FROM " & TblPos() & " p JOIN ult ON ult.PK_PORTFOLIO_ID=p.PK_PORTFOLIO_ID" & _
-               " AND p.PK_FECHA_DATOS=ult.f GROUP BY p.PK_PORTFOLIO_ID"
-        Set rs = cn.Execute(sqlP)
-        Do While Not rs.EOF
-            patr(UCase(Trim(CStr(rs.Fields(0).Value)))) = NumDbl(rs.Fields(1).Value)
-            rs.MoveNext
-        Loop
-        rs.Close
-        Dim kp As Variant
-        For Each kp In patr.Keys: totPatr = totPatr + patr(kp): Next kp
-    End If
-
-    ' --- PATRIMONIO MENSUAL en memoria: "id|YYYY-MM" -> valoracion total del mes ---
-    Dim patMes As Object: Set patMes = CreateObject("Scripting.Dictionary")
-    If needPatMes Then
-        Dim sqlPM As String
-        sqlPM = "WITH base AS (SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m', PK_FECHA_DATOS) AS mes," & _
-                " PK_FECHA_DATOS, " & PosValor() & " AS valor FROM " & TblPos() & _
-                " WHERE PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
-                " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & _
-                "), INTERVAL " & CACHE_ANOS & " YEAR))," & _
-                " ult AS (SELECT PK_PORTFOLIO_ID, mes, MAX(PK_FECHA_DATOS) AS f FROM base GROUP BY PK_PORTFOLIO_ID, mes)" & _
-                " SELECT b.PK_PORTFOLIO_ID, b.mes, FORMAT('%.10f', CAST(SUM(b.valor) AS FLOAT64))" & _
-                " FROM base b JOIN ult ON ult.PK_PORTFOLIO_ID=b.PK_PORTFOLIO_ID AND ult.mes=b.mes" & _
-                " AND b.PK_FECHA_DATOS=ult.f GROUP BY b.PK_PORTFOLIO_ID, b.mes"
-        Set rs = cn.Execute(sqlPM)
-        Do While Not rs.EOF
-            patMes(UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value))) = NumDbl(rs.Fields(2).Value)
-            rs.MoveNext
-        Loop
-        rs.Close
-    End If
-    ' Ano por defecto para columnas "Patrimonio <mes>" sin ano: el mas reciente.
-    Dim defYear As String: defYear = ""
-    Dim kpm As Variant
-    For Each kpm In patMes.Keys
-        Dim yy4 As String: yy4 = Mid(CStr(kpm), InStr(CStr(kpm), "|") + 1, 4)
-        If yy4 > defYear Then defYear = yy4
-    Next kpm
-    cn.Close
+    ' --- Descarga (RET/RISK/PATRIM/PATMES) a diccionarios en memoria ---
+    Dim retColl As Object, difColl As Object, bmkColl As Object, riskV As Object
+    Dim patr As Object, patMes As Object, totPatr As Double, defYear As String
+    TablaDescarga inlist, needRet, needBmk, needPos, needPatMes, crits, _
+        retColl, difColl, bmkColl, riskV, patr, totPatr, patMes, defYear
 
     ' --- Rellenar celdas ---
     Application.EnableEvents = False
@@ -1175,39 +1066,9 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Dim valM() As Variant: ReDim valM(1 To ne, 1 To nv)
     For i = 1 To ne
         For j = 1 To nv
-            Dim cellVal As Variant: cellVal = ""
-            If Len(eId(i)) > 0 Then
-                Select Case kind(j)
-                    Case "ret", "year", "month", "quarter"
-                        If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), kind(j), pA(j), pB(j))
-                    Case "vol"
-                        If retColl.Exists(eId(i)) Then cellVal = ValorVol(retColl(eId(i)), pA(j), pB(j))
-                    Case "acum"
-                        If retColl.Exists(eId(i)) Then cellVal = ValorRet(retColl(eId(i)), "acum", pA(j), pB(j))
-                    Case "te"
-                        If difColl.Exists(eId(i)) Then cellVal = ValorTE(difColl(eId(i)), pB(j))
-                    Case "exc"
-                        If retColl.Exists(eId(i)) And bmkColl.Exists(eId(i)) Then
-                            Dim rf As Variant, rb As Variant
-                            rf = ValorRet(retColl(eId(i)), "month", pA(j), pB(j))
-                            rb = ValorRet(bmkColl(eId(i)), "month", pA(j), pB(j))
-                            If IsNumeric(rf) And IsNumeric(rb) Then cellVal = CDbl(rf) - CDbl(rb)
-                        End If
-                    Case "risk"
-                        Dim kL As String: kL = eId(i) & "|" & pA(j) & "|" & pB(j)
-                        If riskV.Exists(kL) Then cellVal = riskV(kL)
-                    Case "patrim"
-                        If patr.Exists(eId(i)) Then cellVal = patr(eId(i))
-                    Case "peso"
-                        If patr.Exists(eId(i)) And totPatr <> 0 Then cellVal = patr(eId(i)) / totPatr
-                    Case "patmes"
-                        Dim yr3 As String: yr3 = pB(j): If Len(yr3) <> 4 Then yr3 = defYear
-                        If Len(yr3) = 4 Then
-                            Dim kpat As String: kpat = eId(i) & "|" & yr3 & "-" & Right("0" & pA(j), 2)
-                            If patMes.Exists(kpat) Then cellVal = patMes(kpat)
-                        End If
-                End Select
-            End If
+            Dim cellVal As Variant
+            cellVal = CalcCelda(kind(j), pA(j), pB(j), eId(i), retColl, difColl, bmkColl, _
+                                riskV, patr, totPatr, patMes, defYear)
             valM(i, j) = cellVal
             ws.Cells(eRow(i), vCol(j)).Value = cellVal
             ws.Cells(eRow(i), vCol(j)).NumberFormat = FormatoVar(kind(j), pA(j))
@@ -1258,6 +1119,329 @@ fallo:
     If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
     MsgBox "Error al rellenar la tabla:" & vbLf & Err.Description, vbExclamation, "Tablas"
 End Sub
+
+' Descarga los bloques (RET/RISK/PATRIM/PATMES) a diccionarios en memoria. La usan
+' las dos orientaciones de la hoja Tablas (matriz y series). Abre y cierra su propia
+' conexion; los errores propagan al manejador del que la llama.
+Private Sub TablaDescarga(ByVal inlist As String, ByVal needRet As Boolean, ByVal needBmk As Boolean, _
+        ByVal needPos As Boolean, ByVal needPatMes As Boolean, ByVal crits As Object, _
+        ByRef retColl As Object, ByRef difColl As Object, ByRef bmkColl As Object, _
+        ByRef riskV As Object, ByRef patr As Object, ByRef totPatr As Double, _
+        ByRef patMes As Object, ByRef defYear As String)
+    Dim cn As Object, rs As Object
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 120: cn.CursorLocation = 3: cn.Open CfgConn()
+
+    ' --- RET en memoria: id -> Collection de Array(dserial, factor) ---
+    Set retColl = CreateObject("Scripting.Dictionary")
+    Set difColl = CreateObject("Scripting.Dictionary")   ' id -> diarios (twr-bmk) para Tracking Error
+    Set bmkColl = CreateObject("Scripting.Dictionary")   ' id -> (dserial, 1+twr_bmk) para Exceso
+    If needRet Then
+        Dim sqlR As String
+        sqlR = "SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m-%d', PK_FECHA_DATOS)," & _
+               " FORMAT('%.10f', CAST(TWR_1D AS FLOAT64))"
+        If needBmk Then sqlR = sqlR & ", FORMAT('%.10f', CAST(TWR_1D_BMK AS FLOAT64))"
+        sqlR = sqlR & " FROM " & Tbl(DS_PROD, T_PERF) & _
+               " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & "'" & _
+               " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
+               " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_PERF) & _
+               MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)" & _
+               " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS"
+        Set rs = cn.Execute(sqlR)
+        Dim idc As String, dser As Double, tw1 As Double, bm1 As Double
+        Do While Not rs.EOF
+            idc = UCase(Trim(CStr(rs.Fields(0).Value)))
+            dser = CDbl(FechaDe(CStr(rs.Fields(1).Value)))
+            tw1 = NumDbl(rs.Fields(2).Value)
+            If Not retColl.Exists(idc) Then retColl.Add idc, New Collection
+            retColl(idc).Add Array(dser, 1 + tw1)
+            If needBmk Then
+                If Not IsNull(rs.Fields(3).Value) Then
+                    bm1 = NumDbl(rs.Fields(3).Value)
+                    If Not difColl.Exists(idc) Then difColl.Add idc, New Collection
+                    difColl(idc).Add Array(dser, tw1 - bm1)
+                    If Not bmkColl.Exists(idc) Then bmkColl.Add idc, New Collection
+                    bmkColl(idc).Add Array(dser, 1 + bm1)
+                End If
+            End If
+            rs.MoveNext
+        Loop
+        rs.Close
+    End If
+
+    ' --- RISK en memoria: "id|crit|var" -> ultimo valor ---
+    Set riskV = CreateObject("Scripting.Dictionary")
+    If crits.Count > 0 Then
+        Dim inCrit As String, kc As Variant
+        For Each kc In crits.Keys
+            inCrit = inCrit & IIf(Len(inCrit) > 0, ",", "") & "'" & Esc(CStr(kc)) & "'"
+        Next kc
+        Dim wq As String
+        wq = "WHERE " & RISK_COL_FONDOBMK & "='" & CfgFondo() & "' AND PK_PORTFOLIO='" & Esc(CfgPortfolio()) & "'"
+        If Len(CfgLtLevel()) > 0 Then wq = wq & " AND PK_LTLEVEL=" & CfgLtLevel()
+        wq = wq & " AND PK_CRITERIO_AGREGACION IN (" & inCrit & ")" & _
+             " AND PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
+             " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & Tbl(DS_PROD, T_RISK) & _
+             MaxAsOf() & "), INTERVAL " & CACHE_ANOS & " YEAR)"
+        Set rs = cn.Execute("SELECT PK_PORTFOLIO_ID, PK_CRITERIO_AGREGACION, PK_VARIABLE_TARGET," & _
+            " FORMAT('%.10f', CAST(VALOR AS FLOAT64)) FROM " & Tbl(DS_PROD, T_RISK) & " " & wq & _
+            " ORDER BY PK_PORTFOLIO_ID, PK_FECHA_DATOS")
+        Dim kRisk As String, kIdCrit As String, valK As Double
+        Do While Not rs.EOF
+            kIdCrit = UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value)) & "|"
+            valK = NumDbl(rs.Fields(3).Value)
+            kRisk = kIdCrit & Trim(CStr(rs.Fields(2).Value))
+            riskV(kRisk) = valK              ' clave exacta id|criterio|variable
+            riskV(kIdCrit) = valK            ' reserva id|criterio| (ultimo del criterio, sin filtrar variable)
+            rs.MoveNext                      ' ordenado ASC -> el ultimo (mas reciente) gana en ambas
+        Loop
+        rs.Close
+    End If
+
+    ' --- PATRIMONIO en memoria: id -> valoracion total (ultima foto) ---
+    Set patr = CreateObject("Scripting.Dictionary")
+    totPatr = 0
+    If needPos Then
+        Dim sqlP As String
+        sqlP = "WITH ult AS (SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS f FROM " & TblPos() & _
+               " WHERE PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & " GROUP BY PK_PORTFOLIO_ID)" & _
+               " SELECT p.PK_PORTFOLIO_ID, FORMAT('%.10f', CAST(SUM(p." & PosValor() & ") AS FLOAT64))" & _
+               " FROM " & TblPos() & " p JOIN ult ON ult.PK_PORTFOLIO_ID=p.PK_PORTFOLIO_ID" & _
+               " AND p.PK_FECHA_DATOS=ult.f GROUP BY p.PK_PORTFOLIO_ID"
+        Set rs = cn.Execute(sqlP)
+        Do While Not rs.EOF
+            patr(UCase(Trim(CStr(rs.Fields(0).Value)))) = NumDbl(rs.Fields(1).Value)
+            rs.MoveNext
+        Loop
+        rs.Close
+        Dim kp As Variant
+        For Each kp In patr.Keys: totPatr = totPatr + patr(kp): Next kp
+    End If
+
+    ' --- PATRIMONIO MENSUAL en memoria: "id|YYYY-MM" -> valoracion total del mes ---
+    Set patMes = CreateObject("Scripting.Dictionary")
+    If needPatMes Then
+        Dim sqlPM As String
+        sqlPM = "WITH base AS (SELECT PK_PORTFOLIO_ID, FORMAT_DATE('%Y-%m', PK_FECHA_DATOS) AS mes," & _
+                " PK_FECHA_DATOS, " & PosValor() & " AS valor FROM " & TblPos() & _
+                " WHERE PK_PORTFOLIO_ID IN (" & inlist & ")" & AndAsOf("PK_FECHA_DATOS") & _
+                " AND PK_FECHA_DATOS > DATE_SUB((SELECT MAX(PK_FECHA_DATOS) FROM " & TblPos() & MaxAsOf() & _
+                "), INTERVAL " & CACHE_ANOS & " YEAR))," & _
+                " ult AS (SELECT PK_PORTFOLIO_ID, mes, MAX(PK_FECHA_DATOS) AS f FROM base GROUP BY PK_PORTFOLIO_ID, mes)" & _
+                " SELECT b.PK_PORTFOLIO_ID, b.mes, FORMAT('%.10f', CAST(SUM(b.valor) AS FLOAT64))" & _
+                " FROM base b JOIN ult ON ult.PK_PORTFOLIO_ID=b.PK_PORTFOLIO_ID AND ult.mes=b.mes" & _
+                " AND b.PK_FECHA_DATOS=ult.f GROUP BY b.PK_PORTFOLIO_ID, b.mes"
+        Set rs = cn.Execute(sqlPM)
+        Do While Not rs.EOF
+            patMes(UCase(Trim(CStr(rs.Fields(0).Value))) & "|" & Trim(CStr(rs.Fields(1).Value))) = NumDbl(rs.Fields(2).Value)
+            rs.MoveNext
+        Loop
+        rs.Close
+    End If
+    ' Ano por defecto para columnas "Patrimonio <mes>" sin ano: el mas reciente.
+    defYear = ""
+    Dim kpm As Variant
+    For Each kpm In patMes.Keys
+        Dim yy4 As String: yy4 = Mid(CStr(kpm), InStr(CStr(kpm), "|") + 1, 4)
+        If yy4 > defYear Then defYear = yy4
+    Next kpm
+    cn.Close
+End Sub
+
+' Valor de una celda (entidad x variable) a partir de (kind, pA, pB) y los
+' diccionarios descargados. La usan las dos orientaciones. "" si no hay dato.
+Private Function CalcCelda(ByVal kind As String, ByVal pA As String, ByVal pB As String, _
+        ByVal id As String, ByVal retColl As Object, ByVal difColl As Object, _
+        ByVal bmkColl As Object, ByVal riskV As Object, ByVal patr As Object, _
+        ByVal totPatr As Double, ByVal patMes As Object, ByVal defYear As String) As Variant
+    CalcCelda = ""
+    If Len(id) = 0 Then Exit Function
+    Select Case kind
+        Case "ret", "year", "month", "quarter"
+            If retColl.Exists(id) Then CalcCelda = ValorRet(retColl(id), kind, pA, pB)
+        Case "vol"
+            If retColl.Exists(id) Then CalcCelda = ValorVol(retColl(id), pA, pB)
+        Case "acum"
+            If retColl.Exists(id) Then CalcCelda = ValorRet(retColl(id), "acum", pA, pB)
+        Case "te"
+            If difColl.Exists(id) Then CalcCelda = ValorTE(difColl(id), pB)
+        Case "exc"
+            If retColl.Exists(id) And bmkColl.Exists(id) Then
+                Dim rf As Variant, rb As Variant
+                rf = ValorRet(retColl(id), "month", pA, pB)
+                rb = ValorRet(bmkColl(id), "month", pA, pB)
+                If IsNumeric(rf) And IsNumeric(rb) Then CalcCelda = CDbl(rf) - CDbl(rb)
+            End If
+        Case "risk"
+            Dim kL As String: kL = id & "|" & pA & "|" & pB
+            If riskV.Exists(kL) Then CalcCelda = riskV(kL)
+        Case "patrim"
+            If patr.Exists(id) Then CalcCelda = patr(id)
+        Case "peso"
+            If patr.Exists(id) And totPatr <> 0 Then CalcCelda = patr(id) / totPatr
+        Case "patmes"
+            Dim yr3 As String: yr3 = pB: If Len(yr3) <> 4 Then yr3 = defYear
+            If Len(yr3) = 4 Then
+                Dim kpat As String: kpat = id & "|" & yr3 & "-" & Right("0" & pA, 2)
+                If patMes.Exists(kpat) Then CalcCelda = patMes(kpat)
+            End If
+    End Select
+End Function
+
+' Orientacion "Series" de la hoja Tablas: COLUMNAS = periodos (mes/trim/ano segun
+' E5), FILAS = pareja (Entidad en A + Metrica en B). Asi puedes ver, p.ej., la
+' rentabilidad mensual de una cartera en una fila y su volatilidad mensual debajo.
+' Reutiliza HeaderMetrica/ClasificarVar/CalcCelda: por cada (metrica de fila x
+' periodo de columna) sintetiza la cabecera equivalente y calcula igual que la matriz.
+Private Sub RellenarSerie(ByVal ws As Worksheet, ByVal quiet As Boolean)
+    Dim i As Long, j As Long, r As Long
+
+    ' Granularidad de las columnas (H4): Meses / Trimestres / Anos.
+    Dim per As String: per = Fold(CStr(ws.Range("H4").Value))
+    Dim gran As String
+    If InStr(per, "trimestr") > 0 Then
+        gran = "T"
+    ElseIf InStr(per, "ano") > 0 Then
+        gran = "A"
+    Else
+        gran = "M"
+    End If
+
+    ' Filas: Entidad (A) + Metrica (B), desde la fila 7.
+    Dim eName() As String, eRow() As Long, eId() As String, eMet() As String, ne As Long
+    ReDim eName(1 To 5001): ReDim eRow(1 To 5001): ReDim eId(1 To 5001): ReDim eMet(1 To 5001): ne = 0
+    r = TB_ROW0
+    Do While r <= 5000 And Len(Trim(CStr(ws.Cells(r, 1).Value))) > 0
+        ne = ne + 1: eName(ne) = Trim(CStr(ws.Cells(r, 1).Value)): eRow(ne) = r
+        eId(ne) = UCase(Trim(IdEntidad(eName(ne))))
+        Dim mt As String: mt = Trim(CStr(ws.Cells(r, 2).Value))
+        If Len(mt) = 0 Then mt = "Rentabilidad"
+        eMet(ne) = mt
+        r = r + 1
+    Loop
+    If ne = 0 Then MsgBox "Escribe entidades en la columna A y su metrica en la B (desde la fila " & TB_ROW0 & ").", vbExclamation, "Tablas": Exit Sub
+
+    Dim inlist As String, seen As Object: Set seen = CreateObject("Scripting.Dictionary")
+    For i = 1 To ne
+        If Len(eId(i)) > 0 And Not seen.Exists(eId(i)) Then
+            seen.Add eId(i), 1
+            inlist = inlist & IIf(Len(inlist) > 0, ",", "") & "'" & Esc(eId(i)) & "'"
+        End If
+    Next i
+    If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera'.", vbExclamation, "Tablas": Exit Sub
+
+    ' Periodos (columnas) hasta el ultimo con datos.
+    Dim mm As String: mm = UltimoMesPerf(inlist)
+    If Len(mm) < 7 Then mm = Format(Date, "yyyy-mm")
+    Dim yData As Long: yData = CLng(Val(Left(mm, 4)))
+    Dim mData As Long: mData = CLng(Val(Mid(mm, 6, 2)))
+
+    Dim np As Long: np = 0
+    Dim pTipo() As String, pVal() As String, pYear() As Long, pHdr() As String
+    ReDim pTipo(1 To 200): ReDim pVal(1 To 200): ReDim pYear(1 To 200): ReDim pHdr(1 To 200)
+    Select Case gran
+        Case "M"
+            For j = 1 To mData
+                np = np + 1: pTipo(np) = "mes": pVal(np) = MesAbbr(j): pYear(np) = yData
+                pHdr(np) = HeaderMetrica("Rentabilidad", "mes", MesAbbr(j), yData)
+            Next j
+        Case "T"
+            Dim curQ As Long: curQ = Int((mData - 1) / 3) + 1
+            For j = 1 To curQ
+                np = np + 1: pTipo(np) = "trim": pVal(np) = CStr(j): pYear(np) = yData
+                pHdr(np) = HeaderMetrica("Rentabilidad", "trim", CStr(j), yData)
+            Next j
+        Case "A"
+            For j = 4 To 0 Step -1
+                np = np + 1: pTipo(np) = "ano": pVal(np) = CStr(yData - j): pYear(np) = yData
+                pHdr(np) = HeaderMetrica("Rentabilidad", "ano", CStr(yData - j), yData)
+            Next j
+    End Select
+    If np = 0 Then MsgBox "No hay periodos que generar.", vbExclamation, "Tablas": Exit Sub
+
+    ' Necesidades de descarga: clasifica cada (metrica de fila x periodo).
+    Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean, needBmk As Boolean
+    Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
+    Dim met As String, hh As String, kk As String, ppA As String, ppB As String
+    For i = 1 To ne
+        met = MetSerie(eMet(i))
+        For j = 1 To np
+            hh = HeaderMetrica(met, pTipo(j), pVal(j), pYear(j))
+            If Len(hh) > 0 Then
+                ClasificarVar hh, kk, ppA, ppB
+                Select Case kk
+                    Case "ret", "year", "month", "quarter", "vol", "acum": needRet = True
+                    Case "te", "exc":                   needRet = True: needBmk = True
+                    Case "patrim", "peso":              needPos = True
+                    Case "patmes":                      needPatMes = True
+                    Case "risk":                        If Not crits.Exists(ppA) Then crits.Add ppA, 1
+                End Select
+            End If
+        Next j
+    Next i
+
+    Dim retColl As Object, difColl As Object, bmkColl As Object, riskV As Object
+    Dim patr As Object, patMes As Object, totPatr As Double, defYear As String
+    On Error GoTo fallo
+    TablaDescarga inlist, needRet, needBmk, needPos, needPatMes, crits, _
+        retColl, difColl, bmkColl, riskV, patr, totPatr, patMes, defYear
+
+    Application.EnableEvents = False
+    Application.ScreenUpdating = False
+    ' Cabecera: A="Entidad", B="Metrica", C.. = periodos.
+    ws.Cells(TB_HDR, 1).Value = "Entidad"
+    ws.Cells(TB_HDR, 2).Value = "Metrica"
+    ws.Range(ws.Cells(TB_HDR, 3), ws.Cells(TB_HDR, 210)).ClearContents
+    For j = 1 To np
+        ws.Cells(TB_HDR, 2 + j).Value = pHdr(j)
+    Next j
+    ' Limpia valores previos (desde C; NO tocar A/B que son entradas del usuario).
+    ws.Range(ws.Cells(TB_ROW0, 3), ws.Cells(TB_ROW0 + 5001, 210)).ClearContents
+
+    For i = 1 To ne
+        met = MetSerie(eMet(i))
+        For j = 1 To np
+            Dim cv As Variant: cv = ""
+            Dim h2 As String: h2 = HeaderMetrica(met, pTipo(j), pVal(j), pYear(j))
+            If Len(h2) > 0 And Len(eId(i)) > 0 Then
+                Dim k2 As String, a2 As String, b2 As String
+                ClasificarVar h2, k2, a2, b2
+                cv = CalcCelda(k2, a2, b2, eId(i), retColl, difColl, bmkColl, riskV, patr, totPatr, patMes, defYear)
+                ws.Cells(eRow(i), 2 + j).NumberFormat = FormatoVar(k2, a2)
+            End If
+            ws.Cells(eRow(i), 2 + j).Value = cv
+        Next j
+    Next i
+
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    If Not quiet Then MsgBox "Serie rellenada: " & ne & " filas x " & np & " periodos.", vbInformation, "Tablas"
+    Exit Sub
+fallo:
+    On Error Resume Next
+    Application.ScreenUpdating = True
+    Application.EnableEvents = True
+    MsgBox "Error al rellenar la serie:" & vbLf & Err.Description, vbExclamation, "Tablas"
+End Sub
+
+' Normaliza la metrica de una fila (col B, modo series) al nombre que entiende
+' HeaderMetrica. Solo metricas que forman serie temporal.
+Private Function MetSerie(ByVal s As String) As String
+    Dim f As String: f = Fold(s)
+    If InStr(f, "acum") > 0 Then
+        MetSerie = "Acumulada"
+    ElseIf InStr(f, "exceso") > 0 Then
+        MetSerie = "Exceso"
+    ElseIf InStr(f, "volatil") > 0 Then
+        MetSerie = "Volatilidad"
+    ElseIf InStr(f, "tracking") > 0 Then
+        MetSerie = "Tracking Error"
+    ElseIf InStr(f, "patrim") > 0 Then
+        MetSerie = "Patrimonio"
+    Else
+        MetSerie = "Rentabilidad"
+    End If
+End Function
 
 ' Clasifica el texto de una cabecera de variable en (kind, pA, pB):
 '  kind="year" pA=ano | kind="ret" pA=periodo | kind="risk" pA=criterio pB=variable
