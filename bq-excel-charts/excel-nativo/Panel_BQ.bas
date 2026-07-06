@@ -101,6 +101,10 @@ Private mId1 As String, mId2 As String, mId3 As String
 ' Marca para que el auto-refresco de la hoja Tablas se dispare solo UNA vez por
 ' sesion (al entrar en la pestana), no cada vez que se activa.
 Private mTablaAuto As Boolean
+' Si esta a True, CfgAsOf() devuelve "" (sin tope): fuerza "ultima fecha" aunque
+' la Portada tenga un mes elegido. Lo usan los botones "Actualizar" de las hojas
+' generadas para traer siempre lo mas reciente.
+Private mSinAsOf As Boolean
 
 Private Function Panel() As Worksheet
     Set Panel = ThisWorkbook.Sheets("Panel")
@@ -206,6 +210,7 @@ End Function
 ' Todas las consultas aplican este tope (fecha <= referencia) para que el
 ' documento entero quede "a cierre" de ese mes.
 Private Function CfgAsOf() As String
+    If mSinAsOf Then Exit Function                      ' "ultima fecha" forzada
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Sheets("Portada")
@@ -992,7 +997,13 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Set ws = ThisWorkbook.Sheets("Tablas")
     On Error GoTo 0
     If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
+    RellenarTablaEn ws, quiet
+End Sub
 
+' Rellena la tabla de DOS NIVELES (Metrica fila 5 + Periodo fila 6) de una hoja
+' cualquiera: la propia "Tablas" o una hoja generada con "Crear hoja con tabla".
+' Toda la logica opera sobre 'ws', asi la misma maquinaria sirve para ambas.
+Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolean = False)
     Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
 
     ' --- Entidades (columna A) --- (se leen ANTES para poder expandir la plantilla)
@@ -1968,6 +1979,154 @@ End Function
 ' =======================  INSTALADOR DE BOTONES  ===========================
 ' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
 ' las hojas Panel y Tablas con sus macros ya asignadas.
+' =================  HOJAS AUTONOMAS (Crear hoja con tabla)  ================
+' "Crear hoja con tabla" duplica la hoja Tablas en una hoja nueva autonoma
+' (Tabla 1, Tabla 2...) con su configuracion editable, datos vivos y botones
+' propios: Actualizar (ultima fecha), Actualizar a fecha (la de Portada) y
+' Exportar a PowerPoint (imagen EMF a una slide, con posicion/tamano en cm).
+Public Sub CrearHojaTabla()
+    Dim src As Worksheet
+    On Error Resume Next
+    Set src = ThisWorkbook.Sheets("Tablas")
+    On Error GoTo 0
+    If src Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation: Exit Sub
+
+    Dim nom As String: nom = NombreHojaLibre("Tabla")
+    Application.ScreenUpdating = False
+    src.Copy After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count)
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    ws.Name = nom
+    ws.Visible = xlSheetVisible
+    BorrarBotones ws
+    ws.Cells(1, 30).Value = "TABLA"                 ' AD1: marca de tipo de hoja
+    ws.Cells(1, 1).Value = "Tabla: " & nom
+    PanelExportar ws
+    ws.Rows(1).RowHeight = 30
+    CrearBoton ws, "A1", ">> ACTUALIZAR", "HojaActualizar"
+    CrearBoton ws, "E1", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
+    CrearBoton ws, "I1", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+    Application.ScreenUpdating = True
+    ws.Activate
+    MsgBox "Creada la hoja '" & nom & "'. Editala/actualizala y exportala a " & _
+           "PowerPoint desde sus botones.", vbInformation, "Crear hoja"
+End Sub
+
+' Siguiente nombre de hoja libre "Base N".
+Private Function NombreHojaLibre(ByVal base As String) As String
+    Dim k As Long: k = 1
+    Do While k < 1000
+        Dim nom As String: nom = base & " " & k
+        Dim existe As Boolean, sh As Worksheet: existe = False
+        For Each sh In ThisWorkbook.Worksheets
+            If StrComp(sh.Name, nom, vbTextCompare) = 0 Then existe = True: Exit For
+        Next sh
+        If Not existe Then NombreHojaLibre = nom: Exit Function
+        k = k + 1
+    Loop
+    NombreHojaLibre = base & " " & k
+End Function
+
+' Controles de exportacion a PowerPoint (fila 2), con valores por defecto.
+Private Sub PanelExportar(ByVal ws As Worksheet)
+    ws.Range("A2").Value = "Exportar a PowerPoint:"
+    ws.Range("A2").Font.Italic = True
+    ws.Range("C2").Value = "Slide":     ws.Range("D2").Value = 1
+    ws.Range("E2").Value = "Izq(cm)":   ws.Range("F2").Value = 1.5
+    ws.Range("G2").Value = "Arr(cm)":   ws.Range("H2").Value = 3
+    ws.Range("I2").Value = "Ancho(cm)": ws.Range("J2").Value = 24
+    ws.Range("K2").Value = "Alto(cm)":  ws.Range("L2").Value = 12
+    Dim c As Variant
+    For Each c In Array("C2", "E2", "G2", "I2", "K2")
+        ws.Range(CStr(c)).Font.Bold = True
+    Next c
+End Sub
+
+' --- Botones de las hojas generadas (operan sobre la hoja ACTIVA) ---
+Public Sub HojaActualizar()          ' ultima fecha disponible (ignora la Portada)
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    mSinAsOf = True
+    On Error GoTo limp
+    RellenarTablaEn ws, True
+    mSinAsOf = False
+    MsgBox "Actualizado a la ultima fecha disponible.", vbInformation, ws.Name
+    Exit Sub
+limp:
+    mSinAsOf = False
+    MsgBox "Error al actualizar:" & vbLf & Err.Description, vbExclamation, ws.Name
+End Sub
+
+Public Sub HojaActualizarFecha()     ' a cierre de la fecha global de Portada
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    mSinAsOf = False
+    RellenarTablaEn ws, True
+    Dim d As String: d = CfgAsOf()
+    If Len(d) = 0 Then d = "ultima disponible"
+    MsgBox "Actualizado a la fecha de Portada (" & d & ").", vbInformation, ws.Name
+End Sub
+
+' Rango imagen de una tabla (cabeceras Metrica/Periodo + datos + columna Entidad).
+Private Function RangoTabla(ByVal ws As Worksheet) As Range
+    Dim lastRow As Long, lastCol As Long, r As Long, c As Long
+    lastRow = TB_ROW0 - 1
+    r = TB_ROW0
+    Do While r <= 20000
+        If Len(Trim(CStr(ws.Cells(r, 1).Value))) = 0 Then Exit Do
+        lastRow = r: r = r + 1
+    Loop
+    lastCol = 1
+    c = 2
+    Do While c <= 200
+        If Len(Trim(CStr(ws.Cells(TB_HDR, c).Value))) = 0 Then Exit Do
+        lastCol = c: c = c + 1
+    Loop
+    If lastRow < TB_ROW0 Or lastCol < 2 Then Exit Function
+    Set RangoTabla = ws.Range(ws.Cells(TB_MET, 1), ws.Cells(lastRow, lastCol))
+End Function
+
+' Exporta la tabla de la hoja activa como imagen EMF a una slide de PowerPoint,
+' en la posicion/tamano (cm) de la fila 2. Idempotente: reemplaza su imagen previa.
+Public Sub HojaExportarPPT()
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    Dim rng As Range: Set rng = RangoTabla(ws)
+    If rng Is Nothing Then MsgBox "No hay tabla que exportar en esta hoja.", vbExclamation, ws.Name: Exit Sub
+
+    Dim slideN As Long, izq As Double, arr As Double, anc As Double, alt As Double
+    slideN = CLng(Val(CStr(ws.Range("D2").Value))): If slideN < 1 Then slideN = 1
+    izq = NumDbl(ws.Range("F2").Value): arr = NumDbl(ws.Range("H2").Value)
+    anc = NumDbl(ws.Range("J2").Value): alt = NumDbl(ws.Range("L2").Value)
+
+    On Error GoTo limp
+    rng.CopyPicture Appearance:=xlScreen, Format:=xlPicture
+
+    Dim ppt As Object, pres As Object, sld As Object, shp As Object
+    On Error Resume Next
+    Set ppt = GetObject(, "PowerPoint.Application")
+    On Error GoTo limp
+    If ppt Is Nothing Then Set ppt = CreateObject("PowerPoint.Application")
+    ppt.Visible = True
+    If ppt.Presentations.Count = 0 Then Set pres = ppt.Presentations.Add Else Set pres = ppt.ActivePresentation
+    Do While pres.Slides.Count < slideN
+        pres.Slides.Add pres.Slides.Count + 1, 12        ' 12 = ppLayoutBlank
+    Loop
+    Set sld = pres.Slides(slideN)
+    Dim nm As String: nm = "XLS_" & ws.Name
+    Dim i As Long
+    For i = sld.Shapes.Count To 1 Step -1
+        If sld.Shapes(i).Name = nm Then sld.Shapes(i).Delete
+    Next i
+    Set shp = sld.Shapes.PasteSpecial(DataType:=2)(1)    ' 2 = EMF
+    shp.Name = nm
+    Dim KP As Double: KP = 28.3465                        ' cm -> puntos
+    shp.LockAspectRatio = False
+    shp.Left = izq * KP: shp.Top = arr * KP
+    If anc > 0 Then shp.Width = anc * KP
+    If alt > 0 Then shp.Height = alt * KP
+    MsgBox "Exportado a la slide " & slideN & ".", vbInformation, ws.Name
+    Exit Sub
+limp:
+    MsgBox "No se pudo exportar a PowerPoint:" & vbLf & Err.Description, vbExclamation, ws.Name
+End Sub
+
 Public Sub InstalarBotones()
     Dim ws As Worksheet
     Set ws = Panel()
@@ -1988,6 +2147,7 @@ Public Sub InstalarBotones()
     If Not wt Is Nothing Then
         BorrarBotones wt
         CrearBoton wt, "J1", ">> RELLENAR TABLA", "RellenarTabla"
+        CrearBoton wt, "J4", "+ CREAR HOJA CON TABLA", "CrearHojaTabla"
     End If
     On Error Resume Next
     Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")
