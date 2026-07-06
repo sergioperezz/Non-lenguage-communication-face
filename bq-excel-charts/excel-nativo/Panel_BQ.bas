@@ -80,7 +80,9 @@ Private Const HLP_C1 As Long = 64          ' BL: criterio recortado (riesgo)
 Private Const HLP_C2 As Long = 65          ' BM: variable target recortada (riesgo)
 ' Hoja "Tablas" (matriz entidades x variables) y hoja "Posiciones" (holdings):
 ' fila de cabecera y primera fila de datos.
-Private Const TB_HDR As Long = 6           ' Tablas: cabecera de variables
+Private Const TB_MARK As Long = 4          ' Tablas: fila OCULTA de marcas (grupos que crecen)
+Private Const TB_MET As Long = 5           ' Tablas: fila de Metrica (desplegable por columna)
+Private Const TB_HDR As Long = 6           ' Tablas: fila de Periodo (desplegable por columna)
 Private Const TB_ROW0 As Long = 7          ' Tablas: primera fila de entidades
 Private Const PS_HDR As Long = 6           ' Posiciones: cabecera de columnas
 Private Const PS_ROW0 As Long = 7          ' Posiciones: primera fila de holdings
@@ -984,96 +986,12 @@ End Sub
 '   - Riesgo (ultimo valor): Duracion Modificada, Duracion Macaulay, TIR, VaR, CMR.
 '   (TB_HDR/TB_ROW0 declarados arriba, en la seccion de constantes del modulo.)
 
-' Asistente: crea una tabla lista a partir de una plantilla (deja la estructura
-' montada: orientacion, periodo, cabeceras/metricas y 2 carteras de ejemplo).
-' El usuario solo cambia las carteras (columna A) y pulsa "Rellenar tabla".
-Public Sub NuevaTabla()
-    Dim ws As Worksheet
-    On Error Resume Next
-    Set ws = ThisWorkbook.Sheets("Tablas")
-    On Error GoTo 0
-    If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
-
-    Dim msg As String
-    msg = "Elige una plantilla (escribe el numero):" & vbLf & vbLf & _
-          "1 = Rentabilidades mensuales (los meses del ano, crecen solos)" & vbLf & _
-          "2 = Riesgo: VaR, TIR, Duracion, CMR" & vbLf & _
-          "3 = Serie: rentabilidad + volatilidad de una cartera (una debajo de otra)" & vbLf & _
-          "4 = Retorno absoluto: meses + YTD + volatilidad" & vbLf & _
-          "5 = Patrimonio mensual (evolucion)"
-    Dim r As String: r = Trim(InputBox(msg, "Nueva tabla", "1"))
-    If r = "" Then Exit Sub
-
-    Application.EnableEvents = False
-    On Error GoTo fallo
-    LimpiarZonaTabla ws
-    ' Controles por defecto (los sobreescribe la plantilla si hace falta).
-    ws.Range("B3").Value = "Ninguno"                          ' Estilo
-    ws.Range("B4").Value = "No"                               ' Fila de Total
-    ws.Range("E4").Value = "Matriz (metricas en columnas)"    ' Orientacion
-    ws.Range("H4").Value = "Meses"                            ' Periodo (series)
-
-    Dim ej1 As String, ej2 As String
-    ej1 = "Cartera RF Gobierno": ej2 = "Cartera RF Credito"
-
-    Select Case r
-        Case "1"
-            ws.Cells(TB_HDR, 2).Value = "Rentabilidad mensual (se actualiza)"
-            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
-        Case "2"
-            ws.Cells(TB_HDR, 2).Value = "VaR"
-            ws.Cells(TB_HDR, 3).Value = "TIR"
-            ws.Cells(TB_HDR, 4).Value = "Duracion Modificada"
-            ws.Cells(TB_HDR, 5).Value = "CMR"
-            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
-        Case "3"
-            ws.Range("E4").Value = "Series (periodos en columnas)"
-            ws.Cells(TB_ROW0, 1).Value = ej1
-            ws.Cells(TB_ROW0, 2).Value = "Rentabilidad"
-            ws.Cells(TB_ROW0 + 1, 2).Value = "Volatilidad"   ' A vacio -> hereda la cartera de arriba
-        Case "4"
-            ws.Cells(TB_HDR, 2).Value = "Rentabilidad mensual (se actualiza)"
-            ws.Cells(TB_HDR, 3).Value = "Rentab YTD"
-            ws.Cells(TB_HDR, 4).Value = "Volatilidad Anualizada"
-            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
-        Case "5"
-            ws.Cells(TB_HDR, 2).Value = "Patrimonio mensual (se actualiza)"
-            ws.Cells(TB_ROW0, 1).Value = ej1: ws.Cells(TB_ROW0 + 1, 1).Value = ej2
-        Case Else
-            Application.EnableEvents = True
-            MsgBox "Opcion no valida. Escribe un numero del 1 al 5.", vbExclamation, "Nueva tabla": Exit Sub
-    End Select
-
-    ws.Range("H3").Value = "(sin actualizar)"
-    Application.EnableEvents = True
-    ws.Activate
-    MsgBox "Tabla creada. Cambia las carteras (columna A) por las tuyas y pulsa '>> RELLENAR TABLA'.", _
-           vbInformation, "Nueva tabla"
-    Exit Sub
-fallo:
-    On Error Resume Next
-    Application.EnableEvents = True
-    MsgBox "No se pudo crear la tabla:" & vbLf & Err.Description, vbExclamation, "Nueva tabla"
-End Sub
-
-' Limpia la zona de una tabla (marcas fila 5, cabeceras fila 6 y cuerpo A7 en
-' adelante) para empezar de cero, sin tocar los controles (filas 3-4). El catalogo
-' de los desplegables vive en la hoja 'Listas', asi que aqui no hay nada que evitar.
-Private Sub LimpiarZonaTabla(ByVal ws As Worksheet)
-    ws.Range(ws.Cells(TB_HDR - 1, 2), ws.Cells(TB_HDR, 80)).ClearContents        ' marcas fila5 + cabeceras fila6
-    ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 80)).ClearContents    ' entidades + metricas + valores
-    ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 1)).Interior.ColorIndex = xlNone   ' quita rojos
-End Sub
-
 Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Sheets("Tablas")
     On Error GoTo 0
     If ws Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation, "Tablas": Exit Sub
-
-    ' Orientacion (E4): "Series" -> periodos en columnas, (entidad+metrica) en filas.
-    If InStr(Fold(CStr(ws.Range("E4").Value)), "serie") > 0 Then RellenarSerie ws, quiet: Exit Sub
 
     Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
 
@@ -1097,36 +1015,40 @@ Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Next i
     If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera' (nombre_elemento/id_elemento).", vbExclamation, "Tablas": Exit Sub
 
-    ' --- Expande los marcadores "... (se actualiza)" de la cabecera (fila 6): cada
-    ' uno genera sus columnas de periodo (mes/trim/ano) creciendo a la derecha y
-    ' empujando las columnas siguientes. Las columnas normales se quedan igual. ---
-    ExpandirMarcadores ws, inlist
+    ' --- Expande los grupos que "crecen" (Periodo = Meses/Trimestres/Anos (crece)):
+    ' cada uno genera sus columnas de periodo concretas a la derecha y empuja las
+    ' siguientes. Reescribe las filas 4 (marcas), 5 (Metrica) y 6 (Periodo). ---
+    ExpandirTabla ws, inlist
 
-    ' --- Cabecera (variables) ---
+    ' --- Cabecera de dos niveles: fila 5 = Metrica, fila 6 = Periodo. Cada columna
+    ' se resuelve sintetizando el texto equivalente que ClasificarVar entiende. ---
     Dim vName() As String, vCol() As Long
-    ReDim vName(1 To 80): ReDim vCol(1 To 80): nv = 0
-    nc = 2
-    Do While nc <= 80 And Len(Trim(CStr(ws.Cells(TB_HDR, nc).Value))) > 0
-        nv = nv + 1: vName(nv) = Trim(CStr(ws.Cells(TB_HDR, nc).Value)): vCol(nv) = nc
-        nc = nc + 1
-    Loop
-    If nv = 0 Then MsgBox "Elige Metrica (B3) y Desglose (B4): las columnas se generan solas.", vbExclamation, "Tablas": Exit Sub
-
-    ' --- Clasificar variables ---
+    ReDim vName(1 To 90): ReDim vCol(1 To 90): nv = 0
+    Dim curYear As Long: curYear = AnoDatos(inlist)
     Dim kind() As String, pA() As String, pB() As String
-    ReDim kind(1 To nv): ReDim pA(1 To nv): ReDim pB(1 To nv)
+    ReDim kind(1 To 90): ReDim pA(1 To 90): ReDim pB(1 To 90)
     Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean, needBmk As Boolean
     Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
-    For i = 1 To nv
-        ClasificarVar vName(i), kind(i), pA(i), pB(i)
-        Select Case kind(i)
+    nc = 2
+    Do While nc <= 90
+        Dim mMet As String, mPer As String
+        mMet = Trim(CStr(ws.Cells(TB_MET, nc).Value))
+        mPer = Trim(CStr(ws.Cells(TB_HDR, nc).Value))
+        If Len(mMet) = 0 And Len(mPer) = 0 Then Exit Do
+        nv = nv + 1
+        vCol(nv) = nc
+        vName(nv) = SintHeader(mMet, mPer, curYear)         ' texto combinado interno
+        ClasificarVar vName(nv), kind(nv), pA(nv), pB(nv)
+        Select Case kind(nv)
             Case "ret", "year", "month", "quarter", "vol", "acum": needRet = True
             Case "te", "exc":                   needRet = True: needBmk = True
             Case "patrim", "peso":              needPos = True
             Case "patmes":                      needPatMes = True
-            Case "risk":                        If Not crits.Exists(pA(i)) Then crits.Add pA(i), 1
+            Case "risk":                        If Not crits.Exists(pA(nv)) Then crits.Add pA(nv), 1
         End Select
-    Next i
+        nc = nc + 1
+    Loop
+    If nv = 0 Then MsgBox "Elige Metrica (fila 5) y Periodo (fila 6) en las columnas.", vbExclamation, "Tablas": Exit Sub
     ' Con fila de Total, se descarga patrimonio aunque no se muestre, para
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
     If Fold(ws.Range("B4").Value) = "si" Then needPos = True   ' Fila de Total
@@ -1374,176 +1296,6 @@ Private Function CalcCelda(ByVal kind As String, ByVal pA As String, ByVal pB As
     End Select
 End Function
 
-' Orientacion "Series" de la hoja Tablas: COLUMNAS = periodos (mes/trim/ano segun
-' E5), FILAS = pareja (Entidad en A + Metrica en B). Asi puedes ver, p.ej., la
-' rentabilidad mensual de una cartera en una fila y su volatilidad mensual debajo.
-' Reutiliza HeaderMetrica/ClasificarVar/CalcCelda: por cada (metrica de fila x
-' periodo de columna) sintetiza la cabecera equivalente y calcula igual que la matriz.
-Private Sub RellenarSerie(ByVal ws As Worksheet, ByVal quiet As Boolean)
-    Dim i As Long, j As Long, r As Long
-
-    ' Granularidad de las columnas (H4): Meses / Trimestres / Anos.
-    Dim per As String: per = Fold(CStr(ws.Range("H4").Value))
-    Dim gran As String
-    If InStr(per, "trimestr") > 0 Then
-        gran = "T"
-    ElseIf InStr(per, "ano") > 0 Then
-        gran = "A"
-    Else
-        gran = "M"
-    End If
-
-    ' Filas: Entidad (A) + Metrica (B), desde la fila 7.
-    Dim eName() As String, eRow() As Long, eId() As String, eMet() As String, ne As Long
-    ReDim eName(1 To 5001): ReDim eRow(1 To 5001): ReDim eId(1 To 5001): ReDim eMet(1 To 5001): ne = 0
-    ' Si dejas la columna A vacia, HEREDA la entidad de la fila de arriba (asi
-    ' escribes la cartera una vez y debajo solo eliges mas metricas). El bloque
-    ' termina cuando una fila tiene A y B vacias a la vez.
-    r = TB_ROW0
-    Dim lastEnt As String: lastEnt = ""
-    Do While r <= 5000
-        Dim aVal As String, bVal As String
-        aVal = Trim(CStr(ws.Cells(r, 1).Value))
-        bVal = Trim(CStr(ws.Cells(r, 2).Value))
-        If Len(aVal) = 0 And Len(bVal) = 0 Then Exit Do
-        If Len(aVal) = 0 Then aVal = lastEnt Else lastEnt = aVal
-        If Len(bVal) = 0 Then bVal = "Rentabilidad"
-        ne = ne + 1: eName(ne) = aVal: eRow(ne) = r
-        eId(ne) = UCase(Trim(IdEntidad(aVal)))
-        eMet(ne) = bVal
-        r = r + 1
-    Loop
-    If ne = 0 Then MsgBox "Escribe entidades en la columna A y su metrica en la B (desde la fila " & TB_ROW0 & ").", vbExclamation, "Tablas": Exit Sub
-
-    Dim inlist As String, seen As Object: Set seen = CreateObject("Scripting.Dictionary")
-    For i = 1 To ne
-        If Len(eId(i)) > 0 And Not seen.Exists(eId(i)) Then
-            seen.Add eId(i), 1
-            inlist = inlist & IIf(Len(inlist) > 0, ",", "") & "'" & Esc(eId(i)) & "'"
-        End If
-    Next i
-    If Len(inlist) = 0 Then MsgBox "Ninguna entidad de la columna A esta en la hoja 'cartera'.", vbExclamation, "Tablas": Exit Sub
-
-    ' Periodos (columnas) hasta el ultimo con datos.
-    Dim mm As String: mm = UltimoMesPerf(inlist)
-    If Len(mm) < 7 Then mm = Format(Date, "yyyy-mm")
-    Dim yData As Long: yData = CLng(Val(Left(mm, 4)))
-    Dim mData As Long: mData = CLng(Val(Mid(mm, 6, 2)))
-
-    Dim np As Long: np = 0
-    Dim pTipo() As String, pVal() As String, pYear() As Long, pHdr() As String
-    ReDim pTipo(1 To 200): ReDim pVal(1 To 200): ReDim pYear(1 To 200): ReDim pHdr(1 To 200)
-    Select Case gran
-        Case "M"
-            For j = 1 To mData
-                np = np + 1: pTipo(np) = "mes": pVal(np) = MesAbbr(j): pYear(np) = yData
-                pHdr(np) = HeaderMetrica("Rentabilidad", "mes", MesAbbr(j), yData)
-            Next j
-        Case "T"
-            Dim curQ As Long: curQ = Int((mData - 1) / 3) + 1
-            For j = 1 To curQ
-                np = np + 1: pTipo(np) = "trim": pVal(np) = CStr(j): pYear(np) = yData
-                pHdr(np) = HeaderMetrica("Rentabilidad", "trim", CStr(j), yData)
-            Next j
-        Case "A"
-            For j = 4 To 0 Step -1
-                np = np + 1: pTipo(np) = "ano": pVal(np) = CStr(yData - j): pYear(np) = yData
-                pHdr(np) = HeaderMetrica("Rentabilidad", "ano", CStr(yData - j), yData)
-            Next j
-    End Select
-    If np = 0 Then MsgBox "No hay periodos que generar.", vbExclamation, "Tablas": Exit Sub
-
-    ' Necesidades de descarga: clasifica cada (metrica de fila x periodo).
-    Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean, needBmk As Boolean
-    Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
-    Dim met As String, hh As String, kk As String, ppA As String, ppB As String
-    For i = 1 To ne
-        met = MetSerie(eMet(i))
-        For j = 1 To np
-            hh = HeaderMetrica(met, pTipo(j), pVal(j), pYear(j))
-            If Len(hh) > 0 Then
-                ClasificarVar hh, kk, ppA, ppB
-                Select Case kk
-                    Case "ret", "year", "month", "quarter", "vol", "acum": needRet = True
-                    Case "te", "exc":                   needRet = True: needBmk = True
-                    Case "patrim", "peso":              needPos = True
-                    Case "patmes":                      needPatMes = True
-                    Case "risk":                        If Not crits.Exists(ppA) Then crits.Add ppA, 1
-                End Select
-            End If
-        Next j
-    Next i
-
-    Dim retColl As Object, difColl As Object, bmkColl As Object, riskV As Object
-    Dim patr As Object, patMes As Object, totPatr As Double, defYear As String
-    On Error GoTo fallo
-    Application.StatusBar = "Tablas (series): consultando BigQuery..."
-    TablaDescarga inlist, needRet, needBmk, needPos, needPatMes, crits, _
-        retColl, difColl, bmkColl, riskV, patr, totPatr, patMes, defYear
-
-    Application.EnableEvents = False
-    Application.ScreenUpdating = False
-    ' Cabecera: A="Entidad", B="Metrica", C.. = periodos.
-    ws.Cells(TB_HDR, 1).Value = "Entidad"
-    ws.Cells(TB_HDR, 2).Value = "Metrica"
-    ws.Range(ws.Cells(TB_HDR, 3), ws.Cells(TB_HDR, 210)).ClearContents
-    For j = 1 To np
-        ws.Cells(TB_HDR, 2 + j).Value = pHdr(j)
-    Next j
-    ' Limpia valores previos (desde C; NO tocar A/B que son entradas del usuario).
-    ws.Range(ws.Cells(TB_ROW0, 3), ws.Cells(TB_ROW0 + 5001, 210)).ClearContents
-
-    For i = 1 To ne
-        met = MetSerie(eMet(i))
-        For j = 1 To np
-            Dim cv As Variant: cv = ""
-            Dim h2 As String: h2 = HeaderMetrica(met, pTipo(j), pVal(j), pYear(j))
-            If Len(h2) > 0 And Len(eId(i)) > 0 Then
-                Dim k2 As String, a2 As String, b2 As String
-                ClasificarVar h2, k2, a2, b2
-                cv = CalcCelda(k2, a2, b2, eId(i), retColl, difColl, bmkColl, riskV, patr, totPatr, patMes, defYear)
-                ws.Cells(eRow(i), 2 + j).NumberFormat = FormatoVar(k2, a2)
-            End If
-            ws.Cells(eRow(i), 2 + j).Value = cv
-        Next j
-    Next i
-    ' Anchos de las columnas de periodo (legibilidad).
-    ws.Range(ws.Cells(TB_HDR, 3), ws.Cells(TB_HDR, 2 + np)).EntireColumn.ColumnWidth = 11
-
-    Dim nBad As Long: nBad = MarcarEntidades(ws, eName, eId, eRow, ne)
-    EstadoTabla ws, ne & " filas x " & np & " periodos", nBad
-    Application.StatusBar = False
-    Application.ScreenUpdating = True
-    Application.EnableEvents = True
-    If Not quiet Then MsgBox "Serie rellenada: " & ne & " filas x " & np & " periodos.", vbInformation, "Tablas"
-    Exit Sub
-fallo:
-    On Error Resume Next
-    Application.StatusBar = False
-    Application.ScreenUpdating = True
-    Application.EnableEvents = True
-    MsgBox "Error al rellenar la serie:" & vbLf & Err.Description, vbExclamation, "Tablas"
-End Sub
-
-' Normaliza la metrica de una fila (col B, modo series) al nombre que entiende
-' HeaderMetrica. Solo metricas que forman serie temporal.
-Private Function MetSerie(ByVal s As String) As String
-    Dim f As String: f = Fold(s)
-    If InStr(f, "acum") > 0 Then
-        MetSerie = "Acumulada"
-    ElseIf InStr(f, "exceso") > 0 Then
-        MetSerie = "Exceso"
-    ElseIf InStr(f, "volatil") > 0 Then
-        MetSerie = "Volatilidad"
-    ElseIf InStr(f, "tracking") > 0 Then
-        MetSerie = "Tracking Error"
-    ElseIf InStr(f, "patrim") > 0 Then
-        MetSerie = "Patrimonio"
-    Else
-        MetSerie = "Rentabilidad"
-    End If
-End Function
-
 ' Resalta en rojo claro las entidades de la columna A que NO se encontraron en la
 ' hoja 'cartera' (id vacio); limpia el resto. Devuelve cuantas no se encontraron.
 Private Function MarcarEntidades(ByVal ws As Worksheet, ByRef eName() As String, _
@@ -1776,20 +1528,72 @@ Private Sub ExpandirPlantilla(ByVal ws As Worksheet, ByVal inlist As String)
     Application.EnableEvents = True
 End Sub
 
-' Expande los marcadores "... (se actualiza)" de la cabecera (fila 6). Un marcador
-' se queda como ancla (etiqueta) y a su derecha se generan las columnas de periodo
-' (mes/trim/ano) hasta el ultimo con datos; las columnas normales de despues se
-' desplazan solas. La fila 5 (oculta) marca "AUTO" las columnas generadas, para
-' regenerarlas en la siguiente pasada (asi crecen: al llegar un mes nuevo, su
-' columna se anade y VaR se corre a la derecha).
-Private Sub ExpandirMarcadores(ByVal ws As Worksheet, ByVal inlist As String)
-    Dim MK As Long: MK = TB_HDR - 1        ' fila 5 (oculta) de marcas
-    ' 1) Spec = celdas de la fila 6 que NO son auto-generadas (marcadores + normales).
-    Dim spec As Object: Set spec = CreateObject("Scripting.Dictionary")
-    Dim ns As Long, c As Long, h As String: ns = 0
-    For c = 2 To 80
-        h = Trim(CStr(ws.Cells(TB_HDR, c).Value))
-        If Len(h) > 0 And Trim(CStr(ws.Cells(MK, c).Value)) <> "AUTO" Then ns = ns + 1: spec(ns) = h
+' Ano de la ultima fecha con datos de performance (para las cabeceras que llevan ano).
+Private Function AnoDatos(ByVal inlist As String) As Long
+    Dim mm As String: mm = UltimoMesPerf(inlist)
+    If Len(mm) < 7 Then mm = Format(Date, "yyyy-mm")
+    AnoDatos = CLng(Val(Left(mm, 4)))
+End Function
+
+' Granularidad de un Periodo "que crece": "Meses (crece)"->M, "Trimestres (crece)"->T,
+' "Anos (crece)"->A. "" si el periodo no es de los que crecen.
+Private Function GranCrece(ByVal per As String) As String
+    Dim f As String: f = Fold(per)
+    If InStr(f, "crece") = 0 Then Exit Function
+    If InStr(f, "trimestr") > 0 Then
+        GranCrece = "T"
+    ElseIf InStr(f, "ano") > 0 Then
+        GranCrece = "A"
+    Else
+        GranCrece = "M"
+    End If
+End Function
+
+' Lista de periodos concretos de un grupo que crece, hasta el ultimo con datos.
+Private Sub PeriodosCrece(ByVal gran As String, ByVal yData As Long, ByVal mData As Long, _
+        ByRef pers() As String, ByRef np As Long)
+    ReDim pers(1 To 60): np = 0
+    Dim k As Long
+    Select Case gran
+        Case "M"
+            For k = 1 To mData
+                np = np + 1: pers(np) = MesAbbr(k)
+            Next k
+        Case "T"
+            Dim curQ As Long: curQ = Int((mData - 1) / 3) + 1
+            For k = 1 To curQ
+                np = np + 1: pers(np) = "T" & k
+            Next k
+        Case "A"
+            For k = 4 To 0 Step -1
+                np = np + 1: pers(np) = CStr(yData - k)
+            Next k
+    End Select
+End Sub
+
+' Expande los grupos de Periodo "que crecen". Cabecera de dos niveles: fila 5 =
+' Metrica, fila 6 = Periodo. Si el Periodo de una columna es "Meses/Trimestres/Anos
+' (crece)" se convierte en columnas concretas (Ene, Feb.. / T1.. / 2022..) que crecen
+' cada mes, empujando las columnas siguientes. La fila 4 (oculta) marca "CRECE:<M|T|A>"
+' en la primera columna del grupo y "AUTO" en las generadas, para regenerarlas (crecer)
+' en la pasada siguiente sin duplicar ni perder la definicion del grupo.
+Private Sub ExpandirTabla(ByVal ws As Worksheet, ByVal inlist As String)
+    ' 1) Spec = columnas NO generadas (fila 4 <> "AUTO"): met, per y granularidad-si-crece.
+    Dim sMet() As String, sPer() As String, sGran() As String, ns As Long
+    ReDim sMet(1 To 90): ReDim sPer(1 To 90): ReDim sGran(1 To 90): ns = 0
+    Dim c As Long, mk As String, mt As String, pr As String
+    For c = 2 To 90
+        mk = Trim(CStr(ws.Cells(TB_MARK, c).Value))
+        mt = Trim(CStr(ws.Cells(TB_MET, c).Value))
+        pr = Trim(CStr(ws.Cells(TB_HDR, c).Value))
+        If mk <> "AUTO" Then
+            If Len(mt) > 0 Or Len(pr) > 0 Then
+                ns = ns + 1: sMet(ns) = mt: sPer(ns) = pr
+                Dim g As String: g = GranCrece(pr)
+                If Left(mk, 6) = "CRECE:" Then g = Mid(mk, 7, 1)
+                sGran(ns) = g
+            End If
+        End If
     Next c
     If ns = 0 Then Exit Sub
 
@@ -1798,72 +1602,72 @@ Private Sub ExpandirMarcadores(ByVal ws As Worksheet, ByVal inlist As String)
     Dim yData As Long: yData = CLng(Val(Left(mm, 4)))
     Dim mData As Long: mData = CLng(Val(Mid(mm, 6, 2)))
 
-    ' 2) Lista final (por orden): cada normal se copia; cada marcador -> ancla + periodos.
-    Dim outH As Object, outA As Object
-    Set outH = CreateObject("Scripting.Dictionary"): Set outA = CreateObject("Scripting.Dictionary")
-    Dim no As Long, i As Long, f As String, metr As String, gran As String: no = 0
+    ' 2) Lista final de columnas: los grupos que crecen se expanden a concretas.
+    Dim oMet() As String, oPer() As String, oMk() As String, no As Long
+    ReDim oMet(1 To 200): ReDim oPer(1 To 200): ReDim oMk(1 To 200): no = 0
+    Dim i As Long, k As Long
     For i = 1 To ns
-        f = Fold(CStr(spec(i)))
-        no = no + 1: outH(no) = spec(i): outA(no) = ""     ' el propio texto (ancla o normal)
-        If InStr(f, "se actualiza") > 0 Then
-            If InStr(f, "patrim") > 0 Then
-                metr = "Patrimonio"
-            ElseIf InStr(f, "volatil") > 0 Then
-                metr = "Volatilidad"
-            ElseIf InStr(f, "tracking") > 0 Then
-                metr = "Tracking Error"
-            ElseIf InStr(f, "acum") > 0 Then
-                metr = "Acumulada"
-            ElseIf InStr(f, "exceso") > 0 Then
-                metr = "Exceso"
-            Else
-                metr = "Rentabilidad"
-            End If
-            If InStr(f, "trimestr") > 0 Then
-                gran = "T"
-            ElseIf InStr(f, "anual") > 0 Then
-                gran = "A"
-            Else
-                gran = "M"
-            End If
-            AgregarPeriodos outH, outA, no, metr, gran, yData, mData
+        If Len(sGran(i)) > 0 Then
+            Dim pers() As String, np As Long
+            PeriodosCrece sGran(i), yData, mData, pers, np
+            For k = 1 To np
+                no = no + 1: oMet(no) = sMet(i): oPer(no) = pers(k)
+                oMk(no) = IIf(k = 1, "CRECE:" & sGran(i), "AUTO")
+            Next k
+        Else
+            no = no + 1: oMet(no) = sMet(i): oPer(no) = sPer(i): oMk(no) = ""
         End If
     Next i
 
-    ' 3) Reescribe fila 6 (y marcas fila 5) desde B.
+    ' 3) Reescribe filas 4-5-6 desde la columna B.
     Application.EnableEvents = False
-    ws.Range(ws.Cells(MK, 2), ws.Cells(MK, 100)).ClearContents
-    ws.Range(ws.Cells(TB_HDR, 2), ws.Cells(TB_HDR, 100)).ClearContents
+    ws.Range(ws.Cells(TB_MARK, 2), ws.Cells(TB_MARK, 200)).ClearContents
+    ws.Range(ws.Cells(TB_MET, 2), ws.Cells(TB_MET, 200)).ClearContents
+    ws.Range(ws.Cells(TB_HDR, 2), ws.Cells(TB_HDR, 200)).ClearContents
     For i = 1 To no
-        ws.Cells(TB_HDR, 1 + i).Value = outH(i)
-        If outA(i) = "AUTO" Then ws.Cells(MK, 1 + i).Value = "AUTO"
+        ws.Cells(TB_MET, 1 + i).Value = oMet(i)
+        ws.Cells(TB_HDR, 1 + i).Value = oPer(i)
+        If Len(oMk(i)) > 0 Then ws.Cells(TB_MARK, 1 + i).Value = oMk(i)
     Next i
     Application.EnableEvents = True
 End Sub
 
-' Anade, tras el ancla, una columna de periodo por mes/trimestre/ano (auto).
-Private Sub AgregarPeriodos(ByRef outH As Object, ByRef outA As Object, ByRef no As Long, _
-        ByVal metr As String, ByVal gran As String, ByVal yData As Long, ByVal mData As Long)
-    Dim k As Long, h As String
-    Select Case gran
-        Case "M"
-            For k = 1 To mData
-                h = HeaderMetrica(metr, "mes", MesAbbr(k), yData)
-                If Len(h) > 0 Then no = no + 1: outH(no) = h: outA(no) = "AUTO"
-            Next k
-        Case "T"
-            Dim curQ As Long: curQ = Int((mData - 1) / 3) + 1
-            For k = 1 To curQ
-                h = HeaderMetrica(metr, "trim", CStr(k), yData)
-                If Len(h) > 0 Then no = no + 1: outH(no) = h: outA(no) = "AUTO"
-            Next k
-        Case "A"
-            For k = 4 To 0 Step -1                          ' yData-4 .. yData (cronologico)
-                h = HeaderMetrica(metr, "ano", CStr(yData - k), yData)
-                If Len(h) > 0 Then no = no + 1: outH(no) = h: outA(no) = "AUTO"
-            Next k
-    End Select
-End Sub
+' Un token de trimestre: "T1".."T4".
+Private Function EsTrimTok(ByVal per As String) As Boolean
+    Dim f As String: f = Fold(per)
+    If Left(f, 1) = "t" And Len(f) >= 2 Then
+        If IsNumeric(Mid(f, 2, 1)) Then EsTrimTok = True
+    End If
+End Function
+
+' Sintetiza el texto de cabecera combinado (el que ClasificarVar entiende) a partir
+' de la Metrica (fila 5) y el Periodo (fila 6). "" si la combinacion no aplica.
+Private Function SintHeader(ByVal met As String, ByVal per As String, ByVal curYear As Long) As String
+    If Len(met) = 0 Then Exit Function
+    If GranCrece(per) <> "" Then Exit Function        ' marcador sin expandir -> vacio
+    Dim fm As String: fm = Fold(met)
+    Dim fp As String: fp = Fold(per)
+    Dim tipo As String, val As String
+    tipo = "": val = ""
+    If Len(fp) = 0 Or fp = "ultimo" Then
+        tipo = "fecha"
+    ElseIf MesNum(per) > 0 Then
+        tipo = "mes": val = MesAbbr(MesNum(per))
+    ElseIf EsTrimTok(per) Then
+        tipo = "trim": val = Mid(Fold(per), 2, 1)
+    ElseIf Len(per) = 4 And IsNumeric(per) Then
+        tipo = "ano": val = per
+    ElseIf fp = "ytd" Then
+        If InStr(fm, "volatil") > 0 Or InStr(fm, "tracking") > 0 Then
+            tipo = "fecha"                            ' vol/TE "YTD" = anualizada del ano en curso
+        Else
+            tipo = "periodo": val = "YTD"
+        End If
+    Else
+        tipo = "periodo": val = UCase(Trim(per))      ' MTD, 1M, 3M, 6M, 1A, 3A...
+    End If
+    SintHeader = HeaderMetrica(met, tipo, val, curYear)
+End Function
 
 ' Texto de cabecera para (metrica, tipo de tramo, valor) que ClasificarVar sabe
 ' interpretar. "" si esa combinacion no aplica (se omite la columna).
@@ -1897,9 +1701,10 @@ Private Function HeaderMetrica(ByVal met As String, ByVal tipo As String, _
             If tipo = "fecha" Then HeaderMetrica = "Peso"
         Case fm = "tracking error"
             Select Case tipo
-                Case "mes":  HeaderMetrica = "Tracking Error " & val
-                Case "ano":  HeaderMetrica = "Tracking Error " & val
-                Case Else:   HeaderMetrica = ""
+                Case "mes":   HeaderMetrica = "Tracking Error " & val
+                Case "ano":   HeaderMetrica = "Tracking Error " & val
+                Case "fecha": HeaderMetrica = "Tracking Error"   ' anualizado del ano en curso
+                Case Else:    HeaderMetrica = ""
             End Select
         Case fm = "acumulada"                                ' rentabilidad acumulada a cierre de mes
             If tipo = "mes" Then HeaderMetrica = "Acum " & val & " " & curYear
@@ -2239,8 +2044,7 @@ Public Sub InstalarBotones()
     On Error GoTo 0
     If Not wt Is Nothing Then
         BorrarBotones wt
-        CrearBoton wt, "J1", "+ NUEVA TABLA (plantillas)", "NuevaTabla"
-        CrearBoton wt, "J4", ">> RELLENAR TABLA", "RellenarTabla"
+        CrearBoton wt, "J1", ">> RELLENAR TABLA", "RellenarTabla"
     End If
     On Error Resume Next
     Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")

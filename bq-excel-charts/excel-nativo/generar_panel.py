@@ -721,23 +721,25 @@ TAB_ROW0 = TAB_HDR + 1  # primera fila de datos (18)
 
 def build_tablas(wb, n):
     """Hoja 'Tablas': MATRIZ CONFIGURABLE. Filas = entidades (columna A, desde la
-    fila 7); columnas = variables (cabecera fila 6, desde B). La macro
-    `RellenarTabla` consulta BigQuery para esas entidades y rellena cada celda.
-    Variables: Rentab MTD/YTD/1M../1A.., años naturales (2025..) y riesgo
-    (Duración Modificada/Macaulay, TIR, VaR, CMR)."""
-    HDR = 6          # fila de cabecera de variables (== TB_HDR del .bas)
+    fila 7). Cada COLUMNA se define con dos desplegables: Métrica (fila 5) y Periodo
+    (fila 6). La macro `RellenarTabla` sintetiza cada (métrica, periodo), consulta
+    BigQuery y rellena. Periodo «Meses/Trimestres/Años (crece)» se despliega en
+    columnas concretas que crecen solas cada mes."""
+    MARK = 4         # fila OCULTA de marcas de grupos que crecen (== TB_MARK)
+    MET = 5          # fila de Métrica (desplegable) (== TB_MET)
+    HDR = 6          # fila de Periodo (desplegable) (== TB_HDR)
     ROW0 = 7         # primera fila de entidades (== TB_ROW0 del .bas)
     NROWS = 40       # filas de entidades preparadas (con validación)
-    NCOLS = 14       # columnas de variables preparadas (B..O)
+    NCOLS = 16       # columnas preparadas (B..Q)
 
     ws = wb.create_sheet("Tablas")
     ws.sheet_view.showGridLines = False
     ws["A1"] = "Tabla configurable"
     ws["A1"].font = Font(bold=True, size=14)
-    ws["A2"] = ("¿Primera vez? Pulsa «+ Nueva tabla» y elige una plantilla; monta la "
-                "estructura y solo cambias las carteras. Manual: «Matriz» = filas entidades, "
-                "columnas métricas (fila 6); «Series» = columnas periodos y filas = Entidad (A) "
-                "+ Métrica (B). Luego «Rellenar tabla».")
+    ws["A2"] = ("Cada columna se define con DOS desplegables: la Métrica (fila 5) y el "
+                "Periodo (fila 6). Filas = entidades (columna A). Pon Periodo = «Meses "
+                "(crece)» y esa métrica se despliega en los meses del año y crece sola. "
+                "Pulsa «Rellenar tabla».")
     ws["A2"].font = Font(italic=True, size=9, color="808080")
 
     def sel(cell, value, opts):
@@ -748,8 +750,8 @@ def build_tablas(wb, n):
         ws.add_data_validation(dv)
         dv.add(ws[cell])
 
-    # Panel de control (filas 3-4): cada control con su etiqueta clara. Se mantienen
-    # las celdas que lee la macro (B3 Estilo, B4 Total, E3 Auto, E4 Orientación, H4 Periodo).
+    # Panel de control (fila 3). Se mantienen las celdas que lee la macro:
+    # B3 = Estilo, B4 = Fila de Total, E3 = Auto al abrir, H3 = estado.
     ws["A3"] = "Estilo (color)"
     ws["A3"].font = BOLD
     sel("B3", "Ninguno", "Ninguno,Mapa de calor,Barras")   # sin colores por defecto
@@ -759,14 +761,6 @@ def build_tablas(wb, n):
     ws["D3"] = "Auto al abrir"
     ws["D3"].font = BOLD
     sel("E3", "No", "No,Sí")
-    ws["D4"] = "Orientación"
-    ws["D4"].font = BOLD
-    sel("E4", "Matriz (metricas en columnas)",
-        "Matriz (metricas en columnas),Series (periodos en columnas)")
-    ws["G4"] = "Periodo (Series)"
-    ws["G4"].font = BOLD
-    sel("H4", "Meses", "Meses,Trimestres,Años")
-
     # Estado / última actualización (lo escribe la macro).
     ws["G3"] = "Última actualización"
     ws["G3"].font = BOLD
@@ -774,70 +768,61 @@ def build_tablas(wb, n):
     ws["H3"].font = Font(italic=True, size=9, color="808080")
     ws.merge_cells("H3:M3")
 
-    ws["A5"] = ("Modo Matriz: filas = entidades (A), columnas = métricas (fila 6). "
-                "Modo Series: filas = Entidad (A) + Métrica (B), columnas = periodos (deja "
-                "A vacía para repetir la cartera de arriba). Los marcadores «… (se actualiza)» "
-                "crecen solos cada mes/trim/año. Pulsa «Rellenar tabla».")
-    ws["A5"].font = Font(italic=True, size=9, color="808080")
-    ws.merge_cells("A5:M5")
-
-    # Catálogo de variables (columna oculta T) para el desplegable de la cabecera.
-    variables = [
-        # Marcadores que CRECEN solos (una columna nueva por periodo, a la derecha):
-        "Rentabilidad mensual (se actualiza)", "Rentabilidad trimestral (se actualiza)",
-        "Rentabilidad anual (se actualiza)", "Rentabilidad acumulada (se actualiza)",
-        "Exceso vs benchmark mensual (se actualiza)",
-        "Volatilidad mensual (se actualiza)", "Volatilidad anual (se actualiza)",
-        "Tracking Error mensual (se actualiza)", "Tracking Error anual (se actualiza)",
-        "Patrimonio mensual (se actualiza)", "Patrimonio trimestral (se actualiza)",
-        "Patrimonio anual (se actualiza)",
-        # Métricas sueltas (una columna cada una):
-        "Rentab MTD", "Rentab YTD", "Rentab 1M", "Rentab 3M", "Rentab 6M",
-        "Rentab 1A", "Rentab 3A", "Volatilidad Anualizada", "Volatilidad Diaria",
-        "Duración Modificada", "Duración Macaulay", "TIR", "VaR", "CMR",
-        "Patrimonio", "Peso",
-        "2025", "2024", "2023", "2022", "2021"]
-    # El catálogo vive en la hoja 'Listas' (col AN), NO en Tablas!T: la macro limpia
-    # y reescribe columnas de Tablas al rellenar/crear, y borraría el catálogo.
+    # === Catálogos de los desplegables (en la hoja 'Listas', fuera de la zona que
+    # reescribe la macro). Métricas -> col AN; Periodos -> col AP. ===
     ws_l = wb["Listas"]
-    for i, v in enumerate(variables):
+    metricas = ["Rentabilidad", "Volatilidad", "Tracking Error", "Patrimonio", "Peso",
+                "VaR", "TIR", "Duración Modificada", "Duración Macaulay", "CMR"]
+    periodos = ["Último", "YTD", "MTD", "1M", "3M", "6M", "1A", "3A",
+                "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct",
+                "Nov", "Dic", "T1", "T2", "T3", "T4", "2025", "2024", "2023", "2022", "2021",
+                "Meses (crece)", "Trimestres (crece)", "Años (crece)"]
+    for i, v in enumerate(metricas):
         ws_l.cell(2 + i, 40, v)        # Listas col AN
-    wb.defined_names.add(DefinedName(
-        "VariablesTabla", attr_text=f"Listas!$AN$2:$AN${1 + len(variables)}"))
+    for i, v in enumerate(periodos):
+        ws_l.cell(2 + i, 42, v)        # Listas col AP
+    wb.defined_names.add(DefinedName("MetricasTabla", attr_text=f"Listas!$AN$2:$AN${1 + len(metricas)}"))
+    wb.defined_names.add(DefinedName("PeriodosTabla", attr_text=f"Listas!$AP$2:$AP${1 + len(periodos)}"))
 
-    # Fila 5 = marcas ocultas (AUTO) de las columnas que genera un marcador.
-    ws.row_dimensions[HDR - 1].hidden = True
+    # Fila 4 = marcas OCULTAS (grupos que crecen); no se toca a mano.
+    ws.row_dimensions[MARK].hidden = True
 
-    # Cabecera (fila 6): A6 = "Entidad"; B6.. = desplegable de métricas, con ejemplos.
-    ws.cell(HDR, 1, "Entidad").font = BOLD_WHITE
-    ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)
-    defaults_hdr = ["Rentabilidad mensual (se actualiza)", "VaR", "Volatilidad Anualizada"]
+    # Cabecera de dos niveles. Columna A: "Entidad" abarcando filas 5-6.
+    ws.merge_cells(start_row=MET, start_column=1, end_row=HDR, end_column=1)
+    a_hdr = ws.cell(MET, 1, "Entidad")
+    a_hdr.font = BOLD_WHITE
+    a_hdr.alignment = Alignment(horizontal="center", vertical="center")
+    for rr in (MET, HDR):
+        ws.cell(rr, 1).fill = PatternFill("solid", fgColor=AZUL)
+
+    # Fila 5 = Métrica (desplegable); fila 6 = Periodo (desplegable). Ejemplos.
+    ej_met = ["Rentabilidad", "Volatilidad", "VaR", "Patrimonio"]
+    ej_per = ["Meses (crece)", "YTD", "Último", "Último"]
     for j in range(NCOLS):
-        c = ws.cell(HDR, 2 + j)
-        if j < len(defaults_hdr):
-            c.value = defaults_hdr[j]
-        c.font = BOLD_WHITE
-        c.fill = PatternFill("solid", fgColor=AZUL)
-        c.alignment = Alignment(horizontal="center")
-    dv_var = DataValidation(type="list", formula1="=VariablesTabla", allow_blank=True)
-    dv_var.showErrorMessage = False
-    ws.add_data_validation(dv_var)
-    dv_var.add(f"B{HDR}:{get_column_letter(1 + NCOLS)}{HDR}")
+        cm = ws.cell(MET, 2 + j)      # Métrica
+        cp = ws.cell(HDR, 2 + j)      # Periodo
+        if j < len(ej_met):
+            cm.value = ej_met[j]
+            cp.value = ej_per[j]
+        for c in (cm, cp):
+            c.font = BOLD_WHITE
+            c.fill = PatternFill("solid", fgColor=AZUL)
+            c.alignment = Alignment(horizontal="center")
+    last_col = get_column_letter(1 + NCOLS)
+    dv_met = DataValidation(type="list", formula1="=MetricasTabla", allow_blank=True)
+    dv_met.showErrorMessage = False
+    ws.add_data_validation(dv_met)
+    dv_met.add(f"B{MET}:{last_col}{MET}")
+    dv_per = DataValidation(type="list", formula1="=PeriodosTabla", allow_blank=True)
+    dv_per.showErrorMessage = False
+    ws.add_data_validation(dv_per)
+    dv_per.add(f"B{HDR}:{last_col}{HDR}")
 
-    # Entidades: columna A, dropdown de la lista de carteras (EntLista); 2 ejemplos.
+    # Entidades: columna A (desde fila 7), dropdown de carteras (EntLista); 2 ejemplos.
     dv_ent = DataValidation(type="list", formula1="=EntLista", allow_blank=True)
     dv_ent.showErrorMessage = False    # permite escribir/pegar nombres o ids libremente
     ws.add_data_validation(dv_ent)
     dv_ent.add(f"A{ROW0}:A{ROW0 + NROWS - 1}")
-    # Modo «Series»: desplegable de Métrica por fila (columna B). En modo «Matriz»
-    # la columna B lleva datos; el desplegable es solo cosmético (no bloquea nada).
-    dv_met = DataValidation(
-        type="list",
-        formula1='"Rentabilidad,Rentabilidad acumulada,Exceso vs benchmark,Volatilidad,Tracking Error,Patrimonio"',
-        allow_blank=True)
-    dv_met.showErrorMessage = False
-    ws.add_data_validation(dv_met)
-    dv_met.add(f"B{ROW0}:B{ROW0 + NROWS - 1}")
     ejemplos = ["Cartera RF Gobierno", "Cartera RF Crédito"]
     thin = Side(style="thin", color="D6DEE8")
     border = Border(left=thin, right=thin, top=thin, bottom=thin)
@@ -853,17 +838,17 @@ def build_tablas(wb, n):
             cell.border = border
             cell.alignment = Alignment(horizontal="center")
 
-    ws["A" + str(ROW0 + NROWS + 1)] = ("Consejo: la columna A admite nombres (nombre_elemento) "
-                                       "o ids (id_elemento). El mapa de calor se aplica a las "
-                                       "columnas de rentabilidad/año.")
+    ws["A" + str(ROW0 + NROWS + 1)] = ("Consejo: la columna A admite fondos, carteras, índices "
+                                       "o benchmark (por nombre o id). Métrica (fila 5) + Periodo "
+                                       "(fila 6) definen cada columna; «(crece)» añade un mes/trim/año solo.")
     ws["A" + str(ROW0 + NROWS + 1)].font = Font(italic=True, size=9, color="808080")
 
     ws.column_dimensions["A"].width = 28
     for j in range(NCOLS):
         ws.column_dimensions[get_column_letter(2 + j)].width = 13
-    # Inmoviliza cabecera (fila 6) y las columnas A/B, para que al crecer la tabla
-    # (más meses o más filas) sigan visibles la entidad/métrica y las cabeceras.
-    ws.freeze_panes = "C7"
+    # Inmoviliza cabecera (filas 4-6) y la columna A: al crecer la tabla siguen
+    # visibles la entidad y las cabeceras Métrica/Periodo.
+    ws.freeze_panes = "B7"
     return ws
 
 
