@@ -797,11 +797,13 @@ def build_tablas(wb, n):
         "Duración Modificada", "Duración Macaulay", "TIR", "VaR", "CMR",
         "Patrimonio", "Peso",
         "2025", "2024", "2023", "2022", "2021"]
+    # El catálogo vive en la hoja 'Listas' (col AN), NO en Tablas!T: la macro limpia
+    # y reescribe columnas de Tablas al rellenar/crear, y borraría el catálogo.
+    ws_l = wb["Listas"]
     for i, v in enumerate(variables):
-        ws.cell(2 + i, 20, v)          # T2..
-    ws.column_dimensions["T"].hidden = True
+        ws_l.cell(2 + i, 40, v)        # Listas col AN
     wb.defined_names.add(DefinedName(
-        "VariablesTabla", attr_text=f"Tablas!$T$2:$T${1 + len(variables)}"))
+        "VariablesTabla", attr_text=f"Listas!$AN$2:$AN${1 + len(variables)}"))
 
     # Fila 5 = marcas ocultas (AUTO) de las columnas que genera un marcador.
     ws.row_dimensions[HDR - 1].hidden = True
@@ -944,11 +946,12 @@ def build_posiciones(wb):
     cols = ["Peso", "Importe", "Nombre", "ISIN", "Ticker", "Sector", "Industria",
             "País", "Zona", "Divisa", "Tipo activo", "Rating", "Yield", "TER",
             "Duración", "Dividendo", "Plazo", "Mercado"]
+    # Catálogo en 'Listas' (col AO), no en Posiciones!T (la macro reescribe columnas).
+    ws_l = wb["Listas"]
     for i, v in enumerate(cols):
-        ws.cell(2 + i, 20, v)
-    ws.column_dimensions["T"].hidden = True
+        ws_l.cell(2 + i, 41, v)        # Listas col AO
     wb.defined_names.add(DefinedName(
-        "ColsPosiciones", attr_text=f"Posiciones!$T$2:$T${1 + len(cols)}"))
+        "ColsPosiciones", attr_text=f"Listas!$AO$2:$AO${1 + len(cols)}"))
 
     ws.cell(HDR, 1, "#").font = BOLD_WHITE
     ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)

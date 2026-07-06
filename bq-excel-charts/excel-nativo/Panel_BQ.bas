@@ -1005,6 +1005,7 @@ Public Sub NuevaTabla()
     If r = "" Then Exit Sub
 
     Application.EnableEvents = False
+    On Error GoTo fallo
     LimpiarZonaTabla ws
     ' Controles por defecto (los sobreescribe la plantilla si hace falta).
     ws.Range("B3").Value = "Ninguno"                          ' Estilo
@@ -1048,22 +1049,19 @@ Public Sub NuevaTabla()
     ws.Activate
     MsgBox "Tabla creada. Cambia las carteras (columna A) por las tuyas y pulsa '>> RELLENAR TABLA'.", _
            vbInformation, "Nueva tabla"
+    Exit Sub
+fallo:
+    On Error Resume Next
+    Application.EnableEvents = True
+    MsgBox "No se pudo crear la tabla:" & vbLf & Err.Description, vbExclamation, "Nueva tabla"
 End Sub
 
-' Limpia la zona de una tabla (cabeceras fila 5-6 y cuerpo A7 en adelante) para
-' empezar de cero, SIN tocar los controles (filas 3-4) ni el catalogo oculto de la
-' columna T (col 20, que alimenta los desplegables): por eso se salta esa columna.
+' Limpia la zona de una tabla (marcas fila 5, cabeceras fila 6 y cuerpo A7 en
+' adelante) para empezar de cero, sin tocar los controles (filas 3-4). El catalogo
+' de los desplegables vive en la hoja 'Listas', asi que aqui no hay nada que evitar.
 Private Sub LimpiarZonaTabla(ByVal ws As Worksheet)
-    Const HDRR As Long = 5      ' fila de marcas (TB_HDR-1)
-    Dim zc As Range, zd As Range
-    ' Cabeceras (filas 5-6): cols B..S y U..BB (se salta la T = catalogo).
-    Set zc = ws.Range(ws.Cells(HDRR, 2), ws.Cells(TB_HDR, 19))
-    Set zd = ws.Range(ws.Cells(HDRR, 21), ws.Cells(TB_HDR, 80))
-    Application.Union(zc, zd).ClearContents
-    ' Cuerpo (entidades + metricas + valores): cols A..S y U..BB.
-    Set zc = ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 19))
-    Set zd = ws.Range(ws.Cells(TB_ROW0, 21), ws.Cells(TB_ROW0 + 600, 80))
-    Application.Union(zc, zd).ClearContents
+    ws.Range(ws.Cells(TB_HDR - 1, 2), ws.Cells(TB_HDR, 80)).ClearContents        ' marcas fila5 + cabeceras fila6
+    ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 80)).ClearContents    ' entidades + metricas + valores
     ws.Range(ws.Cells(TB_ROW0, 1), ws.Cells(TB_ROW0 + 600, 1)).Interior.ColorIndex = xlNone   ' quita rojos
 End Sub
 
