@@ -761,17 +761,18 @@ def build_tablas(wb, n):
         ws.add_data_validation(dv)
         dv.add(ws[cell])
 
-    # Panel de control (fila 3). Se mantienen las celdas que lee la macro:
-    # B3 = Estilo, B4 = Fila de Total, E3 = Auto al abrir, H3 = estado.
+    # Panel de control TODO en la fila 3 (la fila 4 es la fila OCULTA de marcas, por
+    # eso ningún control puede ir ahí). Celdas que lee la macro: B3=Estilo, D3=Total,
+    # F3=Auto al abrir, H3=estado.
     ws["A3"] = "Estilo (color)"
     ws["A3"].font = BOLD
     sel("B3", "Ninguno", "Ninguno,Mapa de calor,Barras")   # sin colores por defecto
-    ws["A4"] = "Fila de Total"
-    ws["A4"].font = BOLD
-    sel("B4", "No", "No,Sí")
-    ws["D3"] = "Auto al abrir"
-    ws["D3"].font = BOLD
-    sel("E3", "No", "No,Sí")
+    ws["C3"] = "Fila de Total"
+    ws["C3"].font = BOLD
+    sel("D3", "No", "No,Sí")
+    ws["E3"] = "Auto al abrir"
+    ws["E3"].font = BOLD
+    sel("F3", "No", "No,Sí")
     # Estado / última actualización (lo escribe la macro).
     ws["G3"] = "Última actualización"
     ws["G3"].font = BOLD
@@ -789,11 +790,11 @@ def build_tablas(wb, n):
                 "Nov", "Dic", "T1", "T2", "T3", "T4", "2025", "2024", "2023", "2022", "2021",
                 "Meses (crece)", "Trimestres (crece)", "Años (crece)"]
     for i, v in enumerate(metricas):
-        ws_l.cell(2 + i, 40, v)        # Listas col AN
+        ws_l.cell(2 + i, 47, v)        # Listas col AU (AN-AS las usa Dim_<grupo> del Panel)
     for i, v in enumerate(periodos):
-        ws_l.cell(2 + i, 42, v)        # Listas col AP
-    wb.defined_names.add(DefinedName("MetricasTabla", attr_text=f"Listas!$AN$2:$AN${1 + len(metricas)}"))
-    wb.defined_names.add(DefinedName("PeriodosTabla", attr_text=f"Listas!$AP$2:$AP${1 + len(periodos)}"))
+        ws_l.cell(2 + i, 49, v)        # Listas col AW
+    wb.defined_names.add(DefinedName("MetricasTabla", attr_text=f"Listas!$AU$2:$AU${1 + len(metricas)}"))
+    wb.defined_names.add(DefinedName("PeriodosTabla", attr_text=f"Listas!$AW$2:$AW${1 + len(periodos)}"))
 
     # Fila 4 = marcas OCULTAS (grupos que crecen); no se toca a mano.
     ws.row_dimensions[MARK].hidden = True
@@ -942,12 +943,12 @@ def build_posiciones(wb):
     cols = ["Peso", "Importe", "Nombre", "ISIN", "Ticker", "Sector", "Industria",
             "País", "Zona", "Divisa", "Tipo activo", "Rating", "Yield", "TER",
             "Duración", "Dividendo", "Plazo", "Mercado"]
-    # Catálogo en 'Listas' (col AO), no en Posiciones!T (la macro reescribe columnas).
+    # Catálogo en 'Listas' (col AV), no en Posiciones!T ni en AN-AS (Dim_ del Panel).
     ws_l = wb["Listas"]
     for i, v in enumerate(cols):
-        ws_l.cell(2 + i, 41, v)        # Listas col AO
+        ws_l.cell(2 + i, 48, v)        # Listas col AV
     wb.defined_names.add(DefinedName(
-        "ColsPosiciones", attr_text=f"Listas!$AO$2:$AO${1 + len(cols)}"))
+        "ColsPosiciones", attr_text=f"Listas!$AV$2:$AV${1 + len(cols)}"))
 
     ws.cell(HDR, 1, "#").font = BOLD_WHITE
     ws.cell(HDR, 1).fill = PatternFill("solid", fgColor=AZUL)

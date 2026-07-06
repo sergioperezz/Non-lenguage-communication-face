@@ -1064,7 +1064,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
     If nv = 0 Then MsgBox "Elige Metrica (fila 5) y Periodo (fila 6) en las columnas.", vbExclamation, "Tablas": Exit Sub
     ' Con fila de Total, se descarga patrimonio aunque no se muestre, para
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
-    If Fold(ws.Range("B4").Value) = "si" Then needPos = True   ' Fila de Total
+    If Fold(ws.Range("D3").Value) = "si" Then needPos = True   ' Fila de Total
 
     Application.StatusBar = "Tablas: consultando BigQuery..."
     ' --- Descarga (RET/RISK/PATRIM/PATMES) a diccionarios en memoria ---
@@ -1093,7 +1093,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
     ' Fila de Total (opcional, B4="Si"): patrimonio/peso se SUMAN; el resto es
     ' media PONDERADA por patrimonio (si no hay patrimonio, media simple).
     Dim rTot As Long: rTot = TB_ROW0 + ne
-    If Fold(ws.Range("B4").Value) = "si" Then          ' Fila de Total
+    If Fold(ws.Range("D3").Value) = "si" Then          ' Fila de Total
         ws.Cells(rTot, 1).Value = "Total"
         ws.Cells(rTot, 1).Font.Bold = True
         For j = 1 To nv
@@ -2119,19 +2119,23 @@ Private Function NombreHojaLibre(ByVal base As String) As String
     NombreHojaLibre = base & " " & k
 End Function
 
-' Controles de exportacion a PowerPoint (fila 2), con valores por defecto.
+' Controles de exportacion a PowerPoint, como BLOQUE VERTICAL a la derecha (M:N),
+' con valores por defecto. La macro los lee de N2..N6.
 Private Sub PanelExportar(ByVal ws As Worksheet)
-    ws.Range("A2").Value = "Exportar a PowerPoint:"
-    ws.Range("A2").Font.Italic = True
-    ws.Range("C2").Value = "Slide":     ws.Range("D2").Value = 1
-    ws.Range("E2").Value = "Izq(cm)":   ws.Range("F2").Value = 1.5
-    ws.Range("G2").Value = "Arr(cm)":   ws.Range("H2").Value = 3
-    ws.Range("I2").Value = "Ancho(cm)": ws.Range("J2").Value = 24
-    ws.Range("K2").Value = "Alto(cm)":  ws.Range("L2").Value = 12
-    Dim c As Variant
-    For Each c In Array("C2", "E2", "G2", "I2", "K2")
-        ws.Range(CStr(c)).Font.Bold = True
-    Next c
+    ws.Range("A2").ClearContents                 ' quita el texto de ayuda copiado
+    ws.Range("M1").Value = "Exportar a PowerPoint"
+    ws.Range("M1").Font.Bold = True
+    ws.Range("M2").Value = "Slide":          ws.Range("N2").Value = 1
+    ws.Range("M3").Value = "Izquierda (cm)": ws.Range("N3").Value = 1.5
+    ws.Range("M4").Value = "Arriba (cm)":    ws.Range("N4").Value = 3
+    ws.Range("M5").Value = "Ancho (cm)":     ws.Range("N5").Value = 24
+    ws.Range("M6").Value = "Alto (cm)":      ws.Range("N6").Value = 12
+    Dim rr As Long
+    For rr = 2 To 6
+        ws.Cells(rr, 13).Font.Italic = True                        ' M: etiquetas
+        ws.Cells(rr, 14).Interior.Color = RGB(238, 242, 248)      ' N: valores (sombreado)
+    Next rr
+    ws.Columns("M").ColumnWidth = 15
 End Sub
 
 ' --- Botones de las hojas generadas (operan sobre la hoja ACTIVA) ---
@@ -2187,9 +2191,9 @@ Private Function PegarObjeto(ByVal ws As Worksheet, ByVal pres As Object) As Str
     End If
 
     Dim slideN As Long, izq As Double, arr As Double, anc As Double, alt As Double
-    slideN = CLng(Val(CStr(ws.Range("D2").Value))): If slideN < 1 Then slideN = 1
-    izq = NumDbl(ws.Range("F2").Value): arr = NumDbl(ws.Range("H2").Value)
-    anc = NumDbl(ws.Range("J2").Value): alt = NumDbl(ws.Range("L2").Value)
+    slideN = CLng(Val(CStr(ws.Range("N2").Value))): If slideN < 1 Then slideN = 1
+    izq = NumDbl(ws.Range("N3").Value): arr = NumDbl(ws.Range("N4").Value)
+    anc = NumDbl(ws.Range("N5").Value): alt = NumDbl(ws.Range("N6").Value)
 
     Do While pres.Slides.Count < slideN
         pres.Slides.Add pres.Slides.Count + 1, 12            ' 12 = ppLayoutBlank
@@ -2232,7 +2236,7 @@ Public Sub HojaExportarPPT()
     If pres Is Nothing Then MsgBox "No se pudo abrir PowerPoint.", vbExclamation, ws.Name: Exit Sub
     Dim e As String: e = PegarObjeto(ws, pres)
     If Len(e) = 0 Then
-        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range("D2").Value))) & ".", vbInformation, ws.Name
+        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range("N2").Value))) & ".", vbInformation, ws.Name
     Else
         MsgBox "No se pudo exportar:" & vbLf & e, vbExclamation, ws.Name
     End If
@@ -2366,7 +2370,6 @@ Public Sub InstalarBotones()
         BorrarBotones wt
         CrearBoton wt, "J1", ">> RELLENAR TABLA", "RellenarTabla"
         CrearBoton wt, "J4", "+ CREAR HOJA CON TABLA", "CrearHojaTabla"
-        CrearBoton wt, "J6", "+ CREAR HOJA CON GRAFICA", "CrearHojaGrafica"
     End If
     On Error Resume Next
     Dim wp As Worksheet: Set wp = ThisWorkbook.Sheets("Posiciones")
@@ -2461,7 +2464,7 @@ Public Sub AutoRellenarTabla()
     Dim ws As Worksheet: Set ws = ThisWorkbook.Sheets("Tablas")
     If ws Is Nothing Then Exit Sub
     If mTablaAuto Then Exit Sub
-    If Fold(CStr(ws.Range("E3").Value)) <> "si" Then Exit Sub   ' Auto al abrir
+    If Fold(CStr(ws.Range("F3").Value)) <> "si" Then Exit Sub   ' Auto al abrir
     mTablaAuto = True
     RellenarTabla True
 End Sub
