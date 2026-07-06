@@ -1607,10 +1607,12 @@ Private Sub ExpandirTabla(ByVal ws As Worksheet, ByVal inlist As String)
     ReDim oMet(1 To 200): ReDim oPer(1 To 200): ReDim oMk(1 To 200): no = 0
     Dim i As Long, k As Long
     For i = 1 To ns
+        If no >= 180 Then Exit For          ' tope de seguridad (arrays 1..200)
         If Len(sGran(i)) > 0 Then
             Dim pers() As String, np As Long
             PeriodosCrece sGran(i), yData, mData, pers, np
             For k = 1 To np
+                If no >= 180 Then Exit For
                 no = no + 1: oMet(no) = sMet(i): oPer(no) = pers(k)
                 oMk(no) = IIf(k = 1, "CRECE:" & sGran(i), "AUTO")
             Next k
