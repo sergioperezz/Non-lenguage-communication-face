@@ -2407,15 +2407,70 @@ Private Function PowerPointPres() As Object
     If ppt.Presentations.Count = 0 Then Set PowerPointPres = ppt.Presentations.Add Else Set PowerPointPres = ppt.ActivePresentation
 End Function
 
-' Boton de la hoja generada: exporta su objeto a la presentacion ABIERTA.
+' Ruta absoluta de la plantilla .pptx configurada (PPT_PLANTILLA). Si es un nombre
+' relativo (sin unidad ni "\\") se resuelve JUNTO AL LIBRO. "" si no hay o no existe.
+Private Function RutaPlantilla() As String
+    Dim p As String: p = Trim(Cfg("PPT_PLANTILLA", ""))
+    If Len(p) = 0 Then Exit Function
+    If InStr(p, ":") = 0 And Left(p, 2) <> "\\" Then
+        Dim base As String: base = ThisWorkbook.Path
+        If Len(base) > 0 Then
+            If Right(base, 1) <> "\" Then base = base & "\"
+            p = base & p
+        End If
+    End If
+    On Error Resume Next
+    If Len(Dir(p)) > 0 Then RutaPlantilla = p
+    On Error GoTo 0
+End Function
+
+' Presentacion destino del boton de exportar de una hoja: prioriza la plantilla
+' configurada (PPT_PLANTILLA, junto al libro si es relativa): si ya esta abierta la
+' reutiliza; si existe en disco la abre. Si no hay plantilla usa la presentacion
+' activa o crea una nueva. Nothing si PowerPoint no esta disponible.
+Private Function PresentacionDestino() As Object
+    Dim ppt As Object
+    On Error Resume Next
+    Set ppt = GetObject(, "PowerPoint.Application")
+    If ppt Is Nothing Then Set ppt = CreateObject("PowerPoint.Application")
+    On Error GoTo 0
+    If ppt Is Nothing Then Exit Function
+    ppt.Visible = True
+
+    Dim ruta As String: ruta = RutaPlantilla()
+    If Len(ruta) > 0 Then
+        Dim pr As Object
+        For Each pr In ppt.Presentations           ' 1) ya abierta?
+            On Error Resume Next
+            If StrComp(pr.FullName, ruta, vbTextCompare) = 0 Then Set PresentacionDestino = pr
+            On Error GoTo 0
+            If Not PresentacionDestino Is Nothing Then Exit Function
+        Next pr
+        On Error Resume Next                        ' 2) abrir del disco
+        Set PresentacionDestino = ppt.Presentations.Open(ruta)
+        On Error GoTo 0
+        If Not PresentacionDestino Is Nothing Then Exit Function
+    End If
+
+    ' 3) Fallback: activa o nueva.
+    If ppt.Presentations.Count = 0 Then Set PresentacionDestino = ppt.Presentations.Add Else Set PresentacionDestino = ppt.ActivePresentation
+End Function
+
+' Boton de la hoja generada: exporta su objeto a la plantilla configurada (o, si no
+' hay, a la presentacion abierta). Deja el .pptx abierto para que lo revises y guardes.
 Public Sub HojaExportarPPT()
     Dim ws As Worksheet: Set ws = ActiveSheet
-    Dim pres As Object: Set pres = PowerPointPres()
+    Dim pres As Object: Set pres = PresentacionDestino()
     If pres Is Nothing Then MsgBox "No se pudo abrir PowerPoint.", vbExclamation, ws.Name: Exit Sub
     Dim e As String: e = PegarObjeto(ws, pres)
     Dim vc As String, r0 As Long: PosVals ws, vc, r0
+    Dim nomPres As String: nomPres = "presentacion activa"
+    On Error Resume Next
+    nomPres = pres.Name
+    On Error GoTo 0
     If Len(e) = 0 Then
-        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range(vc & (r0 + 1)).Value))) & ".", vbInformation, ws.Name
+        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range(vc & (r0 + 1)).Value))) & _
+               " de '" & nomPres & "'. Guarda la presentacion para conservarlo.", vbInformation, ws.Name
     Else
         MsgBox "No se pudo exportar:" & vbLf & e, vbExclamation, ws.Name
     End If
