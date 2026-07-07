@@ -907,8 +907,41 @@ def build_portada(wb):
     ws["A5"].font = Font(italic=True, size=9, color="808080")
     ws.merge_cells("A5:G5")
 
-    ws.column_dimensions["A"].width = 24
+    # --- Informe mensual (PowerPoint) --------------------------------------
+    # Los botones del informe se instalan en A7/A9/A11/A13 (macro InstalarBotones),
+    # así que este bloque de parámetros va DEBAJO, en filas 16-19 (A=etiqueta,
+    # B=valor). Los lee el orquestador GenerarInformeMes / RutaPlantilla del .bas.
+    ws["A16"] = "Informe mensual (PowerPoint)"
+    ws["A16"].font = Font(bold=True, size=12)
+
+    ws["A17"] = "Periodo del informe (AAAA-MM)"
+    ws["A17"].font = BOLD
+    # Por defecto se deduce del mes de cierre (B2/B3); puedes escribir otro AAAA-MM.
+    ws["B17"] = ('=IF(OR($B$3="(último)",$B$3=""),"",'
+                 'TEXT(DATE($B$2,MATCH($B$3,'
+                 '{"Ene";"Feb";"Mar";"Abr";"May";"Jun";"Jul";"Ago";"Sep";"Oct";"Nov";"Dic"},0),1),'
+                 '"yyyy-mm"))')
+    ws["B17"].fill = PatternFill("solid", fgColor=GRIS)
+    ws["C17"] = "Nombre del .xlsm/.pptx del mes. Vacío = mes de cierre (o el actual)."
+    ws["C17"].font = Font(italic=True, size=9, color="808080")
+
+    ws["A18"] = "Fecha del informe (carpeta)"
+    ws["A18"].font = BOLD
+    ws["B18"] = '=TEXT(TODAY(),"yyyy-mm-dd")'
+    ws["B18"].fill = PatternFill("solid", fgColor=GRIS)
+    ws["C18"] = "Subcarpeta que se crea (si no existe) dentro de PPT_CARPETA (config)."
+    ws["C18"].font = Font(italic=True, size=9, color="808080")
+
+    ws["A19"] = "Plantilla PowerPoint"
+    ws["A19"].font = BOLD
+    ws["B19"] = "template.pptx"
+    ws["B19"].fill = PatternFill("solid", fgColor=GRIS)
+    ws["C19"] = "Nombre o ruta del .pptx base. Relativo = junto a este Excel. Vacío = deck nuevo."
+    ws["C19"].font = Font(italic=True, size=9, color="808080")
+
+    ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 24
+    ws.column_dimensions["C"].width = 20
     return ws
 
 

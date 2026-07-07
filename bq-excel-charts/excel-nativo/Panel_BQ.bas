@@ -2407,10 +2407,12 @@ Private Function PowerPointPres() As Object
     If ppt.Presentations.Count = 0 Then Set PowerPointPres = ppt.Presentations.Add Else Set PowerPointPres = ppt.ActivePresentation
 End Function
 
-' Ruta absoluta de la plantilla .pptx configurada (PPT_PLANTILLA). Si es un nombre
-' relativo (sin unidad ni "\\") se resuelve JUNTO AL LIBRO. "" si no hay o no existe.
+' Ruta absoluta de la plantilla .pptx: 1) celda "Plantilla PowerPoint" de la Portada
+' (B19); 2) config PPT_PLANTILLA. Si es un nombre relativo (sin unidad ni "\\") se
+' resuelve JUNTO AL LIBRO. "" si no hay o no existe.
 Private Function RutaPlantilla() As String
-    Dim p As String: p = Trim(Cfg("PPT_PLANTILLA", ""))
+    Dim p As String: p = PortadaTxt("B19")
+    If Len(p) = 0 Then p = Trim(Cfg("PPT_PLANTILLA", ""))
     If Len(p) = 0 Then Exit Function
     If InStr(p, ":") = 0 And Left(p, 2) <> "\\" Then
         Dim base As String: base = ThisWorkbook.Path
@@ -2476,18 +2478,55 @@ Public Sub HojaExportarPPT()
     End If
 End Sub
 
-' "YYYY-MM" del informe: el mes de la Portada, o el mes actual si es "(ultimo)".
-Private Function MesInforme() As String
-    Dim ws As Worksheet, y As Long, m As Long
+' Texto (recortado) de una celda de la Portada. "" si no hay hoja o esta vacia.
+Private Function PortadaTxt(ByVal addr As String) As String
+    Dim ws As Worksheet
     On Error Resume Next
     Set ws = ThisWorkbook.Sheets("Portada")
+    If Not ws Is Nothing Then PortadaTxt = Trim(CStr(ws.Range(addr).Value))
     On Error GoTo 0
-    If Not ws Is Nothing Then
-        y = CLng(Val(CStr(ws.Range("B2").Value)))
-        m = MesNum(CStr(ws.Range("B3").Value))
-    End If
+End Function
+
+' "YYYY-MM" del informe: 1) la celda "Periodo" de la Portada (B17) si es AAAA-MM;
+' 2) el mes de cierre (B2/B3); 3) el mes actual.
+Private Function MesInforme() As String
+    Dim p As String: p = PortadaTxt("B17")
+    If p Like "####-##" Then MesInforme = p: Exit Function
+    Dim y As Long, m As Long
+    y = CLng(Val(PortadaTxt("B2")))
+    m = MesNum(PortadaTxt("B3"))
     If y < 1900 Or m < 1 Then MesInforme = Format(Date, "yyyy-mm") Else MesInforme = Format(DateSerial(y, m, 1), "yyyy-mm")
 End Function
+
+' Quita de un nombre los caracteres invalidos para carpetas/archivos (los sustituye
+' por "-"). Sirve para convertir la "fecha del informe" en un nombre de carpeta.
+Private Function SanearNombre(ByVal s As String) As String
+    Dim t As String: t = Trim(s)
+    Dim bad As Variant, x As Variant
+    bad = Array("\", "/", ":", "*", "?", """", "<", ">", "|")
+    For Each x In bad
+        t = Replace(t, CStr(x), "-")
+    Next x
+    SanearNombre = t
+End Function
+
+' Crea 'ruta' (y sus carpetas padre) si no existe. No falla si ya existe.
+Private Sub AsegurarCarpeta(ByVal ruta As String)
+    Dim r As String: r = ruta
+    If Right(r, 1) = "\" Then r = Left(r, Len(r) - 1)
+    If Len(r) = 0 Then Exit Sub
+    On Error Resume Next
+    If Len(Dir(r, vbDirectory)) > 0 Then Exit Sub
+    On Error GoTo 0
+    Dim p As Long: p = InStrRev(r, "\")
+    If p > 1 Then
+        Dim parent As String: parent = Left(r, p - 1)
+        If InStr(parent, "\") > 0 Then AsegurarCarpeta parent
+    End If
+    On Error Resume Next
+    MkDir r
+    On Error GoTo 0
+End Sub
 
 ' ORQUESTADOR MENSUAL (boton de Portada): actualiza todas las hojas generadas a la
 ' fecha de Portada, guarda una copia .xlsm del mes (auditable) y monta el .pptx del
@@ -2495,12 +2534,19 @@ End Function
 ' lo reporta al final. Degrada sin PowerPoint (la copia .xlsm se guarda igual).
 Public Sub GenerarInformeMes()
     Dim carpeta As String, base As String, plantilla As String, mesTxt As String
+    ' Carpeta base: PPT_CARPETA (config) o, si esta vacia, la del propio libro.
     carpeta = Cfg("PPT_CARPETA", "")
+    If Len(carpeta) = 0 Then carpeta = ThisWorkbook.Path
     base = Cfg("PPT_NOMBRE", "Informe")
-    plantilla = Cfg("PPT_PLANTILLA", "")
     mesTxt = MesInforme()
-    If Len(carpeta) = 0 Then MsgBox "Configura la carpeta de salida en la hoja 'config' (PPT_CARPETA).", vbExclamation, "Informe": Exit Sub
+    If Len(carpeta) = 0 Then MsgBox "Guarda el libro (o configura PPT_CARPETA en 'config') antes de generar el informe.", vbExclamation, "Informe": Exit Sub
     If Right(carpeta, 1) <> "\" Then carpeta = carpeta & "\"
+    ' Subcarpeta = "fecha del informe" de la Portada (B18). Se crea si no existe.
+    Dim subc As String: subc = SanearNombre(PortadaTxt("B18"))
+    If Len(subc) > 0 Then carpeta = carpeta & subc & "\"
+    AsegurarCarpeta carpeta
+    ' Plantilla: celda de la Portada (B19) o config PPT_PLANTILLA, resuelta junto al libro.
+    plantilla = RutaPlantilla()
 
     Dim sh As Worksheet, tipo As String
     Dim n As Long, okR As Long, okP As Long, fallos As String: n = 0: okR = 0: okP = 0: fallos = ""
