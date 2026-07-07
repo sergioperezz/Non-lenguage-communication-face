@@ -105,9 +105,30 @@ Private mTablaAuto As Boolean
 ' la Portada tenga un mes elegido. Lo usan los botones "Actualizar" de las hojas
 ' generadas para traer siempre lo mas reciente.
 Private mSinAsOf As Boolean
+' Si esta puesto, TODO el motor del Panel (SQL/bloques/dibujo) opera sobre ESA hoja
+' en vez de "Panel". Lo usan las hojas generadas con "Crear hoja con grafica" (que
+' son copias del Panel) para refrescar/dibujar su propio grafico de forma autonoma.
+Private mHojaPanel As Worksheet
 
 Private Function Panel() As Worksheet
-    Set Panel = ThisWorkbook.Sheets("Panel")
+    If mHojaPanel Is Nothing Then Set Panel = ThisWorkbook.Sheets("Panel") Else Set Panel = mHojaPanel
+End Function
+
+' Prefijo de referencia a una hoja para las series del grafico: "='Hoja'!".
+Private Function QHoja(ByVal ws As Worksheet) As String
+    QHoja = "='" & ws.Name & "'!"
+End Function
+
+' Tipo de hoja generada: "grafica" (copia del Panel) / "tabla" / "". Robusto: por
+' marca AD1 o por el prefijo del nombre (Grafica N / Tabla N).
+Private Function TipoHoja(ByVal ws As Worksheet) As String
+    Dim n As String: n = Fold(ws.Name)
+    Dim m As String: m = Fold(CStr(ws.Cells(1, 30).Value))
+    If m = "grafica" Or Left(n, 7) = "grafica" Then
+        TipoHoja = "grafica"
+    ElseIf m = "tabla" Or Left(n, 5) = "tabla" Then
+        TipoHoja = "tabla"
+    End If
 End Function
 
 Private Function Esc(ByVal s As String) As String
@@ -2016,16 +2037,15 @@ limp:
     MsgBox "No se pudo crear la hoja:" & vbLf & Err.Description, vbExclamation, "Crear hoja"
 End Sub
 
-' "Crear hoja con grafica": como "Crear hoja con tabla" pero ademas anade un
-' GRAFICO NATIVO que representa la tabla (categorias = entidades, series = columnas).
-' El grafico apunta al rango de ESTA hoja (no a rangos con nombre del Panel), asi
-' es autonomo: se refresca con la tabla y se exporta como imagen a PowerPoint.
+' "Crear hoja con grafica": duplica la hoja PANEL en una hoja autonoma (Grafica N)
+' con sus mismos desplegables y su grafico. El grafico se redibuja apuntando a ESTA
+' hoja (referencias directas, no a nombres del libro), asi se actualiza solo.
 Public Sub CrearHojaGrafica()
     Dim src As Worksheet
     On Error Resume Next
-    Set src = ThisWorkbook.Sheets("Tablas")
+    Set src = ThisWorkbook.Sheets("Panel")
     On Error GoTo 0
-    If src Is Nothing Then MsgBox "No encuentro la hoja 'Tablas'.", vbExclamation: Exit Sub
+    If src Is Nothing Then MsgBox "No encuentro la hoja 'Panel'.", vbExclamation: Exit Sub
 
     Dim nom As String: nom = NombreHojaLibre("Grafica")
     On Error GoTo limp
@@ -2036,33 +2056,41 @@ Public Sub CrearHojaGrafica()
     ws.Visible = xlSheetVisible
     BorrarBotones ws
     ws.Cells(1, 30).Value = "GRAFICA"                ' AD1: marca de tipo de hoja
-    ws.Cells(1, 1).Value = "Grafica: " & nom
     PanelExportar ws
-    ws.Rows(1).RowHeight = 30
-
-    Dim lastRow As Long, lastCol As Long
-    UltimaCeldaTabla ws, lastRow, lastCol
-    Dim co As ChartObject
-    Dim topPt As Double: topPt = ws.Cells(IIf(lastRow >= TB_ROW0, lastRow + 2, 12), 1).Top
-    Set co = ws.ChartObjects.Add(ws.Cells(1, 1).Left, topPt, 520, 280)
-    Dim rng As Range: Set rng = RangoGrafica(ws)
-    If Not rng Is Nothing Then
-        co.Chart.SetSourceData Source:=rng
-        co.Chart.ChartType = 51                       ' xlColumnClustered
-        co.Chart.HasTitle = False
-    End If
-
-    CrearBoton ws, "A1", ">> ACTUALIZAR", "HojaActualizar"
-    CrearBoton ws, "E1", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
-    CrearBoton ws, "I1", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+    CrearBoton ws, "A20", ">> ACTUALIZAR", "HojaActualizar"
+    CrearBoton ws, "A22", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
+    CrearBoton ws, "A24", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+    ' Refresca la copia (consulta + dibuja + congela) para que muestre SUS datos
+    ' leyendo de ESTA hoja, no del Panel original.
+    RefrescarHoja ws
     Application.ScreenUpdating = True
     ws.Activate
-    MsgBox "Creada la hoja '" & nom & "' con grafica. Actualizala y exportala a " & _
-           "PowerPoint desde sus botones.", vbInformation, "Crear hoja"
+    MsgBox "Creada la hoja '" & nom & "' (copia del Panel). Elige sus desplegables, " & _
+           "pulsa Actualizar y exportala a PowerPoint.", vbInformation, "Crear hoja"
     Exit Sub
 limp:
+    Set mHojaPanel = Nothing
     Application.ScreenUpdating = True
     MsgBox "No se pudo crear la hoja:" & vbLf & Err.Description, vbExclamation, "Crear hoja"
+End Sub
+
+' Refresca una hoja generada segun su tipo: "grafica" = motor del Panel redirigido
+' a esa hoja; "tabla" = RellenarTablaEn.
+Private Sub RefrescarHoja(ByVal ws As Worksheet)
+    If TipoHoja(ws) = "grafica" Then
+        Set mHojaPanel = ws
+        On Error Resume Next
+        Actualizar
+        ' Congela la tabla del grafico (D:H) a VALORES: el Panel usa nombres de libro
+        ' compartidos (f_*), asi que sin congelar todas las copias mostrarian los datos
+        ' de la ultima refrescada. Con valores estaticos cada copia es independiente.
+        ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + 4)).Value = _
+            ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + 4)).Value
+        On Error GoTo 0
+        Set mHojaPanel = Nothing
+    Else
+        RellenarTablaEn ws, True
+    End If
 End Sub
 
 ' Ultima fila (col A desde TB_ROW0) y ultima columna (fila TB_HDR desde B) con datos.
@@ -2080,28 +2108,6 @@ Private Sub UltimaCeldaTabla(ByVal ws As Worksheet, ByRef lastRow As Long, ByRef
         If Len(Trim(CStr(ws.Cells(TB_HDR, c).Value))) = 0 Then Exit Do
         lastCol = c: c = c + 1
     Loop
-End Sub
-
-' Rango que alimenta el grafico: fila de Periodo (cabecera) + entidades + datos.
-Private Function RangoGrafica(ByVal ws As Worksheet) As Range
-    Dim lastRow As Long, lastCol As Long
-    UltimaCeldaTabla ws, lastRow, lastCol
-    If lastRow < TB_ROW0 Or lastCol < 2 Then Exit Function
-    Set RangoGrafica = ws.Range(ws.Cells(TB_HDR, 1), ws.Cells(lastRow, lastCol))
-End Function
-
-' Reajusta el origen de datos del grafico de una hoja "GRAFICA" tras actualizar.
-Private Sub AjustarGrafica(ByVal ws As Worksheet)
-    On Error Resume Next
-    Dim co As ChartObject: Set co = ws.ChartObjects(1)
-    On Error GoTo 0
-    If co Is Nothing Then Exit Sub
-    Dim rng As Range: Set rng = RangoGrafica(ws)
-    If Not rng Is Nothing Then
-        On Error Resume Next
-        co.Chart.SetSourceData Source:=rng
-        On Error GoTo 0
-    End If
 End Sub
 
 ' Siguiente nombre de hoja libre "Base N".
@@ -2143,24 +2149,28 @@ Public Sub HojaActualizar()          ' ultima fecha disponible (ignora la Portad
     Dim ws As Worksheet: Set ws = ActiveSheet
     mSinAsOf = True
     On Error GoTo limp
-    RellenarTablaEn ws, True
+    RefrescarHoja ws
     mSinAsOf = False
-    If Fold(CStr(ws.Cells(1, 30).Value)) = "grafica" Then AjustarGrafica ws
     MsgBox "Actualizado a la ultima fecha disponible.", vbInformation, ws.Name
     Exit Sub
 limp:
     mSinAsOf = False
+    Set mHojaPanel = Nothing
     MsgBox "Error al actualizar:" & vbLf & Err.Description, vbExclamation, ws.Name
 End Sub
 
 Public Sub HojaActualizarFecha()     ' a cierre de la fecha global de Portada
     Dim ws As Worksheet: Set ws = ActiveSheet
     mSinAsOf = False
-    RellenarTablaEn ws, True
-    If Fold(CStr(ws.Cells(1, 30).Value)) = "grafica" Then AjustarGrafica ws
+    On Error GoTo limp
+    RefrescarHoja ws
     Dim d As String: d = CfgAsOf()
     If Len(d) = 0 Then d = "ultima disponible"
     MsgBox "Actualizado a la fecha de Portada (" & d & ").", vbInformation, ws.Name
+    Exit Sub
+limp:
+    Set mHojaPanel = Nothing
+    MsgBox "Error al actualizar:" & vbLf & Err.Description, vbExclamation, ws.Name
 End Sub
 
 ' Rango imagen de una tabla (cabeceras Metrica/Periodo + datos + columna Entidad).
@@ -2176,7 +2186,7 @@ End Function
 ' Devuelve "" si OK, o el texto del error (para el resumen del lote).
 Private Function PegarObjeto(ByVal ws As Worksheet, ByVal pres As Object) As String
     On Error GoTo limp
-    Dim esGrafica As Boolean: esGrafica = (Fold(CStr(ws.Cells(1, 30).Value)) = "grafica")
+    Dim esGrafica As Boolean: esGrafica = (TipoHoja(ws) = "grafica")
     Dim rng As Range, co As ChartObject
     If esGrafica Then
         On Error Resume Next
@@ -2275,13 +2285,12 @@ Public Sub GenerarInformeMes()
     Application.StatusBar = "Informe: actualizando hojas..."
     mSinAsOf = False
     For Each sh In ThisWorkbook.Worksheets
-        tipo = Fold(CStr(sh.Cells(1, 30).Value))
+        tipo = TipoHoja(sh)
         If tipo = "tabla" Or tipo = "grafica" Then
             n = n + 1
             On Error Resume Next
             Err.Clear
-            RellenarTablaEn sh, True
-            If tipo = "grafica" Then AjustarGrafica sh
+            RefrescarHoja sh
             If Err.Number <> 0 Then fallos = fallos & vbLf & " - " & sh.Name & " (actualizar): " & Err.Description Else okR = okR + 1
             On Error GoTo 0
         End If
@@ -2324,7 +2333,7 @@ Public Sub GenerarInformeMes()
             errPpt = "no se pudo abrir la presentacion (o la plantilla)"
         Else
             For Each sh In ThisWorkbook.Worksheets
-                tipo = Fold(CStr(sh.Cells(1, 30).Value))
+                tipo = TipoHoja(sh)
                 If tipo = "tabla" Or tipo = "grafica" Then
                     Dim e As String: e = PegarObjeto(sh, pres)
                     If Len(e) = 0 Then okP = okP + 1 Else fallos = fallos & vbLf & " - " & sh.Name & " (export): " & e
@@ -3061,12 +3070,13 @@ Private Function Q(ByVal s As String) As String
     Q = Chr(34) & Replace(CStr(s), Chr(34), Chr(34) & Chr(34)) & Chr(34)
 End Function
 
-' (Re)define un nombre de libro apuntando a Panel!col$2:col$lastR.
+' (Re)define un nombre de libro apuntando a <HojaActiva>!col$2:col$lastR (la hoja
+' es Panel() -> el Panel real o la copia que se este refrescando).
 Private Sub FijarNombre(ByVal nm As String, ByVal col As Long, ByVal lastR As Long)
     Dim ws As Worksheet: Set ws = Panel()
     Dim r2 As Long: r2 = lastR: If r2 < 2 Then r2 = 2
     Dim ref As String
-    ref = "=Panel!" & ws.Cells(2, col).Address(True, True) & ":" & ws.Cells(r2, col).Address(True, True)
+    ref = "='" & ws.Name & "'!" & ws.Cells(2, col).Address(True, True) & ":" & ws.Cells(r2, col).Address(True, True)
     On Error Resume Next
     ThisWorkbook.Names(nm).Delete
     On Error GoTo 0
@@ -3731,11 +3741,12 @@ Private Sub DibujarApiladas(ByVal ws As Worksheet, ByVal nRows As Long, ByVal nS
     If ch Is Nothing Then Exit Sub
     r0 = 3: r1 = 2 + nRows
     Do While ch.SeriesCollection.Count > 0: ch.SeriesCollection(1).Delete: Loop
+    Dim q As String: q = QHoja(ws)
     For c = TCMP_COL + 1 To TCMP_COL + nSer
         Set s = ch.SeriesCollection.NewSeries
-        s.Name = "=Panel!" & ws.Cells(2, c).Address
-        s.Values = "=Panel!" & ws.Range(ws.Cells(r0, c), ws.Cells(r1, c)).Address
-        s.XValues = "=Panel!" & ws.Range(ws.Cells(r0, TCMP_COL), ws.Cells(r1, TCMP_COL)).Address
+        s.Name = q & ws.Cells(2, c).Address
+        s.Values = q & ws.Range(ws.Cells(r0, c), ws.Cells(r1, c)).Address
+        s.XValues = q & ws.Range(ws.Cells(r0, TCMP_COL), ws.Cells(r1, TCMP_COL)).Address
     Next c
     Dim t As String: t = Fold(ws.Range("B14").Value)
     If InStr(t, "100%") > 0 Then
@@ -4137,14 +4148,15 @@ Private Sub AsegurarNombresGrafico()
 End Sub
 
 Private Sub AddEnt(ws As Worksheet, ByVal ch As Chart, ByVal slotCell As String, _
-        ByVal colLetter As String, ByVal valName As String)
+        ByVal colLetter As String, ByVal lastRow As Long)
     Dim s As Series, v As String
     v = Trim(CStr(ws.Range(slotCell).Value))
     If v = "" Or v = "(ninguna)" Then Exit Sub
     Set s = ch.SeriesCollection.NewSeries
-    s.Name = "=Panel!$" & colLetter & "$2"
-    s.Values = RefNombre(valName)         ' rango dinamico: se ajusta a los datos
-    s.XValues = RefNombre("ChCats")
+    Dim q As String: q = QHoja(ws)         ' referencia DIRECTA a la hoja (no a nombres del libro)
+    s.Name = q & "$" & colLetter & "$2"
+    s.Values = q & "$" & colLetter & "$3:$" & colLetter & "$" & lastRow
+    s.XValues = q & "$D$3:$D$" & lastRow
 End Sub
 
 ' Redibuja el grafico del Panel con la tabla D:H actual (mock o datos reales).
@@ -4162,14 +4174,22 @@ Public Sub DibujarGrafico()
 
     conBench = (ws.Range("B12").Value = "Con benchmark")
     tipo = Fold(ws.Range("B14").Value)
-    AsegurarNombresGrafico          ' rangos dinamicos: el grafico se ajusta solo
+
+    ' Ultima fila con categoria (col D) para acotar las series a la hoja ACTUAL
+    ' (asi el grafico de una copia lee de SU hoja, no del Panel original).
+    Dim lastRow As Long: lastRow = 2
+    Dim rr As Long
+    For rr = 3 To 402
+        If Len(Trim(CStr(ws.Cells(rr, TCMP_COL).Value))) > 0 Then lastRow = rr
+    Next rr
+    If lastRow < 3 Then lastRow = 3
 
     Do While ch.SeriesCollection.Count > 0
         ch.SeriesCollection(1).Delete
     Loop
-    AddEnt ws, ch, "B4", "E", "ChE"
-    AddEnt ws, ch, "B5", "F", "ChF"
-    AddEnt ws, ch, "B6", "G", "ChG"
+    AddEnt ws, ch, "B4", "E", lastRow
+    AddEnt ws, ch, "B5", "F", lastRow
+    AddEnt ws, ch, "B6", "G", lastRow
 
     ' Solo dibuja la serie de benchmark si REALMENTE hay datos en H (columna del
     ' benchmark). Metricas sin benchmark (Duracion/TIR/Composicion) dejan H vacia,
@@ -4177,9 +4197,10 @@ Public Sub DibujarGrafico()
     benchIdx = 0
     If conBench And Trim(CStr(ws.Range("B4").Value)) <> "" And HayDatosCol(ws, "H") Then
         Set s = ch.SeriesCollection.NewSeries
-        s.Name = "=Panel!$H$2"
-        s.Values = RefNombre("ChH")
-        s.XValues = RefNombre("ChCats")
+        Dim qb As String: qb = QHoja(ws)
+        s.Name = qb & "$H$2"
+        s.Values = qb & "$H$3:$H$" & lastRow
+        s.XValues = qb & "$D$3:$D$" & lastRow
         benchIdx = ch.SeriesCollection.Count
     End If
 
