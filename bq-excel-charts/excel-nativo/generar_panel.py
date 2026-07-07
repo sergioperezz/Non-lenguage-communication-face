@@ -460,9 +460,8 @@ def build_config(wb):
         ("MSTR_MKT_COL", "", "Columna Mercado en el maestro (Posiciones)"),
         ("MSTR_DIV_COL", "", "Columna Dividendo (Acum/Reparto) en el maestro (Posiciones)"),
         ("MSTR_PLAZO_COL", "", "Columna Plazo/Vencimiento en el maestro (Posiciones)"),
-        ("PPT_CARPETA", "", "Carpeta de salida del informe mensual (ej. C:\\Informes). Vacío = pide configurarla"),
         ("PPT_NOMBRE", "Informe", "Nombre base de los archivos del mes (Informe 2026-06.xlsm/.pptx)"),
-        ("PPT_PLANTILLA", "", "Ruta a la plantilla .pptx (layout del deck). Vacío = crea una presentación nueva"),
+        ("PPT_PLANTILLA", "", "Plantilla .pptx de respaldo (la de la Portada B19 manda). Vacío = deck nuevo"),
     ]
     for i, (k, v, d) in enumerate(filas, start=2):
         ws.cell(i, 1, k).font = BOLD
@@ -929,7 +928,7 @@ def build_portada(wb):
     ws["A18"].font = BOLD
     ws["B18"] = '=TEXT(TODAY(),"yyyy-mm-dd")'
     ws["B18"].fill = PatternFill("solid", fgColor=GRIS)
-    ws["C18"] = "Subcarpeta que se crea (si no existe) dentro de PPT_CARPETA (config)."
+    ws["C18"] = "Carpeta que se crea (si no existe) JUNTO A ESTE EXCEL para guardar el .xlsm y el .pptx."
     ws["C18"].font = Font(italic=True, size=9, color="808080")
 
     ws["A19"] = "Plantilla PowerPoint"

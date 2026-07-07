@@ -2534,14 +2534,13 @@ End Sub
 ' lo reporta al final. Degrada sin PowerPoint (la copia .xlsm se guarda igual).
 Public Sub GenerarInformeMes()
     Dim carpeta As String, base As String, plantilla As String, mesTxt As String
-    ' Carpeta base: PPT_CARPETA (config) o, si esta vacia, la del propio libro.
-    carpeta = Cfg("PPT_CARPETA", "")
-    If Len(carpeta) = 0 Then carpeta = ThisWorkbook.Path
+    ' Carpeta base = la del propio libro. El informe se guarda SIEMPRE junto al Excel.
+    carpeta = ThisWorkbook.Path
     base = Cfg("PPT_NOMBRE", "Informe")
     mesTxt = MesInforme()
-    If Len(carpeta) = 0 Then MsgBox "Guarda el libro (o configura PPT_CARPETA en 'config') antes de generar el informe.", vbExclamation, "Informe": Exit Sub
+    If Len(carpeta) = 0 Then MsgBox "Guarda el libro en una carpeta antes de generar el informe.", vbExclamation, "Informe": Exit Sub
     If Right(carpeta, 1) <> "\" Then carpeta = carpeta & "\"
-    ' Subcarpeta = "fecha del informe" de la Portada (B18). Se crea si no existe.
+    ' Subcarpeta = "fecha del informe" de la Portada (B18), creada junto al Excel si no existe.
     Dim subc As String: subc = SanearNombre(PortadaTxt("B18"))
     If Len(subc) > 0 Then carpeta = carpeta & subc & "\"
     AsegurarCarpeta carpeta
