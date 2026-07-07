@@ -85,6 +85,7 @@ Private Const HLP_C2 As Long = 65          ' BM: variable target recortada (ries
 ' las hojas generadas "Tabla N" en H/filas 5-8 (config a la izquierda).
 Private gCol0 As Long                       ' columna de Entidad (1=A maestra, 8=H generada)
 Private gRMark As Long, gRMet As Long, gRHdr As Long, gRData As Long
+Private gRCap As Long                        ' fila de CABECERA de presentacion (0 = sin ella)
 Private gEstilo As String, gTotal As String, gEstado As String   ' celdas de control
 Private Const PS_HDR As Long = 6           ' Posiciones: cabecera de columnas
 Private Const PS_ROW0 As Long = 7          ' Posiciones: primera fila de holdings
@@ -1019,11 +1020,13 @@ End Sub
 ' filas 5-8, con los controles en la izquierda (Estilo/Total/estado en C6:C8).
 Private Sub OrigenTabla(ByVal ws As Worksheet)
     If StrComp(ws.Name, "Tablas", vbTextCompare) = 0 Then
-        gCol0 = 1: gRMark = 4: gRMet = 5: gRHdr = 6: gRData = 7
+        gCol0 = 1: gRMark = 4: gRMet = 5: gRHdr = 6: gRCap = 0: gRData = 7
         gEstilo = "B3": gTotal = "D3": gEstado = "H3"
     Else
-        gCol0 = 8: gRMark = 5: gRMet = 6: gRHdr = 7: gRData = 8
-        gEstilo = "C6": gTotal = "C7": gEstado = "C8"
+        ' Generadas: config Metrica/Periodo OCULTA (filas 4-6) + una fila de cabecera
+        ' de presentacion (7, visible) + datos (8). Controles a la izquierda.
+        gCol0 = 8: gRMark = 4: gRMet = 5: gRHdr = 6: gRCap = 7: gRData = 8
+        gEstilo = "C7": gTotal = "C8": gEstado = "C9"
     End If
 End Sub
 
@@ -1072,8 +1075,8 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
 
     ' --- Cabecera de dos niveles: fila 5 = Metrica, fila 6 = Periodo. Cada columna
     ' se resuelve sintetizando el texto equivalente que ClasificarVar entiende. ---
-    Dim vName() As String, vCol() As Long
-    ReDim vName(1 To 90): ReDim vCol(1 To 90): nv = 0
+    Dim vName() As String, vCol() As Long, vMet() As String, vPer() As String
+    ReDim vName(1 To 90): ReDim vCol(1 To 90): ReDim vMet(1 To 90): ReDim vPer(1 To 90): nv = 0
     Dim curYear As Long: curYear = AnoDatos(inlist)
     Dim kind() As String, pA() As String, pB() As String
     ReDim kind(1 To 90): ReDim pA(1 To 90): ReDim pB(1 To 90)
@@ -1086,7 +1089,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
         mPer = Trim(CStr(ws.Cells(gRHdr, nc).Value))
         If Len(mMet) = 0 And Len(mPer) = 0 Then Exit Do
         nv = nv + 1
-        vCol(nv) = nc
+        vCol(nv) = nc: vMet(nv) = mMet: vPer(nv) = mPer
         vName(nv) = SintHeader(mMet, mPer, curYear)         ' texto combinado interno
         ClasificarVar vName(nv), kind(nv), pA(nv), pB(nv)
         Select Case kind(nv)
@@ -1155,6 +1158,19 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
             ws.Cells(rTot, vCol(j)).Value = tv
             ws.Cells(rTot, vCol(j)).NumberFormat = FormatoVar(kind(j), pA(j))
             ws.Cells(rTot, vCol(j)).Font.Bold = True
+        Next j
+    End If
+
+    ' Cabecera de presentacion (solo hojas generadas, gRCap>0): una fila con nombre
+    ' limpio por columna y la columna de Entidad renombrada por tipo. MIXTA: si la
+    ' celda ya tiene texto (auto anterior o editado por ti) se respeta; si esta vacia
+    ' se escribe el nombre automatico.
+    If gRCap > 0 Then
+        If Len(Trim(CStr(ws.Cells(gRCap, gCol0).Value))) = 0 Then _
+            ws.Cells(gRCap, gCol0).Value = TituloEntidad(eName, eId, ne)
+        For j = 1 To nv
+            If Len(Trim(CStr(ws.Cells(gRCap, vCol(j)).Value))) = 0 Then _
+                ws.Cells(gRCap, vCol(j)).Value = CaptionCol(vMet(j), vPer(j))
         Next j
     End If
 
@@ -1369,6 +1385,73 @@ Private Sub EstadoTabla(ByVal ws As Worksheet, ByVal resumen As String, ByVal nB
     ws.Range(gEstado).Value = t
     On Error GoTo 0
 End Sub
+
+' Nombre de presentacion de una columna a partir de (Metrica, Periodo): el periodo
+' "Ultimo" (redundante) no se muestra; los demas se anexan. Ej: Patrimonio/Ultimo ->
+' "Patrimonio"; Rentabilidad/YTD -> "Rentabilidad YTD".
+Private Function CaptionCol(ByVal met As String, ByVal per As String) As String
+    Dim m As String: m = Trim(met)
+    Dim p As String: p = Trim(per)
+    If Len(m) = 0 Then CaptionCol = p: Exit Function
+    If Len(p) = 0 Or Fold(p) = "ultimo" Then
+        CaptionCol = m
+    Else
+        CaptionCol = m & " " & p
+    End If
+End Function
+
+' Titulo de la columna de Entidad segun el tipo de las entidades: "Fondo" / "Cartera"
+' / "Indice" si todas son del mismo tipo; "Entidad" si estan mezcladas o se desconoce.
+Private Function TituloEntidad(ByRef eName() As String, ByRef eId() As String, ByVal ne As Long) As String
+    Dim i As Long, t As String, comun As String, mixto As Boolean
+    comun = "": mixto = False
+    For i = 1 To ne
+        If Len(eId(i)) > 0 Then
+            t = Fold(TipoEntidad(eName(i)))
+            If Len(t) > 0 Then
+                If Len(comun) = 0 Then
+                    comun = t
+                ElseIf comun <> t Then
+                    mixto = True
+                End If
+            End If
+        End If
+    Next i
+    If mixto Or Len(comun) = 0 Then
+        TituloEntidad = "Entidad"
+    ElseIf InStr(comun, "fondo") > 0 Then
+        TituloEntidad = "Fondo"
+    ElseIf InStr(comun, "cartera") > 0 Then
+        TituloEntidad = "Cartera"
+    ElseIf InStr(comun, "indice") > 0 Then
+        TituloEntidad = "Indice"
+    Else
+        TituloEntidad = "Entidad"
+    End If
+End Function
+
+' tipo_elemento de una entidad (por nombre_elemento o id_elemento) en la hoja
+' 'cartera'. "" si no se encuentra o no hay columna de tipo.
+Private Function TipoEntidad(ByVal nombre As String) As String
+    Dim wa As Worksheet, colN As Long, colI As Long, colT As Long, lastR As Long, r As Long
+    Dim clave As String: clave = NormNom(nombre)
+    If clave = "" Then Exit Function
+    Set wa = HojaMaestro()
+    If wa Is Nothing Then Exit Function
+    colN = ColPorCabecera(wa, ACTIVOS_COL_NOMBRE)
+    colI = ColPorCabecera(wa, ACTIVOS_COL_ID)
+    colT = ColPorCabecera(wa, "tipo_elemento")
+    If colT = 0 Then Exit Function
+    lastR = wa.Cells(wa.Rows.Count, IIf(colN > 0, colN, colT)).End(xlUp).Row
+    For r = 2 To lastR
+        If colN > 0 Then
+            If NormNom(wa.Cells(r, colN).Value) = clave Then TipoEntidad = Trim(CStr(wa.Cells(r, colT).Value)): Exit Function
+        End If
+        If colI > 0 Then
+            If NormNom(wa.Cells(r, colI).Value) = clave Then TipoEntidad = Trim(CStr(wa.Cells(r, colT).Value)): Exit Function
+        End If
+    Next r
+End Function
 
 ' Clasifica el texto de una cabecera de variable en (kind, pA, pB):
 '  kind="year" pA=ano | kind="ret" pA=periodo | kind="risk" pA=criterio pB=variable
@@ -2035,42 +2118,44 @@ Public Sub CrearHojaTabla()
     Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
     ws.Name = nom
     ws.Cells(1, 30).Value = "TABLA"                 ' AD1: marca de tipo de hoja
-    OrigenTabla ws                                  ' col H, filas 5-8, controles C6:C8
+    OrigenTabla ws                                  ' col H; marca/met/per f4-6, cabecera f7, datos f8; controles C7:C9
     On Error Resume Next
     ActiveWindow.DisplayGridlines = False
     On Error GoTo limp
 
-    ' Titulo + botones (columna A, apilados).
-    ws.Rows(1).RowHeight = 26
+    ' Titulo + botones (columna A, apilados en filas 1-3, todas visibles).
+    ws.Rows(1).RowHeight = 26: ws.Rows(2).RowHeight = 26: ws.Rows(3).RowHeight = 26
     ws.Cells(1, gCol0).Value = "Tabla: " & nom      ' H1
     ws.Cells(1, gCol0).Font.Bold = True
     CrearBoton ws, "A1", ">> ACTUALIZAR", "HojaActualizar"
-    CrearBoton ws, "A3", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
-    CrearBoton ws, "A5", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+    CrearBoton ws, "A2", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
+    CrearBoton ws, "A3", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
 
-    ' Config (B6:C8): Estilo, Fila de Total, estado. Hereda del maestro.
-    ws.Cells(5, 2).Value = "Configuracion": ws.Cells(5, 2).Font.Bold = True
-    ws.Cells(6, 2).Value = "Estilo (color)"
-    ws.Cells(7, 2).Value = "Fila de Total"
-    ws.Cells(8, 2).Value = "Actualizado"
+    ' Config (cols B/C, filas 7-9, visibles): estilo, total, estado. Hereda del maestro.
+    ws.Cells(7, 2).Value = "Estilo (color)"
+    ws.Cells(8, 2).Value = "Fila de Total"
+    ws.Cells(9, 2).Value = "Actualizado"
     ws.Range(gEstilo).Value = CStr(src.Range("B3").Value)
     ws.Range(gTotal).Value = CStr(src.Range("D3").Value)
     ws.Range(gEstado).Value = "(sin actualizar)"
     PonerDV ws.Range(gEstilo), "Ninguno,Mapa de calor,Barras"
     PonerDV ws.Range(gTotal), "No,Si"
+    ws.Columns(2).ColumnWidth = 15
 
-    ' Posicion PowerPoint (E5:F10).
+    ' Posicion PowerPoint (cols E/F, filas 7-12).
     PanelExportar ws
 
-    ' Cabecera de la tabla: Entidad (col H, filas metrica+periodo fusionadas).
-    ws.Range(ws.Cells(gRMet, gCol0), ws.Cells(gRHdr, gCol0)).Merge
-    ws.Cells(gRMet, gCol0).Value = "Entidad"
-    ws.Cells(gRMet, gCol0).Font.Bold = True
-    ws.Cells(gRMet, gCol0).VerticalAlignment = xlCenter
-    ws.Rows(gRMark).Hidden = True                   ' fila de marcas (crece), oculta
+    ' Filas de configuracion de la tabla (marca/metrica/periodo) OCULTAS: la fila de
+    ' cabecera (gRCap) queda como unica cabecera visible. La rellena RellenarTablaEn con
+    ' nombres limpios (Fondo/Cartera/Indice + metrica) y es editable (mixta).
+    ws.Rows(gRMark).Hidden = True                   ' fila de marcas (crece)
+    ws.Rows(gRMet).Hidden = True                    ' fila metrica (config)
+    ws.Rows(gRHdr).Hidden = True                    ' fila periodo (config)
+    ws.Rows(gRCap).RowHeight = 18
+    ws.Range(ws.Cells(gRCap, gCol0), ws.Cells(gRCap, gCol0 + 40)).Font.Bold = True
 
     ' Vuelca del maestro: entidades (col A f7+) -> col H (f8+); columnas Metrica/
-    ' Periodo (maestro f5/f6 col B+) -> generada f6/f7 col I+.
+    ' Periodo (maestro f5/f6 col B+) -> generada f5/f6 col I+ (filas config ocultas).
     Dim r As Long, c As Long, k As Long
     k = 0: r = 7
     Do While r <= 5000
@@ -2096,9 +2181,10 @@ Public Sub CrearHojaTabla()
     Application.ScreenUpdating = True
     RefrescarHoja ws                                ' rellena con el origen generado
     ws.Activate
-    MsgBox "Creada la hoja '" & nom & "'. Anade columnas a la derecha (fila " & gRMet & _
-           "/" & gRHdr & ") y fondos debajo (col " & Left(ws.Cells(1, gCol0).Address(False, False), 1) & _
-           "). Pulsa Actualizar.", vbInformation, "Crear hoja"
+    MsgBox "Creada la hoja '" & nom & "'. La tabla empieza en la fila de cabecera " & gRCap & _
+           " (col " & Left(ws.Cells(1, gCol0).Address(False, False), 1) & "). Para anadir columnas o " & _
+           "cambiar metrica/periodo, muestra las filas ocultas " & gRMark & "-" & gRHdr & _
+           "; para anadir fondos, escribelos debajo. Pulsa Actualizar.", vbInformation, "Crear hoja"
     Exit Sub
 limp:
     Application.ScreenUpdating = True
@@ -2196,12 +2282,12 @@ Private Function NombreHojaLibre(ByVal base As String) As String
 End Function
 
 ' Celda de los valores del bloque de posicion PPT: columna 'vc' y fila base 'r0'
-' (Slide/Izq/Arr/Ancho/Alto en vc(r0+1)..vc(r0+5)). Tabla -> E/F fila 5; grafico -> M/N fila 1.
+' (Slide/Izq/Arr/Ancho/Alto en vc(r0+1)..vc(r0+5)). Tabla -> E/F fila 7; grafico -> M/N fila 1.
 Private Sub PosVals(ByVal ws As Worksheet, ByRef vc As String, ByRef r0 As Long)
     If TipoHoja(ws) = "grafica" Then
         vc = "N": r0 = 1
     Else
-        vc = "F": r0 = 5
+        vc = "F": r0 = 7
     End If
 End Sub
 
