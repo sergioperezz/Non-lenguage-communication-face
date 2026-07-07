@@ -80,10 +80,12 @@ Private Const HLP_C1 As Long = 64          ' BL: criterio recortado (riesgo)
 Private Const HLP_C2 As Long = 65          ' BM: variable target recortada (riesgo)
 ' Hoja "Tablas" (matriz entidades x variables) y hoja "Posiciones" (holdings):
 ' fila de cabecera y primera fila de datos.
-Private Const TB_MARK As Long = 4          ' Tablas: fila OCULTA de marcas (grupos que crecen)
-Private Const TB_MET As Long = 5           ' Tablas: fila de Metrica (desplegable por columna)
-Private Const TB_HDR As Long = 6           ' Tablas: fila de Periodo (desplegable por columna)
-Private Const TB_ROW0 As Long = 7          ' Tablas: primera fila de entidades
+' Origen de la tabla de dos niveles (marca/metrica/periodo/datos y columna de
+' Entidad). Los fija OrigenTabla segun la hoja: la maestra "Tablas" en A/filas 4-7;
+' las hojas generadas "Tabla N" en H/filas 5-8 (config a la izquierda).
+Private gCol0 As Long                       ' columna de Entidad (1=A maestra, 8=H generada)
+Private gRMark As Long, gRMet As Long, gRHdr As Long, gRData As Long
+Private gEstilo As String, gTotal As String, gEstado As String   ' celdas de control
 Private Const PS_HDR As Long = 6           ' Posiciones: cabecera de columnas
 Private Const PS_ROW0 As Long = 7          ' Posiciones: primera fila de holdings
 ' ===========================================================================
@@ -1010,7 +1012,20 @@ End Sub
 '     Compuesta desde el inicio del periodo hasta la ultima fecha.
 '   - Ano natural: 2025, 2024...  (rentabilidad del ano completo).
 '   - Riesgo (ultimo valor): Duracion Modificada, Duracion Macaulay, TIR, VaR, CMR.
-'   (TB_HDR/TB_ROW0 declarados arriba, en la seccion de constantes del modulo.)
+'   (gRHdr/gRData declarados arriba, en la seccion de constantes del modulo.)
+
+' Fija el origen de la tabla segun la hoja: la maestra "Tablas" en columna A y
+' filas 4-7 (controles en fila 3); las hojas generadas "Tabla N" en columna H y
+' filas 5-8, con los controles en la izquierda (Estilo/Total/estado en C6:C8).
+Private Sub OrigenTabla(ByVal ws As Worksheet)
+    If StrComp(ws.Name, "Tablas", vbTextCompare) = 0 Then
+        gCol0 = 1: gRMark = 4: gRMet = 5: gRHdr = 6: gRData = 7
+        gEstilo = "B3": gTotal = "D3": gEstado = "H3"
+    Else
+        gCol0 = 8: gRMark = 5: gRMet = 6: gRHdr = 7: gRData = 8
+        gEstilo = "C6": gTotal = "C7": gEstado = "C8"
+    End If
+End Sub
 
 Public Sub RellenarTabla(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet
@@ -1025,18 +1040,19 @@ End Sub
 ' cualquiera: la propia "Tablas" o una hoja generada con "Crear hoja con tabla".
 ' Toda la logica opera sobre 'ws', asi la misma maquinaria sirve para ambas.
 Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolean = False)
+    OrigenTabla ws                          ' fija origen/celdas segun la hoja
     Dim nv As Long, nc As Long, r As Long, i As Long, j As Long
 
-    ' --- Entidades (columna A) --- (se leen ANTES para poder expandir la plantilla)
+    ' --- Entidades (columna de Entidad) --- (se leen ANTES para poder expandir) ---
     Dim eName() As String, eRow() As Long, eId() As String, ne As Long
     ReDim eName(1 To 5001): ReDim eRow(1 To 5001): ReDim eId(1 To 5001): ne = 0
-    r = TB_ROW0
-    Do While r <= 5000 And Len(Trim(CStr(ws.Cells(r, 1).Value))) > 0
-        ne = ne + 1: eName(ne) = Trim(CStr(ws.Cells(r, 1).Value)): eRow(ne) = r
+    r = gRData
+    Do While r <= 5000 And Len(Trim(CStr(ws.Cells(r, gCol0).Value))) > 0
+        ne = ne + 1: eName(ne) = Trim(CStr(ws.Cells(r, gCol0).Value)): eRow(ne) = r
         eId(ne) = UCase(Trim(IdEntidad(eName(ne))))
         r = r + 1
     Loop
-    If ne = 0 Then MsgBox "Escribe al menos una entidad en la columna A (desde la fila " & TB_ROW0 & ").", vbExclamation, "Tablas": Exit Sub
+    If ne = 0 Then MsgBox "Escribe al menos una entidad en la columna A (desde la fila " & gRData & ").", vbExclamation, "Tablas": Exit Sub
 
     Dim inlist As String, seen As Object: Set seen = CreateObject("Scripting.Dictionary")
     For i = 1 To ne
@@ -1063,11 +1079,11 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
     ReDim kind(1 To 90): ReDim pA(1 To 90): ReDim pB(1 To 90)
     Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean, needBmk As Boolean
     Dim crits As Object: Set crits = CreateObject("Scripting.Dictionary")
-    nc = 2
-    Do While nc <= 90
+    nc = gCol0 + 1
+    Do While nc <= gCol0 + 90
         Dim mMet As String, mPer As String
-        mMet = Trim(CStr(ws.Cells(TB_MET, nc).Value))
-        mPer = Trim(CStr(ws.Cells(TB_HDR, nc).Value))
+        mMet = Trim(CStr(ws.Cells(gRMet, nc).Value))
+        mPer = Trim(CStr(ws.Cells(gRHdr, nc).Value))
         If Len(mMet) = 0 And Len(mPer) = 0 Then Exit Do
         nv = nv + 1
         vCol(nv) = nc
@@ -1085,7 +1101,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
     If nv = 0 Then MsgBox "Elige Metrica (fila 5) y Periodo (fila 6) en las columnas.", vbExclamation, "Tablas": Exit Sub
     ' Con fila de Total, se descarga patrimonio aunque no se muestre, para
     ' PONDERAR el Total por patrimonio (si no, seria media simple).
-    If Fold(ws.Range("D3").Value) = "si" Then needPos = True   ' Fila de Total
+    If Fold(ws.Range(gTotal).Value) = "si" Then needPos = True   ' Fila de Total
 
     Application.StatusBar = "Tablas: consultando BigQuery..."
     ' --- Descarga (RET/RISK/PATRIM/PATMES) a diccionarios en memoria ---
@@ -1098,7 +1114,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
     Application.EnableEvents = False
     Application.ScreenUpdating = False
     ' Limpia el bloque de valores (y restos de Total/estilos previos) antes de escribir.
-    ws.Range(ws.Cells(TB_ROW0, 2), ws.Cells(TB_ROW0 + 500, 1 + nv)).ClearContents
+    ws.Range(ws.Cells(gRData, gCol0 + 1), ws.Cells(gRData + 500, gCol0 + nv)).ClearContents
     Dim valM() As Variant: ReDim valM(1 To ne, 1 To nv)
     For i = 1 To ne
         For j = 1 To nv
@@ -1113,10 +1129,10 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
 
     ' Fila de Total (opcional, B4="Si"): patrimonio/peso se SUMAN; el resto es
     ' media PONDERADA por patrimonio (si no hay patrimonio, media simple).
-    Dim rTot As Long: rTot = TB_ROW0 + ne
-    If Fold(ws.Range("D3").Value) = "si" Then          ' Fila de Total
-        ws.Cells(rTot, 1).Value = "Total"
-        ws.Cells(rTot, 1).Font.Bold = True
+    Dim rTot As Long: rTot = gRData + ne
+    If Fold(ws.Range(gTotal).Value) = "si" Then          ' Fila de Total
+        ws.Cells(rTot, gCol0).Value = "Total"
+        ws.Cells(rTot, gCol0).Font.Bold = True
         For j = 1 To nv
             Dim tv As Variant: tv = ""
             Select Case kind(j)
@@ -1142,7 +1158,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
         Next j
     End If
 
-    EstiloTabla ws, kind, vCol, nv, TB_ROW0, TB_ROW0 + ne - 1
+    EstiloTabla ws, kind, vCol, nv, gRData, gRData + ne - 1
     Dim nBad As Long: nBad = MarcarEntidades(ws, eName, eId, eRow, ne)
     EstadoTabla ws, ne & " entidades x " & nv & " variables", nBad
     Application.StatusBar = False
@@ -1335,22 +1351,22 @@ Private Function MarcarEntidades(ByVal ws As Worksheet, ByRef eName() As String,
     Dim i As Long, nBad As Long: nBad = 0
     For i = 1 To ne
         If Len(eName(i)) > 0 And Len(eId(i)) = 0 Then
-            ws.Cells(eRow(i), 1).Interior.Color = RGB(255, 199, 206)   ' rojo claro: no encontrada
+            ws.Cells(eRow(i), gCol0).Interior.Color = RGB(255, 199, 206)   ' rojo claro: no encontrada
             nBad = nBad + 1
         Else
-            ws.Cells(eRow(i), 1).Interior.ColorIndex = xlNone
+            ws.Cells(eRow(i), gCol0).Interior.ColorIndex = xlNone
         End If
     Next i
     MarcarEntidades = nBad
 End Function
 
-' Escribe en H3 una linea de estado: cuando y que se actualizo (y avisos).
+' Escribe la linea de estado (celda gEstado): cuando y que se actualizo (y avisos).
 Private Sub EstadoTabla(ByVal ws As Worksheet, ByVal resumen As String, ByVal nBad As Long)
     Dim t As String
     t = "Actualizado " & Format(Now, "dd/mm HH:mm") & "  -  " & resumen
     If nBad > 0 Then t = t & "  -  " & nBad & " entidad(es) no encontrada(s) (en rojo)"
     On Error Resume Next
-    ws.Range("H3").Value = t
+    ws.Range(gEstado).Value = t
     On Error GoTo 0
 End Sub
 
@@ -1555,10 +1571,10 @@ Private Sub ExpandirTabla(ByVal ws As Worksheet, ByVal inlist As String)
     Dim sMet() As String, sPer() As String, sGran() As String, ns As Long
     ReDim sMet(1 To 90): ReDim sPer(1 To 90): ReDim sGran(1 To 90): ns = 0
     Dim c As Long, mk As String, mt As String, pr As String
-    For c = 2 To 90
-        mk = Trim(CStr(ws.Cells(TB_MARK, c).Value))
-        mt = Trim(CStr(ws.Cells(TB_MET, c).Value))
-        pr = Trim(CStr(ws.Cells(TB_HDR, c).Value))
+    For c = gCol0 + 1 To gCol0 + 90
+        mk = Trim(CStr(ws.Cells(gRMark, c).Value))
+        mt = Trim(CStr(ws.Cells(gRMet, c).Value))
+        pr = Trim(CStr(ws.Cells(gRHdr, c).Value))
         If mk <> "AUTO" Then
             If Len(mt) > 0 Or Len(pr) > 0 Then
                 ns = ns + 1: sMet(ns) = mt: sPer(ns) = pr
@@ -1594,15 +1610,15 @@ Private Sub ExpandirTabla(ByVal ws As Worksheet, ByVal inlist As String)
         End If
     Next i
 
-    ' 3) Reescribe filas 4-5-6 desde la columna B.
+    ' 3) Reescribe las filas de marca/metrica/periodo desde la 1a columna de datos.
     Application.EnableEvents = False
-    ws.Range(ws.Cells(TB_MARK, 2), ws.Cells(TB_MARK, 200)).ClearContents
-    ws.Range(ws.Cells(TB_MET, 2), ws.Cells(TB_MET, 200)).ClearContents
-    ws.Range(ws.Cells(TB_HDR, 2), ws.Cells(TB_HDR, 200)).ClearContents
+    ws.Range(ws.Cells(gRMark, gCol0 + 1), ws.Cells(gRMark, gCol0 + 200)).ClearContents
+    ws.Range(ws.Cells(gRMet, gCol0 + 1), ws.Cells(gRMet, gCol0 + 200)).ClearContents
+    ws.Range(ws.Cells(gRHdr, gCol0 + 1), ws.Cells(gRHdr, gCol0 + 200)).ClearContents
     For i = 1 To no
-        ws.Cells(TB_MET, 1 + i).Value = oMet(i)
-        ws.Cells(TB_HDR, 1 + i).Value = oPer(i)
-        If Len(oMk(i)) > 0 Then ws.Cells(TB_MARK, 1 + i).Value = oMk(i)
+        ws.Cells(gRMet, gCol0 + i).Value = oMet(i)
+        ws.Cells(gRHdr, gCol0 + i).Value = oPer(i)
+        If Len(oMk(i)) > 0 Then ws.Cells(gRMark, gCol0 + i).Value = oMk(i)
     Next i
     Application.EnableEvents = True
 End Sub
@@ -1814,7 +1830,7 @@ End Function
 ' 3 colores) o "Barras" (barras de datos en celda). Otro valor -> sin estilo.
 Private Sub EstiloTabla(ByVal ws As Worksheet, ByRef kind() As String, _
         ByRef vCol() As Long, ByVal nv As Long, ByVal r1 As Long, ByVal r2 As Long)
-    Dim est As String: est = Fold(ws.Range("B3").Value)   ' Estilo
+    Dim est As String: est = Fold(ws.Range(gEstilo).Value)   ' Estilo
     Dim j As Long
     For j = 1 To nv
         Dim rng As Range: Set rng = ws.Range(ws.Cells(r1, vCol(j)), ws.Cells(r2, vCol(j)))
@@ -2001,10 +2017,10 @@ End Function
 ' Ejecuta este macro UNA vez (Alt+F8 -> InstalarBotones) y crea los botones en
 ' las hojas Panel y Tablas con sus macros ya asignadas.
 ' =================  HOJAS AUTONOMAS (Crear hoja con tabla)  ================
-' "Crear hoja con tabla" duplica la hoja Tablas en una hoja nueva autonoma
-' (Tabla 1, Tabla 2...) con su configuracion editable, datos vivos y botones
-' propios: Actualizar (ultima fecha), Actualizar a fecha (la de Portada) y
-' Exportar a PowerPoint (imagen EMF a una slide, con posicion/tamano en cm).
+' "Crear hoja con tabla" crea una hoja limpia (Tabla N): la TABLA empieza en H6
+' (Entidad en col H, metricas a la derecha en I,J..; fondos hacia abajo), la config
+' (Estilo/Total) en B6, y la posicion de PowerPoint en E6. Vuelca la configuracion
+' del maestro "Tablas" y refresca. Botones: Actualizar / Actualizar a fecha / Exportar.
 Public Sub CrearHojaTabla()
     Dim src As Worksheet
     On Error Resume Next
@@ -2015,22 +2031,74 @@ Public Sub CrearHojaTabla()
     Dim nom As String: nom = NombreHojaLibre("Tabla")
     On Error GoTo limp
     Application.ScreenUpdating = False
-    src.Copy After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count)
-    Dim ws As Worksheet: Set ws = ActiveSheet
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Sheets.Add(After:=ThisWorkbook.Sheets(ThisWorkbook.Sheets.Count))
     ws.Name = nom
-    ws.Visible = xlSheetVisible
-    BorrarBotones ws
     ws.Cells(1, 30).Value = "TABLA"                 ' AD1: marca de tipo de hoja
-    ws.Cells(1, 1).Value = "Tabla: " & nom
-    PanelExportar ws
-    ws.Rows(1).RowHeight = 30
+    OrigenTabla ws                                  ' col H, filas 5-8, controles C6:C8
+    On Error Resume Next
+    ActiveWindow.DisplayGridlines = False
+    On Error GoTo limp
+
+    ' Titulo + botones (columna A, apilados).
+    ws.Rows(1).RowHeight = 26
+    ws.Cells(1, gCol0).Value = "Tabla: " & nom      ' H1
+    ws.Cells(1, gCol0).Font.Bold = True
     CrearBoton ws, "A1", ">> ACTUALIZAR", "HojaActualizar"
-    CrearBoton ws, "E1", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
-    CrearBoton ws, "I1", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+    CrearBoton ws, "A3", "ACTUALIZAR A FECHA", "HojaActualizarFecha"
+    CrearBoton ws, "A5", "EXPORTAR A POWERPOINT", "HojaExportarPPT"
+
+    ' Config (B6:C8): Estilo, Fila de Total, estado. Hereda del maestro.
+    ws.Cells(5, 2).Value = "Configuracion": ws.Cells(5, 2).Font.Bold = True
+    ws.Cells(6, 2).Value = "Estilo (color)"
+    ws.Cells(7, 2).Value = "Fila de Total"
+    ws.Cells(8, 2).Value = "Actualizado"
+    ws.Range(gEstilo).Value = CStr(src.Range("B3").Value)
+    ws.Range(gTotal).Value = CStr(src.Range("D3").Value)
+    ws.Range(gEstado).Value = "(sin actualizar)"
+    PonerDV ws.Range(gEstilo), "Ninguno,Mapa de calor,Barras"
+    PonerDV ws.Range(gTotal), "No,Si"
+
+    ' Posicion PowerPoint (E5:F10).
+    PanelExportar ws
+
+    ' Cabecera de la tabla: Entidad (col H, filas metrica+periodo fusionadas).
+    ws.Range(ws.Cells(gRMet, gCol0), ws.Cells(gRHdr, gCol0)).Merge
+    ws.Cells(gRMet, gCol0).Value = "Entidad"
+    ws.Cells(gRMet, gCol0).Font.Bold = True
+    ws.Cells(gRMet, gCol0).VerticalAlignment = xlCenter
+    ws.Rows(gRMark).Hidden = True                   ' fila de marcas (crece), oculta
+
+    ' Vuelca del maestro: entidades (col A f7+) -> col H (f8+); columnas Metrica/
+    ' Periodo (maestro f5/f6 col B+) -> generada f6/f7 col I+.
+    Dim r As Long, c As Long, k As Long
+    k = 0: r = 7
+    Do While r <= 5000
+        If Len(Trim(CStr(src.Cells(r, 1).Value))) = 0 Then Exit Do
+        ws.Cells(gRData + k, gCol0).Value = src.Cells(r, 1).Value: k = k + 1: r = r + 1
+    Loop
+    If k = 0 Then ws.Cells(gRData, gCol0).Value = "Cartera RF Gobierno"
+    k = 0: c = 2
+    Do While c <= 90
+        If Len(Trim(CStr(src.Cells(5, c).Value))) = 0 And Len(Trim(CStr(src.Cells(6, c).Value))) = 0 Then Exit Do
+        ws.Cells(gRMet, gCol0 + 1 + k).Value = src.Cells(5, c).Value
+        ws.Cells(gRHdr, gCol0 + 1 + k).Value = src.Cells(6, c).Value
+        k = k + 1: c = c + 1
+    Loop
+    If k = 0 Then ws.Cells(gRMet, gCol0 + 1).Value = "Rentabilidad": ws.Cells(gRHdr, gCol0 + 1).Value = "Ultimo"
+
+    ' Desplegables: Metrica (fila metrica, I..), Periodo (fila periodo, I..), Entidad (col H).
+    PonerDV ws.Range(ws.Cells(gRMet, gCol0 + 1), ws.Cells(gRMet, gCol0 + 40)), "=MetricasTabla"
+    PonerDV ws.Range(ws.Cells(gRHdr, gCol0 + 1), ws.Cells(gRHdr, gCol0 + 40)), "=PeriodosTabla"
+    PonerDV ws.Range(ws.Cells(gRData, gCol0), ws.Cells(gRData + 200, gCol0)), "=EntLista"
+
+    ws.Columns(gCol0).ColumnWidth = 26
     Application.ScreenUpdating = True
+    RefrescarHoja ws                                ' rellena con el origen generado
     ws.Activate
-    MsgBox "Creada la hoja '" & nom & "'. Editala/actualizala y exportala a " & _
-           "PowerPoint desde sus botones.", vbInformation, "Crear hoja"
+    MsgBox "Creada la hoja '" & nom & "'. Anade columnas a la derecha (fila " & gRMet & _
+           "/" & gRHdr & ") y fondos debajo (col " & Left(ws.Cells(1, gCol0).Address(False, False), 1) & _
+           "). Pulsa Actualizar.", vbInformation, "Crear hoja"
     Exit Sub
 limp:
     Application.ScreenUpdating = True
@@ -2094,19 +2162,20 @@ Private Sub RefrescarHoja(ByVal ws As Worksheet)
     End If
 End Sub
 
-' Ultima fila (col A desde TB_ROW0) y ultima columna (fila TB_HDR desde B) con datos.
+' Ultima fila (col Entidad desde gRData) y ultima columna (fila Periodo desde la
+' 1a de datos) con datos. Requiere OrigenTabla fijado por el llamante.
 Private Sub UltimaCeldaTabla(ByVal ws As Worksheet, ByRef lastRow As Long, ByRef lastCol As Long)
     Dim r As Long, c As Long
-    lastRow = TB_ROW0 - 1
-    r = TB_ROW0
+    lastRow = gRData - 1
+    r = gRData
     Do While r <= 20000
-        If Len(Trim(CStr(ws.Cells(r, 1).Value))) = 0 Then Exit Do
+        If Len(Trim(CStr(ws.Cells(r, gCol0).Value))) = 0 Then Exit Do
         lastRow = r: r = r + 1
     Loop
-    lastCol = 1
-    c = 2
-    Do While c <= 200
-        If Len(Trim(CStr(ws.Cells(TB_HDR, c).Value))) = 0 Then Exit Do
+    lastCol = gCol0
+    c = gCol0 + 1
+    Do While c <= gCol0 + 200
+        If Len(Trim(CStr(ws.Cells(gRHdr, c).Value))) = 0 Then Exit Do
         lastCol = c: c = c + 1
     Loop
 End Sub
@@ -2126,23 +2195,33 @@ Private Function NombreHojaLibre(ByVal base As String) As String
     NombreHojaLibre = base & " " & k
 End Function
 
-' Controles de exportacion a PowerPoint, como BLOQUE VERTICAL a la derecha (M:N),
-' con valores por defecto. La macro los lee de N2..N6.
+' Celda de los valores del bloque de posicion PPT: columna 'vc' y fila base 'r0'
+' (Slide/Izq/Arr/Ancho/Alto en vc(r0+1)..vc(r0+5)). Tabla -> E/F fila 5; grafico -> M/N fila 1.
+Private Sub PosVals(ByVal ws As Worksheet, ByRef vc As String, ByRef r0 As Long)
+    If TipoHoja(ws) = "grafica" Then
+        vc = "N": r0 = 1
+    Else
+        vc = "F": r0 = 5
+    End If
+End Sub
+
+' Bloque vertical de exportacion a PowerPoint (etiquetas + valores), con defaults.
 Private Sub PanelExportar(ByVal ws As Worksheet)
-    ws.Range("A2").ClearContents                 ' quita el texto de ayuda copiado
-    ws.Range("M1").Value = "Exportar a PowerPoint"
-    ws.Range("M1").Font.Bold = True
-    ws.Range("M2").Value = "Slide":          ws.Range("N2").Value = 1
-    ws.Range("M3").Value = "Izquierda (cm)": ws.Range("N3").Value = 1.5
-    ws.Range("M4").Value = "Arriba (cm)":    ws.Range("N4").Value = 3
-    ws.Range("M5").Value = "Ancho (cm)":     ws.Range("N5").Value = 24
-    ws.Range("M6").Value = "Alto (cm)":      ws.Range("N6").Value = 12
-    Dim rr As Long
-    For rr = 2 To 6
-        ws.Cells(rr, 13).Font.Italic = True                        ' M: etiquetas
-        ws.Cells(rr, 14).Interior.Color = RGB(238, 242, 248)      ' N: valores (sombreado)
-    Next rr
-    ws.Columns("M").ColumnWidth = 15
+    Dim vc As String, r0 As Long: PosVals ws, vc, r0
+    Dim lc As String: lc = Chr(Asc(vc) - 1)      ' columna de etiquetas (una a la izquierda)
+    ws.Range(lc & r0).Value = "Exportar a PowerPoint"
+    ws.Range(lc & r0).Font.Bold = True
+    ws.Range(lc & (r0 + 1)).Value = "Slide":         ws.Range(vc & (r0 + 1)).Value = 1
+    ws.Range(lc & (r0 + 2)).Value = "Izquierda (cm)": ws.Range(vc & (r0 + 2)).Value = 1.5
+    ws.Range(lc & (r0 + 3)).Value = "Arriba (cm)":    ws.Range(vc & (r0 + 3)).Value = 3
+    ws.Range(lc & (r0 + 4)).Value = "Ancho (cm)":     ws.Range(vc & (r0 + 4)).Value = 24
+    ws.Range(lc & (r0 + 5)).Value = "Alto (cm)":      ws.Range(vc & (r0 + 5)).Value = 12
+    Dim i As Long
+    For i = 1 To 5
+        ws.Range(lc & (r0 + i)).Font.Italic = True
+        ws.Range(vc & (r0 + i)).Interior.Color = RGB(238, 242, 248)
+    Next i
+    ws.Columns(lc).ColumnWidth = 15
 End Sub
 
 ' --- Botones de las hojas generadas (operan sobre la hoja ACTIVA) ---
@@ -2176,10 +2255,11 @@ End Sub
 
 ' Rango imagen de una tabla (cabeceras Metrica/Periodo + datos + columna Entidad).
 Private Function RangoTabla(ByVal ws As Worksheet) As Range
+    OrigenTabla ws
     Dim lastRow As Long, lastCol As Long
     UltimaCeldaTabla ws, lastRow, lastCol
-    If lastRow < TB_ROW0 Or lastCol < 2 Then Exit Function
-    Set RangoTabla = ws.Range(ws.Cells(TB_MET, 1), ws.Cells(lastRow, lastCol))
+    If lastRow < gRData Or lastCol < gCol0 + 1 Then Exit Function
+    Set RangoTabla = ws.Range(ws.Cells(gRMet, gCol0), ws.Cells(lastRow, lastCol))
 End Function
 
 ' Pega el objeto (tabla o grafico) de 'ws' en 'pres' en la slide/posicion/tamano
@@ -2201,10 +2281,11 @@ Private Function PegarObjeto(ByVal ws As Worksheet, ByVal pres As Object) As Str
         rng.CopyPicture Appearance:=xlScreen, Format:=xlPicture
     End If
 
+    Dim vc As String, r0 As Long: PosVals ws, vc, r0
     Dim slideN As Long, izq As Double, arr As Double, anc As Double, alt As Double
-    slideN = CLng(Val(CStr(ws.Range("N2").Value))): If slideN < 1 Then slideN = 1
-    izq = NumDbl(ws.Range("N3").Value): arr = NumDbl(ws.Range("N4").Value)
-    anc = NumDbl(ws.Range("N5").Value): alt = NumDbl(ws.Range("N6").Value)
+    slideN = CLng(Val(CStr(ws.Range(vc & (r0 + 1)).Value))): If slideN < 1 Then slideN = 1
+    izq = NumDbl(ws.Range(vc & (r0 + 2)).Value): arr = NumDbl(ws.Range(vc & (r0 + 3)).Value)
+    anc = NumDbl(ws.Range(vc & (r0 + 4)).Value): alt = NumDbl(ws.Range(vc & (r0 + 5)).Value)
 
     Do While pres.Slides.Count < slideN
         pres.Slides.Add pres.Slides.Count + 1, 12            ' 12 = ppLayoutBlank
@@ -2246,8 +2327,9 @@ Public Sub HojaExportarPPT()
     Dim pres As Object: Set pres = PowerPointPres()
     If pres Is Nothing Then MsgBox "No se pudo abrir PowerPoint.", vbExclamation, ws.Name: Exit Sub
     Dim e As String: e = PegarObjeto(ws, pres)
+    Dim vc As String, r0 As Long: PosVals ws, vc, r0
     If Len(e) = 0 Then
-        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range("N2").Value))) & ".", vbInformation, ws.Name
+        MsgBox "Exportado a la slide " & CLng(Val(CStr(ws.Range(vc & (r0 + 1)).Value))) & ".", vbInformation, ws.Name
     Else
         MsgBox "No se pudo exportar:" & vbLf & e, vbExclamation, ws.Name
     End If
