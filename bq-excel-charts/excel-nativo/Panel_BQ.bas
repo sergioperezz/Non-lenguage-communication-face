@@ -2081,11 +2081,12 @@ Private Sub RefrescarHoja(ByVal ws As Worksheet)
         Set mHojaPanel = ws
         On Error Resume Next
         Actualizar
-        ' Congela la tabla del grafico (D:H) a VALORES: el Panel usa nombres de libro
-        ' compartidos (f_*), asi que sin congelar todas las copias mostrarian los datos
-        ' de la ultima refrescada. Con valores estaticos cada copia es independiente.
-        ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + 4)).Value = _
-            ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + 4)).Value
+        ' Congela la matriz del grafico (D..V, ancho maximo de series) a VALORES: el
+        ' Panel usa nombres de libro compartidos (f_*), asi que sin congelar todas las
+        ' copias mostrarian los datos de la ultima refrescada. Con valores estaticos
+        ' cada copia es independiente (incluye composicion apilada, que usa D:V).
+        ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER)).Value = _
+            ws.Range(ws.Cells(2, TCMP_COL), ws.Cells(402, TCMP_COL + MAXSER)).Value
         On Error GoTo 0
         Set mHojaPanel = Nothing
     Else
@@ -4177,7 +4178,7 @@ Public Sub DibujarGrafico()
 
     ' Ultima fila con categoria (col D) para acotar las series a la hoja ACTUAL
     ' (asi el grafico de una copia lee de SU hoja, no del Panel original).
-    Dim lastRow As Long: lastRow = 2
+    lastRow = 2
     Dim rr As Long
     For rr = 3 To 402
         If Len(Trim(CStr(ws.Cells(rr, TCMP_COL).Value))) > 0 Then lastRow = rr
