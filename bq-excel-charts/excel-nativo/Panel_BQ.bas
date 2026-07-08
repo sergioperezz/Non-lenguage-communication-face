@@ -2864,7 +2864,7 @@ End Sub
 ' para la CASCADA automatica al cambiar un desplegable (sin consultar BigQuery):
 '   B3 (tipo de entidad Fondo/Cartera/Indice) -> repuebla Entidad 1/2/3.
 '   B7 (grupo) -> resetea Metrica (B8) y Dimension (B9) a valores validos.
-'   B3:B14 (cualquier parametro) -> recalcula tabla+grafico desde los datos ya
+'   B3:B15 (cualquier parametro) -> recalcula tabla+grafico desde los datos ya
 '                                   descargados (AutoLocal); si no hay, no hace nada.
 ' Requiere acceso al modelo de objetos VBA; devuelve False si no se pudo instalar.
 Public Function InstalarAutoRefresco() As Boolean
@@ -2882,8 +2882,8 @@ Public Function InstalarAutoRefresco() As Boolean
         pc = cm.ProcCountLines("Worksheet_Change", 0)
         If pc > 0 Then cm.DeleteLines pl, pc
     End If
-    ' Nota: el auto-recalculo (AutoLocal) SOLO se dispara al cambiar B7:B14
-    ' (metrica/dimension/periodo/grafico). Elegir entidad (B4:B6) NO recalcula
+    ' Nota: el auto-recalculo (AutoLocal) SOLO se dispara al cambiar B7:B15
+    ' (metrica/dimension/periodo/grafico/benchmark). Elegir entidad (B4:B6) NO recalcula
     ' -> elegir carteras/fondos es instantaneo (luego pulsas 'Actualizar').
     s = "Private Sub Worksheet_Change(ByVal Target As Range)" & vbCrLf & _
         "    If Application.EnableEvents = False Then Exit Sub" & vbCrLf & _
@@ -4228,7 +4228,7 @@ Private Sub EscribirApiladas(ByVal ws As Worksheet, ByVal bArr As Variant, ByVal
 End Sub
 
 ' Dibuja columnas/barras apiladas: una serie por cada columna de categoria
-' (BB..), eje X = fechas (BA). 100% apiladas si B14 lo indica.
+' (BB..), eje X = fechas (BA). 100% apiladas si B12 (tipo de grafico) lo indica.
 Private Sub DibujarApiladas(ByVal ws As Worksheet, ByVal nRows As Long, ByVal nSer As Long)
     Dim ch As Chart, s As Series, c As Long, r0 As Long, r1 As Long
     On Error Resume Next
