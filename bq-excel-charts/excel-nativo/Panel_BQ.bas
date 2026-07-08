@@ -4226,6 +4226,11 @@ End Function
 Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
     Dim met As String: met = Trim(CStr(ws.Range("B8").Value))
     If (met = "Rentabilidad" Or met = "Rentab. acum.") Then
+        ' Los periodos de calendario cerrado ("... anterior") se resuelven SIEMPRE por
+        ' SQL: la ventana anclada de VentanaFechas devuelve EXACTAMENTE el periodo
+        ' anterior, mientras que el recalculo local compone por bucket completo y, con
+        ' dimensiones mas gruesas que el periodo, abarcaria de mas. -> ResolverLocal=False.
+        If PerAnterior(CStr(ws.Range("B11").Value)) <> "" Then Exit Function
         ResolverLocal = LocalRentabilidad(ws)
     ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" _
            Or Fold(met) = "cmr" Or Left(Fold(met), 3) = "var" Then
