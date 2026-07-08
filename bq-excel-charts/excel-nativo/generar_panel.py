@@ -262,7 +262,8 @@ def build() -> Workbook:
         "A3": "Tipo de entidad", "A4": "Entidad 1", "A5": "Entidad 2 (opc.)",
         "A6": "Entidad 3 (opc.)", "A7": "Grupo de métrica", "A8": "Métrica",
         "A9": "Dimensión (eje X)", "A10": "Filtro: tipo de activo", "A11": "Periodo",
-        "A12": "Benchmark", "A13": "Estilo benchmark", "A14": "Tipo de gráfico",
+        "A12": "Tipo de gráfico", "A13": "Benchmark propuesto", "A14": "Benchmark",
+        "A15": "Estilo benchmark",
     }
     for celda, txt in etiquetas.items():
         ws[celda] = txt
@@ -270,11 +271,16 @@ def build() -> Workbook:
     defaults = {
         "B3": "Fondo", "B4": "RF Privada A", "B5": "", "B6": "", "B7": "Riesgo",
         "B8": "Duración Modificada", "B9": "Trimestral", "B10": "Todos", "B11": "3A",
-        "B12": "Con benchmark", "B13": "Líneas", "B14": "Columnas",
+        "B12": "Columnas", "B14": "Benchmark asociado", "B15": "Líneas",
     }
     for celda, val in defaults.items():
         ws[celda] = val
         ws[celda].fill = PatternFill("solid", fgColor=GRIS)
+    # B13 "Benchmark propuesto" es AUTOMATICO (lo rellena la macro segun la Entidad 1).
+    # Fondo distinto para que se vea que no es un campo de entrada.
+    ws["B13"] = "(pulsa Actualizar)"
+    ws["B13"].fill = PatternFill("solid", fgColor="EEF2F8")
+    ws["B13"].font = Font(italic=True, color="808080")
 
     # El grupo interno "Apiladas" se MUESTRA como "Composición apilada" (los
     # rangos con nombre no admiten espacios, por eso la clave sigue siendo
@@ -295,9 +301,11 @@ def build() -> Workbook:
         ("B9", '=INDIRECT("Dim_"&SUBSTITUTE($B$7,"Composición apilada","Apiladas"))', False),  # cascada
         ("B10", '"Todos,RF,RV"', False),
         ("B11", f'"{periodos_lst}"', False),
-        ("B12", '"Con benchmark,Sin benchmark"', False),
-        ("B13", '"Barras,Líneas,Puntos"', False),
-        ("B14", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar,Apiladas,100% apiladas,Barras apiladas"', False),
+        ("B12", '"Columnas,Barras,Líneas,Área,Circular,Anillo,Radar,Apiladas,100% apiladas,Barras apiladas"', False),
+        # B14: benchmark. Lista base (la macro CargarCarteras la amplia con la lista
+        # de indices del maestro: "Sin benchmark, Benchmark asociado, <indices...>").
+        ("B14", '"Sin benchmark,Benchmark asociado"', False),
+        ("B15", '"Barras,Líneas,Puntos"', False),
     ]
     for celda, formula, blank in dvs:
         dv = DataValidation(type="list", formula1=formula, allow_blank=blank)

@@ -676,10 +676,11 @@ End Function
 ' Filtro de fechas de la ventana (usa ult.dmax y p.PK_FECHA_DATOS). Para la
 ' dimension ANUAL se alinea a anos NATURALES (N anos terminando en el actual, YTD),
 ' asi "3A" da 2024/2025/2026-YTD y no medio 2023. El resto: ventana movil normal.
-Private Function VentanaFechas(ByVal per As String, ByVal dimen As String) As String
+Private Function VentanaFechas(ByVal per As String, ByVal dimen As String, _
+        Optional ByVal udmax As String = "ult.dmax") As String
     Dim intv As String
     ' Calendario cerrado ("... anterior"): ventana [inicio, fin) del periodo anterior,
-    ' anclada a ult.dmax con DATE_TRUNC. Tiene prioridad sobre la ventana movil/anual.
+    ' anclada a udmax con DATE_TRUNC. Tiene prioridad sobre la ventana movil/anual.
     Dim pa As String: pa = PerAnterior(per)
     If pa <> "" Then
         Dim u As String
@@ -688,19 +689,19 @@ Private Function VentanaFechas(ByVal per As String, ByVal dimen As String) As St
             Case "Q": u = "QUARTER"
             Case "Y": u = "YEAR"
         End Select
-        VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_SUB(DATE_TRUNC(ult.dmax, " & u & "), INTERVAL 1 " & u & ")" & vbLf & _
-                        "  AND p.PK_FECHA_DATOS <  DATE_TRUNC(ult.dmax, " & u & ")"
+        VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_SUB(DATE_TRUNC(" & udmax & ", " & u & "), INTERVAL 1 " & u & ")" & vbLf & _
+                        "  AND p.PK_FECHA_DATOS <  DATE_TRUNC(" & udmax & ", " & u & ")"
         Exit Function
     End If
     If Fold(dimen) = "anual" Then
-        VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_TRUNC(DATE_SUB(ult.dmax, INTERVAL " & _
+        VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_TRUNC(DATE_SUB(" & udmax & ", INTERVAL " & _
             (AnyosPeriodo(per) - 1) & " YEAR), YEAR)" & vbLf & _
-            "  AND p.PK_FECHA_DATOS <= ult.dmax"
+            "  AND p.PK_FECHA_DATOS <= " & udmax
     Else
         intv = IntervaloPeriodo(per)
         If Len(intv) = 0 Then intv = "INTERVAL 1 YEAR"
-        VentanaFechas = "  AND p.PK_FECHA_DATOS >  DATE_SUB(ult.dmax, " & intv & ")" & vbLf & _
-            "  AND p.PK_FECHA_DATOS <= ult.dmax"
+        VentanaFechas = "  AND p.PK_FECHA_DATOS >  DATE_SUB(" & udmax & ", " & intv & ")" & vbLf & _
+            "  AND p.PK_FECHA_DATOS <= " & udmax
     End If
 End Function
 
@@ -745,41 +746,137 @@ End Function
 ' de fechas: R = EXP(SUM(LN(1 + r))) - 1. Usa SAFE.LN para ignorar dias con
 ' datos invalidos. Devuelve valor (y valor_bmk) por PK_PORTFOLIO_ID.
 Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByVal per As String, _
-        ByVal conBmk As Boolean) As String
+        ByVal conBmk As Boolean, Optional ByVal bmkId As String = "") As String
     Dim intv As String, sql As String, colB As String, whereBmk As String
     Dim bucket As String, selCat As String, grpCat As String
+    Dim dimen As String: dimen = Trim(CStr(ws.Range("B9").Value))
+    Dim es As String: es = CfgRetEsc()
     intv = IntervaloPeriodo(per)
     If Len(intv) = 0 And PerAnterior(per) = "" Then Exit Function
     ' Bucket del eje X segun la dimension (B9): un retorno compuesto por trimestre
     ' (o mes/semestre/ano) dentro de la ventana del periodo.
-    bucket = BucketExpr(Trim(CStr(ws.Range("B9").Value)))
+    bucket = BucketExpr(dimen)
     If Len(bucket) > 0 Then
         selCat = "       " & bucket & " AS categoria," & vbLf
         grpCat = ", categoria"
     End If
-    If conBmk Then
+    ' Benchmark PROPIO de la cartera (TWR_1D_BMK) solo si conBmk y NO se pidio otro indice.
+    If conBmk And Len(bmkId) = 0 Then
         colB = "," & vbLf & _
-               "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & ") AS valor_bmk"
+               "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D_BMK, " & es & ")))) - 1) * " & es & ") AS valor_bmk"
         whereBmk = vbLf & "  AND p.TWR_1D_BMK IS NOT NULL"
     End If
-    sql = "WITH ult AS (" & vbLf & _
-          "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
-          "  FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
-          "  WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'"
-    If Len(ents) > 0 Then sql = sql & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
-    sql = sql & AndAsOf("PK_FECHA_DATOS")
-    sql = sql & vbLf & "  GROUP BY PK_PORTFOLIO_ID)" & vbLf & _
-          "SELECT p.PK_PORTFOLIO_ID," & vbLf & selCat & _
-          "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & CfgRetEsc() & ")))) - 1) * " & CfgRetEsc() & ") AS valor" & colB & vbLf & _
+
+    Dim ultCte As String
+    ultCte = "ult AS (" & vbLf & _
+             "  SELECT PK_PORTFOLIO_ID, MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
+             "  FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
+             "  WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'"
+    If Len(ents) > 0 Then ultCte = ultCte & " AND PK_PORTFOLIO_ID IN (" & ents & ")"
+    ultCte = ultCte & AndAsOf("PK_FECHA_DATOS") & vbLf & "  GROUP BY PK_PORTFOLIO_ID)"
+
+    Dim baseSel As String
+    baseSel = "SELECT p.PK_PORTFOLIO_ID," & vbLf & selCat & _
+          "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & es & ")))) - 1) * " & es & ") AS valor" & colB & vbLf & _
           "FROM " & Tbl(DS_PROD, T_PERF) & " p" & vbLf & _
           "JOIN ult ON ult.PK_PORTFOLIO_ID = p.PK_PORTFOLIO_ID" & vbLf & _
           "WHERE p.PK_NAV_GNAV = '" & CfgNav() & "' AND p.BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
-          VentanaFechas(per, Trim(CStr(ws.Range("B9").Value))) & vbLf & _
+          VentanaFechas(per, dimen) & vbLf & _
           "  AND p.TWR_1D IS NOT NULL" & whereBmk & vbLf & _
           "GROUP BY p.PK_PORTFOLIO_ID" & grpCat & vbLf & _
           "ORDER BY p.PK_PORTFOLIO_ID, MIN(p.PK_FECHA_DATOS)"
-    SQLRendimientoDiario = sql
+
+    If Len(bmkId) = 0 Then
+        SQLRendimientoDiario = "WITH " & ultCte & vbLf & baseSel
+        Exit Function
+    End If
+
+    ' --- Benchmark = OTRO INDICE (bmkId): retorno compuesto del indice por bucket (o
+    ' unico), unido a la base por categoria (el mismo indice para todas las carteras).
+    Dim idxSelCat As String, idxGrp As String
+    If Len(bucket) > 0 Then
+        idxSelCat = "       " & bucket & " AS categoria," & vbLf
+        idxGrp = vbLf & "  GROUP BY categoria"
+    End If
+    Dim ultIdx As String
+    ultIdx = "ultidx AS (" & vbLf & _
+             "  SELECT MAX(PK_FECHA_DATOS) AS dmax" & vbLf & _
+             "  FROM " & Tbl(DS_PROD, T_PERF) & vbLf & _
+             "  WHERE PK_NAV_GNAV = '" & CfgNav() & "' AND BENCHMARK = '" & CfgBmk() & "'" & _
+             " AND PK_PORTFOLIO_ID = '" & Esc(bmkId) & "'" & AndAsOf("PK_FECHA_DATOS") & ")"
+    Dim idxCte As String
+    idxCte = "idx AS (" & vbLf & _
+             "  SELECT" & vbLf & idxSelCat & _
+             "       FORMAT('%.10f', (EXP(SUM(SAFE.LN(1 + SAFE_DIVIDE(p.TWR_1D, " & es & ")))) - 1) * " & es & ") AS valor_bmk" & vbLf & _
+             "  FROM " & Tbl(DS_PROD, T_PERF) & " p, ultidx" & vbLf & _
+             "  WHERE p.PK_NAV_GNAV = '" & CfgNav() & "' AND p.BENCHMARK = '" & CfgBmk() & "'" & vbLf & _
+             "    AND p.PK_PORTFOLIO_ID = '" & Esc(bmkId) & "'" & vbLf & _
+             VentanaFechas(per, dimen, "ultidx.dmax") & vbLf & _
+             "    AND p.TWR_1D IS NOT NULL" & idxGrp & ")"
+    Dim joinCond As String
+    If Len(bucket) > 0 Then joinCond = "USING (categoria)" Else joinCond = "ON TRUE"
+    SQLRendimientoDiario = "WITH " & ultCte & "," & vbLf & ultIdx & "," & vbLf & _
+          "base AS (" & vbLf & baseSel & vbLf & ")," & vbLf & idxCte & vbLf & _
+          "SELECT base.*, idx.valor_bmk" & vbLf & _
+          "FROM base LEFT JOIN idx " & joinCond & vbLf & _
+          "ORDER BY base.PK_PORTFOLIO_ID"
 End Function
+
+' --- Modo de benchmark (celda B14 del Panel) ---------------------------------
+' B14: "Sin benchmark" | "Benchmark asociado" (el propio de la cartera) | <nombre
+' de un indice> (usar ese indice como benchmark).
+Private Function ConBenchmark(ByVal ws As Worksheet) As Boolean
+    Dim v As String: v = Trim(CStr(ws.Range("B14").Value))
+    ConBenchmark = (Len(v) > 0 And StrComp(v, "Sin benchmark", vbTextCompare) <> 0)
+End Function
+
+' Id del indice elegido como benchmark en B14 (si no es "Sin benchmark" ni
+' "Benchmark asociado"). "" = benchmark propio de la cartera (o ninguno).
+Private Function BmkIndiceId(ByVal ws As Worksheet) As String
+    Dim v As String: v = Trim(CStr(ws.Range("B14").Value))
+    If Len(v) = 0 Then Exit Function
+    If StrComp(v, "Sin benchmark", vbTextCompare) = 0 Then Exit Function
+    If StrComp(v, "Benchmark asociado", vbTextCompare) = 0 Then Exit Function
+    BmkIndiceId = IdEntidad(v)
+End Function
+
+' Etiqueta de la columna H (benchmark) segun B14: el nombre del indice si se eligio
+' uno concreto; "Benchmark" para el benchmark propio.
+Private Function EtiquetaBenchmark(ByVal ws As Worksheet) As String
+    If Len(BmkIndiceId(ws)) > 0 Then EtiquetaBenchmark = Trim(CStr(ws.Range("B14").Value)) Else EtiquetaBenchmark = "Benchmark"
+End Function
+
+' Rellena B13 "Benchmark propuesto" con el benchmark asociado a la Entidad 1 (B4).
+' DE MOMENTO: comprueba en la tabla de performance que la cartera tiene el slot
+' CfgBmk() ("Benchmark 1") con datos y muestra ese nombre; si no, "(sin benchmark)".
+' (El nombre real del indice vendra de CAM_TX_BENCHMARK_COMP_PD mas adelante.)
+Private Sub ActualizarBenchmarkPropuesto(ByVal ws As Worksheet)
+    Dim id As String, prev As Boolean, cn As Object, rs As Object, hay As Boolean
+    prev = Application.EnableEvents
+    Application.EnableEvents = False
+    On Error GoTo fin
+    id = IdEntidad(CStr(ws.Range("B4").Value))
+    If Len(id) = 0 Then ws.Range("B13").Value = "(elige Entidad 1)": GoTo fin
+    Set cn = CreateObject("ADODB.Connection")
+    cn.CommandTimeout = 30: cn.CursorLocation = 3: cn.Open CfgConn()
+    Set rs = cn.Execute("SELECT 1 FROM " & Tbl(DS_PROD, T_PERF) & _
+        " WHERE PK_NAV_GNAV='" & CfgNav() & "' AND BENCHMARK='" & CfgBmk() & "'" & _
+        " AND PK_PORTFOLIO_ID='" & Esc(id) & "' AND TWR_1D_BMK IS NOT NULL LIMIT 1")
+    hay = (Not rs.EOF)
+    rs.Close: cn.Close
+    If hay Then ws.Range("B13").Value = CfgBmk() Else ws.Range("B13").Value = "(sin benchmark)"
+fin:
+    On Error Resume Next
+    If Not rs Is Nothing Then If rs.State = 1 Then rs.Close
+    If Not cn Is Nothing Then If cn.State = 1 Then cn.Close
+    Application.EnableEvents = prev
+    On Error GoTo 0
+End Sub
+
+' Entrada publica (la llama el evento Worksheet_Change de la hoja Panel al cambiar B4).
+Public Sub RefrescarBmkPropuesto()
+    ActualizarBenchmarkPropuesto Panel()
+End Sub
 
 ' ---- Construye la SQL segun la metrica del Panel (B8) ----
 Public Function ConstruirSQL() As String
@@ -789,7 +886,7 @@ Public Function ConstruirSQL() As String
     met = Trim(CStr(ws.Range("B8").Value))
     per = Trim(CStr(ws.Range("B11").Value))
     ents = ListaEntidades(ws)
-    conBmk = (ws.Range("B12").Value = "Con benchmark") And Not mForzarSinBmk
+    conBmk = ConBenchmark(ws) And Not mForzarSinBmk
 
     ' Si se han elegido entidades pero NINGUNA tiene id en 'cartera', no lanzamos
     ' una query sin filtro (traeria toda la tabla). Avisamos que revisen los nombres.
@@ -812,7 +909,7 @@ Public Function ConstruirSQL() As String
     ' que componemos los retornos diarios (fondo TWR_1D y benchmark TWR_1D_BMK).
     If (met = "Rentabilidad" Or met = "Rentab. acum.") And _
        (Len(IntervaloPeriodo(per)) > 0 Or PerAnterior(per) <> "") Then
-        ConstruirSQL = SQLRendimientoDiario(ws, ents, per, conBmk)
+        ConstruirSQL = SQLRendimientoDiario(ws, ents, per, conBmk, BmkIndiceId(ws))
         Exit Function
     End If
 
@@ -2777,8 +2874,8 @@ Public Function InstalarAutoRefresco() As Boolean
     Set cm = ThisWorkbook.VBProject.VBComponents(cn).CodeModule
     If cm.CountOfLines > 0 Then txt = cm.Lines(1, cm.CountOfLines)
     If InStr(txt, "Worksheet_Change") > 0 Then
-        ' Si ya es la version nueva (dispara AutoLocal solo en B7:B14), nada.
-        If InStr(txt, "B7:B14") > 0 Then InstalarAutoRefresco = True: Exit Function
+        ' Si ya es la version nueva (dispara AutoLocal solo en B7:B15), nada.
+        If InStr(txt, "B7:B15") > 0 Then InstalarAutoRefresco = True: Exit Function
         ' Version antigua -> la borramos y reinstalamos la nueva.
         Dim pl As Long, pc As Long
         pl = cm.ProcStartLine("Worksheet_Change", 0)   ' 0 = vbext_pk_Proc
@@ -2790,12 +2887,13 @@ Public Function InstalarAutoRefresco() As Boolean
     ' -> elegir carteras/fondos es instantaneo (luego pulsas 'Actualizar').
     s = "Private Sub Worksheet_Change(ByVal Target As Range)" & vbCrLf & _
         "    If Application.EnableEvents = False Then Exit Sub" & vbCrLf & _
-        "    If Intersect(Target, Me.Range(""B3:B14"")) Is Nothing Then Exit Sub" & vbCrLf & _
+        "    If Intersect(Target, Me.Range(""B3:B15"")) Is Nothing Then Exit Sub" & vbCrLf & _
         "    Application.EnableEvents = False" & vbCrLf & _
         "    On Error Resume Next" & vbCrLf & _
         "    If Not Intersect(Target, Me.Range(""B3"")) Is Nothing Then CargarCarteras True" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B4"")) Is Nothing Then RefrescarBmkPropuesto" & vbCrLf & _
         "    If Not Intersect(Target, Me.Range(""B7"")) Is Nothing Then ReiniciarMetricaDim" & vbCrLf & _
-        "    If Not Intersect(Target, Me.Range(""B7:B14"")) Is Nothing Then AutoLocal" & vbCrLf & _
+        "    If Not Intersect(Target, Me.Range(""B7:B15"")) Is Nothing Then AutoLocal" & vbCrLf & _
         "    On Error GoTo 0" & vbCrLf & _
         "    Application.EnableEvents = True" & vbCrLf & _
         "End Sub"
@@ -2916,28 +3014,34 @@ Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
     ' RAPIDO: lee toda la hoja de carteras a un array de UNA vez y construye en memoria
     ' DOS listas: la filtrada por tipo (col A de _Ent, para Entidad 1) y la completa de
     ' TODAS las entidades (col B de _Ent, para Entidad 2/3). Se escriben de una vez.
-    Dim r3 As Long                                        ' filas de la lista completa (col B)
-    r3 = 0
+    Dim r3 As Long, r4 As Long                            ' col B = todas; col C = benchmark
+    r3 = 0: r4 = 0
     If lastR >= 2 Then
-        Dim lastCol As Long, datos As Variant, filt() As Variant, todo() As Variant, r2 As Long
+        Dim lastCol As Long, datos As Variant, filt() As Variant, todo() As Variant, bmk() As Variant, r2 As Long
         lastCol = colN: If colT > lastCol Then lastCol = colT
         If lastCol < 2 Then lastCol = 2
         datos = wm.Range(wm.Cells(2, 1), wm.Cells(lastR, lastCol)).Value   ' array 2D
         ReDim filt(1 To UBound(datos, 1), 1 To 1)
         ReDim todo(1 To UBound(datos, 1) + 1, 1 To 1)     ' +1 por "(ninguna)"
+        ReDim bmk(1 To UBound(datos, 1) + 2, 1 To 1)      ' +2 por las 2 opciones fijas
         todo(1, 1) = "(ninguna)": r3 = 1
-        Dim okTipo As Boolean, nom As String
+        bmk(1, 1) = "Sin benchmark": bmk(2, 1) = "Benchmark asociado": r4 = 2
+        Dim okTipo As Boolean, nom As String, tp As String
         For r = 1 To UBound(datos, 1)
             nom = Trim(CStr(datos(r, colN)))
             If Len(nom) > 0 Then
                 r3 = r3 + 1: todo(r3, 1) = nom            ' lista completa (cualquier tipo)
-                If colT = 0 Then okTipo = True Else okTipo = (LCase(Trim(CStr(datos(r, colT)))) = tipoSel)
+                tp = ""
+                If colT > 0 Then tp = LCase(Trim(CStr(datos(r, colT))))
+                If tp = "indice" Then r4 = r4 + 1: bmk(r4, 1) = nom   ' benchmark: solo indices
+                If colT = 0 Then okTipo = True Else okTipo = (tp = tipoSel)
                 If okTipo Then n = n + 1: r2 = r2 + 1: filt(r2, 1) = nom
             End If
         Next r
         If r2 > 0 Then we.Range(we.Cells(2, 1), we.Cells(r2 + 1, 1)).Value = filt
-        we.Columns(2).ClearContents
+        we.Columns(2).ClearContents: we.Columns(3).ClearContents
         If r3 > 0 Then we.Range(we.Cells(1, 2), we.Cells(r3, 2)).Value = todo
+        If r4 > 0 Then we.Range(we.Cells(1, 3), we.Cells(r4, 3)).Value = bmk
     End If
 
     ' Guarda/restaura EnableEvents (si viene del evento, ya esta False; no re-activar).
@@ -2948,6 +3052,8 @@ Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
         PonerDV ws.Range("B5"), "=_Ent!$B$1:$B$" & r3
         PonerDV ws.Range("B6"), "=_Ent!$B$1:$B$" & r3
     End If
+    ' Benchmark (B14): "Sin benchmark", "Benchmark asociado" + la lista de indices.
+    If r4 >= 1 Then PonerDV ws.Range("B14"), "=_Ent!$C$1:$C$" & r4
     If n >= 2 Then
         PonerDV ws.Range("B4"), "=_Ent!$A$2:$A$" & n      ' Entidad 1: solo el tipo de B3
         ws.Range("B4").Value = we.Cells(2, 1).Value
@@ -2955,6 +3061,7 @@ Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
     ws.Range("B5").Value = "(ninguna)"
     ws.Range("B6").Value = "(ninguna)"
     Application.EnableEvents = prevE
+    ActualizarBenchmarkPropuesto ws          ' refresca B13 con el benchmark de la Entidad 1
 
     If n < 2 Then
         If Not quiet Then MsgBox "No hay entidades de tipo '" & ws.Range("B3").Value & _
@@ -3023,6 +3130,7 @@ Public Sub Actualizar()
                vbExclamation, "Entidades sin id"
     End If
     ents = ListaEntidades(ws)                 ' fija mId1/2/3
+    ActualizarBenchmarkPropuesto ws           ' refresca B13 con el benchmark de la Entidad 1
     grupo = GrupoKey(Trim(CStr(ws.Range("B7").Value)))   ' "Composicion apilada" -> "Apiladas"
     dimen = Trim(CStr(ws.Range("B9").Value))
     blkId = BloqueDe(grupo, dimen)
@@ -3178,7 +3286,7 @@ Public Sub RefrescarDatos()
             Exit Sub
         End If
         ' Reintento: si habia benchmark y el error es de columna no reconocida, quitamos benchmark.
-        If intento = 1 And (ws.Range("B12").Value = "Con benchmark") And Not mForzarSinBmk _
+        If intento = 1 And ConBenchmark(ws) And Not mForzarSinBmk _
            And InStr(msg, "Unrecognized name") > 0 Then
             mForzarSinBmk = True
         ElseIf InStr(msg, "not found inside p") > 0 Then
@@ -3541,7 +3649,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     Dim per As String, dimen As String, conBmk As Boolean, acum As Boolean
     per = Trim(CStr(ws.Range("B11").Value))
     dimen = Trim(CStr(ws.Range("B9").Value))
-    conBmk = (ws.Range("B12").Value = "Con benchmark")
+    conBmk = ConBenchmark(ws)
     acum = (Trim(CStr(ws.Range("B8").Value)) = "Rentab. acum.")
 
     Dim blk As Variant
@@ -3611,7 +3719,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     EscribirColRentab ws, 7, mId3, nb, acum, False
     If conBmk Then
         EscribirColRentab ws, 8, mId1, nb, acum, True
-        ws.Range("H2").Value = "Benchmark"
+        ws.Range("H2").Value = EtiquetaBenchmark(ws)
     End If
     ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
     Application.EnableEvents = True
@@ -4136,7 +4244,7 @@ Private Sub DibujarApiladas(ByVal ws As Worksheet, ByVal nRows As Long, ByVal nS
         s.Values = q & ws.Range(ws.Cells(r0, c), ws.Cells(r1, c)).Address
         s.XValues = q & ws.Range(ws.Cells(r0, TCMP_COL), ws.Cells(r1, TCMP_COL)).Address
     Next c
-    Dim t As String: t = Fold(ws.Range("B14").Value)
+    Dim t As String: t = Fold(ws.Range("B12").Value)
     If InStr(t, "100%") > 0 Then
         ch.ChartType = IIf(InStr(t, "barra") > 0, xlBarStacked100, xlColumnStacked100)
     Else
@@ -4247,6 +4355,9 @@ Private Function ResolverLocal(ByVal ws As Worksheet) As Boolean
         ' anterior, mientras que el recalculo local compone por bucket completo y, con
         ' dimensiones mas gruesas que el periodo, abarcaria de mas. -> ResolverLocal=False.
         If PerAnterior(CStr(ws.Range("B11").Value)) <> "" Then Exit Function
+        ' Benchmark = otro indice: la serie del indice se calcula en SQL (el bloque
+        ' local solo cachea el benchmark propio de la cartera). -> ResolverLocal=False.
+        If Len(BmkIndiceId(ws)) > 0 Then Exit Function
         ResolverLocal = LocalRentabilidad(ws)
     ElseIf InStr(Fold(met), "duraci") = 1 Or met = "TIR" _
            Or Fold(met) = "cmr" Or Left(Fold(met), 3) = "var" Then
@@ -4484,7 +4595,7 @@ Private Sub VolcarResultado(ByVal ws As Worksheet, ByVal src As Worksheet)
     End If
 
     ' Cabecera del benchmark solo si el resultado trajo columna valor_bmk.
-    If colBmk > 0 Then ws.Range("H2").Value = "Benchmark"
+    If colBmk > 0 Then ws.Range("H2").Value = EtiquetaBenchmark(ws)
 
     ' Formato adecuado a la metrica (% para rendimientos, numero para el resto).
     ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
@@ -4568,8 +4679,8 @@ Public Sub DibujarGrafico()
     On Error GoTo 0
     If ch Is Nothing Then Exit Sub
 
-    conBench = (ws.Range("B12").Value = "Con benchmark")
-    tipo = Fold(ws.Range("B14").Value)
+    conBench = ConBenchmark(ws)
+    tipo = Fold(ws.Range("B12").Value)
 
     ' Ultima fila con categoria (col D) para acotar las series a la hoja ACTUAL
     ' (asi el grafico de una copia lee de SU hoja, no del Panel original).
@@ -4615,7 +4726,7 @@ Public Sub DibujarGrafico()
 
     If benchIdx > 0 Then
         On Error Resume Next
-        Select Case Fold(ws.Range("B13").Value)
+        Select Case Fold(ws.Range("B15").Value)
             Case "lineas"
                 ch.FullSeriesCollection(benchIdx).ChartType = xlLineMarkers
             Case "puntos"
