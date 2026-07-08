@@ -2886,8 +2886,9 @@ Private Sub CrearBoton(ws As Worksheet, ByVal ancla As String, ByVal cap As Stri
 End Sub
 
 ' =======================  CARGAR CARTERAS EN LOS DESPLEGABLES  =============
-' Lee la hoja de carteras, filtra por el tipo elegido (B3) y rellena los
-' desplegables de Entidad (B4/B5/B6) con esos nombres.
+' Lee la hoja de carteras y rellena los desplegables de Entidad. Entidad 1 (B4) se
+' filtra por el tipo elegido (B3); Entidad 2 y 3 (B5/B6) ofrecen TODAS las entidades
+' (cualquier tipo) para poder comparar, p.ej., una cartera con su indice o un fondo.
 Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
     Dim ws As Worksheet, wm As Worksheet, we As Worksheet
     Dim colN As Long, colT As Long, tipoSel As String
@@ -2912,41 +2913,56 @@ Public Sub CargarCarteras(Optional ByVal quiet As Boolean = False)
     n = 1
     lastR = wm.Cells(wm.Rows.Count, colN).End(xlUp).Row
 
-    ' RAPIDO: lee toda la hoja de carteras a un array de UNA vez, filtra por tipo
-    ' en memoria y escribe la lista filtrada en _Ent en UNA sola operacion (evita
-    ' miles de accesos celda a celda, que es lo que hacia lento cambiar de tipo).
+    ' RAPIDO: lee toda la hoja de carteras a un array de UNA vez y construye en memoria
+    ' DOS listas: la filtrada por tipo (col A de _Ent, para Entidad 1) y la completa de
+    ' TODAS las entidades (col B de _Ent, para Entidad 2/3). Se escriben de una vez.
+    Dim r3 As Long                                        ' filas de la lista completa (col B)
+    r3 = 0
     If lastR >= 2 Then
-        Dim lastCol As Long, datos As Variant, filt() As Variant, r2 As Long
+        Dim lastCol As Long, datos As Variant, filt() As Variant, todo() As Variant, r2 As Long
         lastCol = colN: If colT > lastCol Then lastCol = colT
         If lastCol < 2 Then lastCol = 2
         datos = wm.Range(wm.Cells(2, 1), wm.Cells(lastR, lastCol)).Value   ' array 2D
         ReDim filt(1 To UBound(datos, 1), 1 To 1)
+        ReDim todo(1 To UBound(datos, 1) + 1, 1 To 1)     ' +1 por "(ninguna)"
+        todo(1, 1) = "(ninguna)": r3 = 1
         Dim okTipo As Boolean, nom As String
         For r = 1 To UBound(datos, 1)
-            If colT = 0 Then okTipo = True Else okTipo = (LCase(Trim(CStr(datos(r, colT)))) = tipoSel)
-            If okTipo Then
-                nom = Trim(CStr(datos(r, colN)))
-                If Len(nom) > 0 Then n = n + 1: r2 = r2 + 1: filt(r2, 1) = nom
+            nom = Trim(CStr(datos(r, colN)))
+            If Len(nom) > 0 Then
+                r3 = r3 + 1: todo(r3, 1) = nom            ' lista completa (cualquier tipo)
+                If colT = 0 Then okTipo = True Else okTipo = (LCase(Trim(CStr(datos(r, colT)))) = tipoSel)
+                If okTipo Then n = n + 1: r2 = r2 + 1: filt(r2, 1) = nom
             End If
         Next r
         If r2 > 0 Then we.Range(we.Cells(2, 1), we.Cells(r2 + 1, 1)).Value = filt
+        we.Columns(2).ClearContents
+        If r3 > 0 Then we.Range(we.Cells(1, 2), we.Cells(r3, 2)).Value = todo
     End If
 
-    If n < 2 Then
-        If Not quiet Then MsgBox "No hay carteras de tipo '" & ws.Range("B3").Value & "' en la hoja.", vbExclamation
-        Exit Sub
-    End If
     ' Guarda/restaura EnableEvents (si viene del evento, ya esta False; no re-activar).
     prevE = Application.EnableEvents
     Application.EnableEvents = False
-    PonerDV ws.Range("B4"), "=_Ent!$A$2:$A$" & n           ' Entidad 1: solo nombres
-    PonerDV ws.Range("B5"), "=_Ent!$A$1:$A$" & n           ' Entidad 2/3: incluye "(ninguna)"
-    PonerDV ws.Range("B6"), "=_Ent!$A$1:$A$" & n
-    ws.Range("B4").Value = we.Cells(2, 1).Value
+    ' Entidad 2/3: SIEMPRE la lista completa (todas las entidades, con "(ninguna)").
+    If r3 >= 1 Then
+        PonerDV ws.Range("B5"), "=_Ent!$B$1:$B$" & r3
+        PonerDV ws.Range("B6"), "=_Ent!$B$1:$B$" & r3
+    End If
+    If n >= 2 Then
+        PonerDV ws.Range("B4"), "=_Ent!$A$2:$A$" & n      ' Entidad 1: solo el tipo de B3
+        ws.Range("B4").Value = we.Cells(2, 1).Value
+    End If
     ws.Range("B5").Value = "(ninguna)"
     ws.Range("B6").Value = "(ninguna)"
     Application.EnableEvents = prevE
-    If Not quiet Then MsgBox (n - 1) & " entidades cargadas para tipo '" & ws.Range("B3").Value & "'.", vbInformation, "Carteras"
+
+    If n < 2 Then
+        If Not quiet Then MsgBox "No hay entidades de tipo '" & ws.Range("B3").Value & _
+            "' para Entidad 1 (Entidad 2/3 si ofrecen todas).", vbExclamation
+        Exit Sub
+    End If
+    If Not quiet Then MsgBox (n - 1) & " entidades de tipo '" & ws.Range("B3").Value & _
+        "' en Entidad 1; " & (r3 - 1) & " (todas) en Entidad 2/3.", vbInformation, "Carteras"
 End Sub
 
 ' =======================  BOTON UNICO: HACE TODO  ==========================
