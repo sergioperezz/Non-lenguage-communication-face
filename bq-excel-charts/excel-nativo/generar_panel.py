@@ -282,7 +282,9 @@ def build() -> Workbook:
     GRUPO_ALIAS = {"Apiladas": "Composición apilada"}
     grupos_lst = ",".join(GRUPO_ALIAS.get(g, g) for g in GRUPOS)
     dims_lst = ",".join(DIMS)
-    periodos_lst = ",".join(PERIODOS)
+    # El desplegable del Panel incluye, además de los periodos móviles, los
+    # periodos de CALENDARIO CERRADO relativos al último cierre.
+    periodos_lst = ",".join(PERIODOS + ["Mes anterior", "Trimestre anterior", "Año anterior"])
     dvs = [
         ("B3", '"Fondo,Cartera,Indice"', False),
         ("B4", '=EntLista', False),                       # lee de la hoja "cartera" (rango dinámico)
@@ -785,6 +787,7 @@ def build_tablas(wb, n):
     metricas = ["Rentabilidad", "Volatilidad", "Tracking Error", "Patrimonio", "Peso",
                 "VaR", "TIR", "Duración Modificada", "Duración Macaulay", "CMR"]
     periodos = ["Último", "YTD", "MTD", "1M", "3M", "6M", "1A", "3A",
+                "Mes anterior", "Trimestre anterior", "Año anterior",
                 "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct",
                 "Nov", "Dic", "T1", "T2", "T3", "T4", "2025", "2024", "2023", "2022", "2021",
                 "Meses (crece)", "Trimestres (crece)", "Años (crece)"]

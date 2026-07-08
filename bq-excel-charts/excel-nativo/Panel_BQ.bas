@@ -678,6 +678,20 @@ End Function
 ' asi "3A" da 2024/2025/2026-YTD y no medio 2023. El resto: ventana movil normal.
 Private Function VentanaFechas(ByVal per As String, ByVal dimen As String) As String
     Dim intv As String
+    ' Calendario cerrado ("... anterior"): ventana [inicio, fin) del periodo anterior,
+    ' anclada a ult.dmax con DATE_TRUNC. Tiene prioridad sobre la ventana movil/anual.
+    Dim pa As String: pa = PerAnterior(per)
+    If pa <> "" Then
+        Dim u As String
+        Select Case pa
+            Case "M": u = "MONTH"
+            Case "Q": u = "QUARTER"
+            Case "Y": u = "YEAR"
+        End Select
+        VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_SUB(DATE_TRUNC(ult.dmax, " & u & "), INTERVAL 1 " & u & ")" & vbLf & _
+                        "  AND p.PK_FECHA_DATOS <  DATE_TRUNC(ult.dmax, " & u & ")"
+        Exit Function
+    End If
     If Fold(dimen) = "anual" Then
         VentanaFechas = "  AND p.PK_FECHA_DATOS >= DATE_TRUNC(DATE_SUB(ult.dmax, INTERVAL " & _
             (AnyosPeriodo(per) - 1) & " YEAR), YEAR)" & vbLf & _
@@ -735,7 +749,7 @@ Private Function SQLRendimientoDiario(ws As Worksheet, ByVal ents As String, ByV
     Dim intv As String, sql As String, colB As String, whereBmk As String
     Dim bucket As String, selCat As String, grpCat As String
     intv = IntervaloPeriodo(per)
-    If Len(intv) = 0 Then Exit Function
+    If Len(intv) = 0 And PerAnterior(per) = "" Then Exit Function
     ' Bucket del eje X segun la dimension (B9): un retorno compuesto por trimestre
     ' (o mes/semestre/ano) dentro de la ventana del periodo.
     bucket = BucketExpr(Trim(CStr(ws.Range("B9").Value)))
@@ -796,7 +810,8 @@ Public Function ConstruirSQL() As String
 
     ' Rentabilidad rolling (1M/1Y/3Y/5Y): no hay columna de benchmark propia, asi
     ' que componemos los retornos diarios (fondo TWR_1D y benchmark TWR_1D_BMK).
-    If (met = "Rentabilidad" Or met = "Rentab. acum.") And Len(IntervaloPeriodo(per)) > 0 Then
+    If (met = "Rentabilidad" Or met = "Rentab. acum.") And _
+       (Len(IntervaloPeriodo(per)) > 0 Or PerAnterior(per) <> "") Then
         ConstruirSQL = SQLRendimientoDiario(ws, ents, per, conBmk)
         Exit Function
     End If
@@ -1077,7 +1092,12 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
     ' se resuelve sintetizando el texto equivalente que ClasificarVar entiende. ---
     Dim vName() As String, vCol() As Long, vMet() As String, vPer() As String
     ReDim vName(1 To 90): ReDim vCol(1 To 90): ReDim vMet(1 To 90): ReDim vPer(1 To 90): nv = 0
-    Dim curYear As Long: curYear = AnoDatos(inlist)
+    ' Referencia del ultimo cierre (una sola consulta): ano y mes para los periodos
+    ' concretos y los de calendario cerrado ("mes/trimestre/ano anterior").
+    Dim ultMM As String: ultMM = UltimoMesPerf(inlist)
+    If Len(ultMM) < 7 Then ultMM = Format(Date, "yyyy-mm")
+    Dim curYear As Long: curYear = CLng(Val(Left(ultMM, 4)))
+    Dim curMes As Long: curMes = CLng(Val(Mid(ultMM, 6, 2)))
     Dim kind() As String, pA() As String, pB() As String
     ReDim kind(1 To 90): ReDim pA(1 To 90): ReDim pB(1 To 90)
     Dim needRet As Boolean, needPos As Boolean, needPatMes As Boolean, needBmk As Boolean
@@ -1090,7 +1110,7 @@ Public Sub RellenarTablaEn(ByVal ws As Worksheet, Optional ByVal quiet As Boolea
         If Len(mMet) = 0 And Len(mPer) = 0 Then Exit Do
         nv = nv + 1
         vCol(nv) = nc: vMet(nv) = mMet: vPer(nv) = mPer
-        vName(nv) = SintHeader(mMet, mPer, curYear)         ' texto combinado interno
+        vName(nv) = SintHeader(mMet, mPer, curYear, curMes) ' texto combinado interno
         ClasificarVar vName(nv), kind(nv), pA(nv), pB(nv)
         Select Case kind(nv)
             Case "ret", "year", "month", "quarter", "vol", "acum": needRet = True
@@ -1714,11 +1734,63 @@ Private Function EsTrimTok(ByVal per As String) As Boolean
     End If
 End Function
 
+' Periodo de CALENDARIO CERRADO relativo al ultimo cierre: "M"=mes anterior,
+' "Q"=trimestre anterior, "Y"=ano anterior. "" si no es uno de esos.
+Private Function PerAnterior(ByVal per As String) As String
+    Select Case Fold(per)
+        Case "mes anterior":       PerAnterior = "M"
+        Case "trimestre anterior": PerAnterior = "Q"
+        Case "ano anterior":       PerAnterior = "Y"   ' Fold quita la tilde de "Ano"
+    End Select
+End Function
+
+' Cabecera (interpretable por ClasificarVar) de un periodo "anterior" resuelto a
+' calendario cerrado, relativo al ultimo cierre (curYear/curMes). Lleva el ano
+' EXPLICITO para no fallar al cruzar el 1-enero. "" si la metrica no admite ese
+' tramo (columna omitida), igual que el resto de combinaciones no aplicables.
+Private Function HeaderAnterior(ByVal met As String, ByVal clase As String, _
+                                ByVal curYear As Long, ByVal curMes As Long) As String
+    Dim m As Long, q As Long, cq As Long, y As Long, fm As String
+    fm = Fold(met)
+    If curMes < 1 Or curMes > 12 Then curMes = 12
+    Select Case clase
+        Case "M"
+            m = curMes - 1: y = curYear
+            If m < 1 Then m = 12: y = y - 1
+            Select Case True
+                Case fm = "rentabilidad":   HeaderAnterior = MesAbbr(m) & " " & y
+                Case fm = "patrimonio":     HeaderAnterior = "Patrimonio " & MesAbbr(m) & " " & y
+                Case fm = "acumulada":      HeaderAnterior = "Acum " & MesAbbr(m) & " " & y
+                Case fm = "exceso":         HeaderAnterior = "Exceso " & MesAbbr(m) & " " & y
+            End Select
+        Case "Q"
+            cq = Int((curMes - 1) / 3) + 1                ' trimestre en curso (1..4)
+            q = cq - 1: y = curYear
+            If q < 1 Then q = 4: y = y - 1
+            Select Case True
+                Case fm = "rentabilidad": HeaderAnterior = "T" & q & " " & y
+                Case fm = "patrimonio":   HeaderAnterior = "Patrimonio " & MesAbbr(3 * q) & " " & y
+            End Select
+        Case "Y"
+            y = curYear - 1
+            Select Case True
+                Case fm = "rentabilidad":   HeaderAnterior = CStr(y)
+                Case fm = "patrimonio":     HeaderAnterior = "Patrimonio Dic " & y
+                Case fm = "volatilidad":    HeaderAnterior = "Volatilidad " & y
+                Case fm = "tracking error": HeaderAnterior = "Tracking Error " & y
+            End Select
+    End Select
+End Function
+
 ' Sintetiza el texto de cabecera combinado (el que ClasificarVar entiende) a partir
 ' de la Metrica (fila 5) y el Periodo (fila 6). "" si la combinacion no aplica.
-Private Function SintHeader(ByVal met As String, ByVal per As String, ByVal curYear As Long) As String
+Private Function SintHeader(ByVal met As String, ByVal per As String, ByVal curYear As Long, ByVal curMes As Long) As String
     If Len(met) = 0 Then Exit Function
     If GranCrece(per) <> "" Then Exit Function        ' marcador sin expandir -> vacio
+    ' Periodos de calendario cerrado (mes/trimestre/ano anterior): se resuelven a
+    ' una cabecera concreta con ano explicito antes del resto de casos.
+    Dim pa As String: pa = PerAnterior(per)
+    If pa <> "" Then SintHeader = HeaderAnterior(met, pa, curYear, curMes): Exit Function
     Dim fm As String: fm = Fold(met)
     Dim fp As String: fp = Fold(per)
     Dim tipo As String, val As String
@@ -3284,8 +3356,32 @@ Private Function BucketLocal(ByVal d As Date, ByVal dimen As String) As String
 End Function
 
 ' Fecha de inicio de la ventana (Anual alineada a ano natural; resto, movil).
+' Primer dia del periodo de CALENDARIO CERRADO anterior (mes/trimestre/ano) a dMax.
+Private Function InicioAnterior(ByVal dMax As Date, ByVal clase As String) As Date
+    Select Case clase
+        Case "M": InicioAnterior = DateSerial(Year(dMax), Month(dMax) - 1, 1)
+        Case "Q": InicioAnterior = DateSerial(Year(dMax), (Int((Month(dMax) - 1) / 3)) * 3 - 2, 1)
+        Case "Y": InicioAnterior = DateSerial(Year(dMax) - 1, 1, 1)
+        Case Else: InicioAnterior = dMax
+    End Select
+End Function
+
+' Ultimo dia de la ventana: dMax en periodos normales; el ultimo dia del periodo
+' cerrado anterior para "mes/trimestre/ano anterior".
+Private Function FinVentana(ByVal dMax As Date, ByVal per As String) As Date
+    Dim pa As String: pa = PerAnterior(per)
+    Select Case pa
+        Case "M": FinVentana = DateSerial(Year(dMax), Month(dMax), 1) - 1
+        Case "Q": FinVentana = DateSerial(Year(dMax), (Int((Month(dMax) - 1) / 3)) * 3 + 1, 1) - 1
+        Case "Y": FinVentana = DateSerial(Year(dMax), 1, 1) - 1
+        Case Else: FinVentana = dMax
+    End Select
+End Function
+
 Private Function InicioVentana(ByVal dMax As Date, ByVal per As String, ByVal dimen As String) As Date
     Dim p As String, n As Long
+    Dim pa As String: pa = PerAnterior(per)
+    If pa <> "" Then InicioVentana = InicioAnterior(dMax, pa): Exit Function
     p = UCase(Trim(per))
     ' Periodos "a fecha" (independientes de la dimension): desde el inicio del
     ' mes/trimestre/ano/semana en curso hasta hoy. YTD -> desde el 1-ene del ano
@@ -3444,6 +3540,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     Next i
     If dMax = 0 Then Exit Function
     Dim ini As Date: ini = InicioBucket(InicioVentana(dMax, per, dimen), dimen)
+    Dim dEnd As Date: dEnd = FinVentana(dMax, per)   ' = dMax salvo en "... anterior"
 
     ' Columnas auxiliares (TODAS las filas): clave=bucket, factor(1+twr) y factor
     ' benchmark. La formula compone el bucket ENTERO (por eso no hay que deduplicar
@@ -3468,7 +3565,7 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
             ' TODA la tabla en blanco: lo acotamos a un positivo minusculo.
             If a1(i, 1) <= 0 Then a1(i, 1) = 0.000001
             If a2(i, 1) <= 0 Then a2(i, 1) = 0.000001
-            If dd >= ini And dd <= dMax Then
+            If dd >= ini And dd <= dEnd Then
                 If Not shown.Exists(bkt) Then shown.Add bkt, 1
             End If
         End If
@@ -3496,7 +3593,10 @@ Private Function LocalRentabilidad(ByVal ws As Worksheet) As Boolean
     EscribirColRentab ws, 5, mId1, nb, acum, False
     EscribirColRentab ws, 6, mId2, nb, acum, False
     EscribirColRentab ws, 7, mId3, nb, acum, False
-    If conBmk Then EscribirColRentab ws, 8, mId1, nb, acum, True
+    If conBmk Then
+        EscribirColRentab ws, 8, mId1, nb, acum, True
+        ws.Range("H2").Value = "Benchmark"
+    End If
     ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
     Application.EnableEvents = True
     LocalRentabilidad = True
@@ -3511,7 +3611,10 @@ Private Sub LimpiarTablaNormal(ByVal ws As Worksheet)
     ws.Range("E2").Formula = "=B4"
     ws.Range("F2").Formula = "=IF(B5=""(ninguna)"","""",B5)"
     ws.Range("G2").Formula = "=IF(B6=""(ninguna)"","""",B6)"
-    ws.Range("H2").Value = "Benchmark"
+    ' La cabecera "Benchmark" (col H) SOLO la escribe quien vuelca datos de benchmark
+    ' (rentabilidad con benchmark). Metricas sin benchmark (Composicion/Duracion/TIR)
+    ' la dejan vacia para no mostrar una columna "Benchmark" fantasma.
+    ws.Range("H2").Value = ""
 End Sub
 
 ' Escribe en la tabla del grafico (D:H) una serie categoria -> valores por slot.
@@ -4358,6 +4461,9 @@ Private Sub VolcarResultado(ByVal ws As Worksheet, ByVal src As Worksheet)
             End If
         Next r
     End If
+
+    ' Cabecera del benchmark solo si el resultado trajo columna valor_bmk.
+    If colBmk > 0 Then ws.Range("H2").Value = "Benchmark"
 
     ' Formato adecuado a la metrica (% para rendimientos, numero para el resto).
     ws.Range("E3:H402").NumberFormat = FormatoMetrica(Trim(CStr(ws.Range("B8").Value)))
